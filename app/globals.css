@@ -1,26 +1,98 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #F8F9FA;
+  --foreground: #0F172A;
+  --royal-blue: #253765;
+  --royal-blue-hover: #1D2B50;
+  --royal-blue-light: #324780;
+  --gold-accent: #C9932F;
+  --surface-card: #FFFFFF;
+  --surface-muted: #F1F5F9;
+  --surface-subtle: #F8FAFC;
+  --border-color: #E2E8F0;
+  --border-hover: #CBD5E1;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-arabic, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #F8F9FA;
+  color: #0F172A;
+  font-family: var(--font-sans);
+  direction: rtl;
+  overflow-x: hidden;
+}
+
+/* الأزرار والتدرجات باللون الأزرق الملكي الفاخر (#253765) */
+.royal-btn {
+  background-color: #253765;
+  color: #FFFFFF;
+  transition: all 0.2s ease;
+}
+
+.royal-btn:hover {
+  background-color: #1D2B50;
+}
+
+.royal-gradient-bg {
+  background: linear-gradient(135deg, #2D4175 0%, #253765 60%, #172445 100%);
+}
+
+.royal-gradient-text {
+  background: linear-gradient(135deg, #253765 0%, #3B538C 50%, #253765 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* بطاقات الأوف وايت الفاخرة */
+.card-luxury {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s ease;
+}
+
+.card-luxury:hover {
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 12px rgba(37, 55, 101, 0.06);
+}
+
+/* تخصيص شريط التمرير (Scrollbar) الناعم */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #253765;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
 }
