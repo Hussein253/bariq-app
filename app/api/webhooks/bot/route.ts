@@ -42,6 +42,8 @@ function logIncomingMessage(params: {
  
   try {
     // 2. حفظ في قاعدة البيانات ضمن محادثة الزبون الصحيحة (وليس 'c1' ثابتة)
+    //    ملاحظة: يفترض هذا وجود db.getOrCreateConversation في lib/db.ts
+    //    بما أنه غير مرفق، إن كانت التسمية مختلفة عندك أخبرني لأطابقها.
     const conversation =
       typeof db.getOrCreateConversation === 'function'
         ? db.getOrCreateConversation({
@@ -64,23 +66,6 @@ function logIncomingMessage(params: {
     console.error('[BOT_WEBHOOK][LOG_ERROR]', err?.message || err)
     return null
   }
-}
-
-// دالة الـ GET: مخصصة للتحقق من الـ Webhook مع ميتا باستخدام الرمز "123456"
-export async function GET(req: NextRequest) {
-  const searchParams = req.nextUrl.searchParams
-  const mode = searchParams.get('hub.mode')
-  const token = searchParams.get('hub.verify_token')
-  const challenge = searchParams.get('hub.challenge')
-
-  const VERIFY_TOKEN = "123456"
-
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('[WEBHOOK_VERIFIED] Webhook verified successfully!')
-    return new NextResponse(challenge, { status: 200 })
-  }
-
-  return NextResponse.json({ error: 'Unauthorized, token mismatch' }, { status: 403 })
 }
  
 export async function POST(req: NextRequest) {
@@ -234,4 +219,13 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
+}
+ 
+export async function GET() {
+  return NextResponse.json({
+    status: 'online',
+    service: 'Bariq Bot Webhook API',
+    supported_channels: ['whatsapp', 'messenger', 'instagram', 'telegram'],
+    version: '2.0.0'
+  })
 }
