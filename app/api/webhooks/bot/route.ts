@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-
+ 
+/**
+ * نقطة استقبال Webhook الموحدة لبوتات المحادثة الذكية (WhatsApp / Messenger / Instagram / Telegram)
+ * --------------------------------------------------------------------------------------------
+ * تستقبل الأحداث التلقائية:
+ * 1. event: "order_created"        -> تسجيل طلب جديد من الزبون وإرجاع رقم التتبع
+ * 2. event: "order_status_query"   -> الاستعلام عن حالة الطلب وموقع المندوب
+ * 3. event: "human_handover"       -> تحويل المحادثة لموظف الدعم والعمليات
+ * 4. event: "message_received"     -> رسالة نصية عادية واردة من الزبون (بدون طلب)
+ *
+ * كل رسالة واردة، أياً كان نوعها، تُسجَّل في محادثة الزبون الصحيحة (وليس محادثة ثابتة)
+ * وتُطبع في الـ Console لأغراض التتبع، لتظهر فوراً في قسم "محادثات البوت الحية".
+ */
+ 
+// معرّف فريد للمحادثة بناءً على القناة ورقم هاتف الزبون
 function getConversationKey(channel: string, customerPhone: string) {
   return `${channel}:${customerPhone}`
 }
-
+ 
+// تسجّل الرسالة الواردة في محادثة الزبون الصحيحة + طباعة تتبعية
 function logIncomingMessage(params: {
   channel: string
   customerPhone: string
@@ -13,8 +28,10 @@ function logIncomingMessage(params: {
   event: string
   raw?: any
 }) {
-  const { channel, customerPhone, customerName, text, event } = params
-
+  const { channel, customerPhone, customerName, text, event, raw } = params
+  const conversationKey = getConversationKey(channel, customerPhone)
+ 
+  // 1. Console log فوري لكل رسالة واردة (يظهر في لوق السيرفر عند كل Webhook)
   console.log('[BOT_WEBHOOK][IN]', {
     time: new Date().toISOString(),
     event,
@@ -22,8 +39,9 @@ function logIncomingMessage(params: {
     customerPhone,
     text,
   })
-
+ 
   try {
+    // 2. حفظ في قاعدة البيانات ضمن محادثة الزبون الصحيحة (وليس 'c1' ثابتة)
     const conversation =
       typeof db.getOrCreateConversation === 'function'
         ? db.getOrCreateConversation({
@@ -31,23 +49,24 @@ function logIncomingMessage(params: {
             customer_phone: customerPhone,
             customer_name: customerName || 'عميل واتساب',
           })
-        : { id: 'c1' }
-
+        : { id: 'c1' } // fallback مؤقت إن لم تتوفر الدالة بعد
+ 
     db.addMessageToConversation(conversation.id, {
       id: `msg-${Date.now()}`,
       sender: 'customer',
       text,
       time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
     })
-
+ 
     return conversation
   } catch (err: any) {
+    // لا نكسر الـ Webhook إن فشل الحفظ في المحادثة - فقط نسجّل الخطأ
     console.error('[BOT_WEBHOOK][LOG_ERROR]', err?.message || err)
     return null
   }
 }
 
-// 1. دالة الـ GET للتحقق من Webhook الخاص بميتا باستخدام الرمز الثابت "123456"
+// دالة الـ GET: مخصصة للتحقق من الـ Webhook مع ميتا باستخدام الرمز "123456"
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const mode = searchParams.get('hub.mode')
@@ -63,26 +82,31 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ error: 'Unauthorized, token mismatch' }, { status: 403 })
 }
-
-// 2. دالة الـ POST لاستقبال الرسائل والأحداث والطلبات
+ 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { event, channel = 'whatsapp', merchant_api_key, data } = body
-
+ 
+    // طباعة كل payload وارد فوراً (قبل أي معالجة) لتتبع كل ما يصل من واتساب
     console.log('[BOT_WEBHOOK][RAW]', JSON.stringify(body))
-
+ 
+    // التحقق من مفتاح التاجر إذا وُجد
     let merchant = merchant_api_key ? db.getMerchantByApiKey(merchant_api_key) : null
     if (!merchant) {
       merchant = db.getMerchants()[0]
     }
-
+ 
     const customerPhone = data?.customer_phone || data?.from || '07700000000'
     const customerName = data?.customer_name
-
+ 
+    // ---------------------------------------------------------------
+    // رسالة نصية عادية واردة من الزبون (بدون إنشاء طلب) - هذا هو الحدث
+    // الذي يجب أن يرسله بوت واتساب لكل رسالة يكتبها الزبون
+    // ---------------------------------------------------------------
     if (event === 'message_received') {
       const incomingText = data?.text || data?.message || ''
-
+ 
       logIncomingMessage({
         channel,
         customerPhone,
@@ -91,13 +115,13 @@ export async function POST(req: NextRequest) {
         event,
         raw: data,
       })
-
+ 
       return NextResponse.json({
         success: true,
         message: 'تم استلام الرسالة وتسجيلها في المحادثات الحية',
       })
     }
-
+ 
     if (event === 'order_created') {
       const newOrder = db.createOrder({
         customer_name: data.customer_name || 'عميل المحادثة',
@@ -114,7 +138,8 @@ export async function POST(req: NextRequest) {
         notes: `تم الطلب تلقائياً عبر بوت ${channel}. ${data.notes || ''}`,
         items: data.items || [{ id: 'it-bot', name: data.item_name || 'منتج من البوت', quantity: data.quantity || 1, price: data.total_amount || 25000 }]
       })
-
+ 
+      // تسجيل رسالة العميل الأصلية (إن وُجدت) + رسالة تأكيد البوت في محادثة الزبون الصحيحة
       const conversation = logIncomingMessage({
         channel,
         customerPhone,
@@ -123,7 +148,7 @@ export async function POST(req: NextRequest) {
         event,
         raw: data,
       })
-
+ 
       if (conversation) {
         db.addMessageToConversation(conversation.id, {
           id: `msg-${Date.now() + 1}`,
@@ -132,7 +157,7 @@ export async function POST(req: NextRequest) {
           time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
         })
       }
-
+ 
       return NextResponse.json({
         success: true,
         message: 'تم استلام وتوثيق الطلب بنجاح في نظام برق',
@@ -142,10 +167,71 @@ export async function POST(req: NextRequest) {
         }
       })
     }
-
-    return NextResponse.json({ success: true, message: 'تم استلام الحدث بنجاح' })
+ 
+    if (event === 'order_status_query') {
+      const orderId = data.order_id
+      const order = db.getOrderById(orderId)
+ 
+      logIncomingMessage({
+        channel,
+        customerPhone,
+        customerName,
+        text: data.text || `استعلام عن حالة الطلب #${orderId}`,
+        event,
+        raw: data,
+      })
+ 
+      if (!order) {
+        return NextResponse.json({
+          success: false,
+          message: 'لم يتم العثور على طلب بهذا الرقم',
+          bot_response: {
+            reply: `عذراً، لم نتمكن من العثور على طلب برقم #${orderId}. يرجى التحقق من الرقم والمحاولة مرة أخرى.`
+          }
+        }, { status: 404 })
+      }
+ 
+      return NextResponse.json({
+        success: true,
+        order,
+        bot_response: {
+          reply: `حالة طلبك #${order.id} الحالية هي: [${order.status}]. المندوب المخصص: ${order.driver_name || 'جاري التعيين'} (${order.driver_phone || 'سيتصل بك قريباً'}).`
+        }
+      })
+    }
+ 
+    if (event === 'human_handover') {
+      logIncomingMessage({
+        channel,
+        customerPhone,
+        customerName,
+        text: data?.text || 'طلب تحويل لموظف بشري',
+        event,
+        raw: data,
+      })
+ 
+      return NextResponse.json({
+        success: true,
+        message: 'تم تصعيد المحادثة إلى لوحة تحكم موظفي العمليات',
+        bot_response: {
+          reply: 'تم تحويل محادثتك لأحد ممثلي خدمة العملاء في برق. سيتواصل معك الموظف خلال لحظات.'
+        }
+      })
+    }
+ 
+    // أي حدث غير معروف - نسجّله أيضاً بدل تجاهله بصمت
+    console.warn('[BOT_WEBHOOK][UNKNOWN_EVENT]', event, data)
+ 
+    return NextResponse.json({
+      success: true,
+      message: 'تم استقبال حدث الويب هوك بنجاح',
+      event
+    })
   } catch (error: any) {
     console.error('[BOT_WEBHOOK][ERROR]', error?.message || error)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: error.message || 'خطأ داخلي في معالجة الويب هوك' },
+      { status: 500 }
+    )
   }
 }
