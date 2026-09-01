@@ -14,7 +14,6 @@ function logIncomingMessage(params: {
   raw?: any
 }) {
   const { channel, customerPhone, customerName, text, event } = params
-  const conversationKey = getConversationKey(channel, customerPhone)
 
   console.log('[BOT_WEBHOOK][IN]', {
     time: new Date().toISOString(),
@@ -48,15 +47,14 @@ function logIncomingMessage(params: {
   }
 }
 
-// 1. دالة الـ GET: هذه المسؤولة عن الرد على طلب التحقق من منصة ميتا
+// 1. دالة الـ GET للتحقق من Webhook الخاص بميتا باستخدام الرمز الثابت "123456"
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const mode = searchParams.get('hub.mode')
   const token = searchParams.get('hub.verify_token')
   const challenge = searchParams.get('hub.challenge')
 
-  // الرمز المخزن في متغيرات البيئة على Vercel
-  const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'bariq123'
+  const VERIFY_TOKEN = "123456"
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[WEBHOOK_VERIFIED] Webhook verified successfully!')
@@ -66,7 +64,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ error: 'Unauthorized, token mismatch' }, { status: 403 })
 }
 
-// 2. دالة الـ POST: لاستقبال رسائل وأحداث الواتساب والطلبات
+// 2. دالة الـ POST لاستقبال الرسائل والأحداث والطلبات
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
