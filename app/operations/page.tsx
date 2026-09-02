@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
   Printer,
   Search,
@@ -871,6 +872,20 @@ export default function OperationsPage() {
                   {toArabicDigits(userScopedCampaigns.length)}
                 </span>
               </button>
+
+              {/* 4. محادثات واتساب المباشرة */}
+              <Link
+                href="/operations/whatsapp"
+                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#25D366]/10 text-[#1DA851] hover:bg-[#25D366]/20 border border-[#25D366]/20"
+              >
+                <div className="flex items-center gap-3">
+                  <MessageCircle size={17} />
+                  <span>محادثات واتساب المباشرة</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#25D366] text-white">
+                  Realtime
+                </span>
+              </Link>
             </nav>
 
             {/* بوابات الدفع المدعومة */}
@@ -1644,7 +1659,7 @@ export default function OperationsPage() {
                     <label className="text-[#64748B] block mb-1 font-bold">باقة المتجر</label>
                     <select
                       value={selectedMerchant.plan}
-                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value as any })}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value as Merchant['plan'] })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
                       <option value="أساسية">أساسية</option>
@@ -1656,7 +1671,7 @@ export default function OperationsPage() {
                     <label className="text-[#64748B] block mb-1 font-bold">حالة الاشتراك</label>
                     <select
                       value={selectedMerchant.subscription_status}
-                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value as any })}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value as Merchant['subscription_status'] })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
                       <option value="نشط">نشط</option>

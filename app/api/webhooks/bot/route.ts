@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
- 
+import { supabaseServer } from '@/lib/supabase-server'
+
 /**
  * نقطة استقبال Webhook الموحدة لبوتات المحادثة الذكية (WhatsApp / Messenger / Instagram / Telegram)
  * --------------------------------------------------------------------------------------------
@@ -13,24 +14,62 @@ import { db } from '@/lib/db'
  * كل رسالة واردة، أياً كان نوعها، تُسجَّل في محادثة الزبون الصحيحة (وليس محادثة ثابتة)
  * وتُطبع في الـ Console لأغراض التتبع، لتظهر فوراً في قسم "محادثات البوت الحية".
  */
- 
+
+type BotChannel = 'whatsapp' | 'messenger' | 'instagram' | 'telegram'
+
 // معرّف فريد للمحادثة بناءً على القناة ورقم هاتف الزبون
 function getConversationKey(channel: string, customerPhone: string) {
   return `${channel}:${customerPhone}`
 }
- 
+
+// حفظ رسالة في جدول whatsapp_messages في Supabase (Server-side)
+async function saveMessageToSupabase(params: {
+  phoneNumber: string
+  text: string
+  direction: 'inbound' | 'outbound'
+}): Promise<boolean> {
+  const { phoneNumber, text, direction } = params
+  try {
+    // استخدام .select() لإرجاع الصف المُدرج - ضروري ليعمل Realtime بشكل صحيح
+    const { data, error: supabaseError } = await supabaseServer
+      .from('whatsapp_messages')
+      .insert({
+        phone_number: phoneNumber,
+        message_text: text,
+        direction,
+      })
+      .select()
+
+    if (supabaseError) {
+      console.error(`[BOT_WEBHOOK][SUPABASE_INSERT_ERROR][${direction}]`, supabaseError.message)
+      return false
+    }
+    console.log(`[BOT_WEBHOOK][SUPABASE_SAVED][${direction}]`, {
+      phoneNumber,
+      text,
+      time: new Date().toISOString(),
+      insertedId: data?.[0]?.id,
+    })
+    return true
+  } catch (supabaseErr: unknown) {
+    const msg = supabaseErr instanceof Error ? supabaseErr.message : 'خطأ في حفظ رسالة واتساب'
+    console.error(`[BOT_WEBHOOK][SUPABASE_ERROR][${direction}]`, msg)
+    return false
+  }
+}
+
 // تسجّل الرسالة الواردة في محادثة الزبون الصحيحة + طباعة تتبعية
 function logIncomingMessage(params: {
-  channel: string
+  channel: BotChannel
   customerPhone: string
   customerName?: string
   text: string
   event: string
-  raw?: any
+  raw?: unknown
 }) {
   const { channel, customerPhone, customerName, text, event, raw } = params
   const conversationKey = getConversationKey(channel, customerPhone)
- 
+
   // 1. Console log فوري لكل رسالة واردة (يظهر في لوق السيرفر عند كل Webhook)
   console.log('[BOT_WEBHOOK][IN]', {
     time: new Date().toISOString(),
@@ -39,74 +78,82 @@ function logIncomingMessage(params: {
     customerPhone,
     text,
   })
- 
+
   try {
-    // 2. حفظ في قاعدة البيانات ضمن محادثة الزبون الصحيحة (وليس 'c1' ثابتة)
-    //    ملاحظة: يفترض هذا وجود db.getOrCreateConversation في lib/db.ts
-    //    بما أنه غير مرفق، إن كانت التسمية مختلفة عندك أخبرني لأطابقها.
-    const conversation =
-      typeof db.getOrCreateConversation === 'function'
-        ? db.getOrCreateConversation({
-            channel,
-            customer_phone: customerPhone,
-            customer_name: customerName || 'عميل واتساب',
-          })
-        : { id: 'c1' } // fallback مؤقت إن لم تتوفر الدالة بعد
- 
+    // 2. حفظ في قاعدة البيانات ضمن محادثة الزبون الصحيحة
+    const conversation = db.getOrCreateConversation({
+      channel,
+      customer_phone: customerPhone,
+      customer_name: customerName || 'عميل واتساب',
+    })
+
     db.addMessageToConversation(conversation.id, {
       id: `msg-${Date.now()}`,
       sender: 'customer',
       text,
       time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
     })
- 
+
     return conversation
-  } catch (err: any) {
+  } catch (err: unknown) {
     // لا نكسر الـ Webhook إن فشل الحفظ في المحادثة - فقط نسجّل الخطأ
-    console.error('[BOT_WEBHOOK][LOG_ERROR]', err?.message || err)
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    console.error('[BOT_WEBHOOK][LOG_ERROR]', errorMessage)
     return null
   }
 }
- 
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { event, channel = 'whatsapp', merchant_api_key, data } = body
- 
+
     // طباعة كل payload وارد فوراً (قبل أي معالجة) لتتبع كل ما يصل من واتساب
     console.log('[BOT_WEBHOOK][RAW]', JSON.stringify(body))
- 
+
     // التحقق من مفتاح التاجر إذا وُجد
     let merchant = merchant_api_key ? db.getMerchantByApiKey(merchant_api_key) : null
     if (!merchant) {
       merchant = db.getMerchants()[0]
     }
- 
+
     const customerPhone = data?.customer_phone || data?.from || '07700000000'
     const customerName = data?.customer_name
- 
+    const botChannel = (channel as BotChannel) || 'whatsapp'
+
     // ---------------------------------------------------------------
     // رسالة نصية عادية واردة من الزبون (بدون إنشاء طلب) - هذا هو الحدث
     // الذي يجب أن يرسله بوت واتساب لكل رسالة يكتبها الزبون
     // ---------------------------------------------------------------
-    if (event === 'message_received') {
-      const incomingText = data?.text || data?.message || ''
- 
-      logIncomingMessage({
-        channel,
-        customerPhone,
-        customerName,
-        text: incomingText,
-        event,
-        raw: data,
-      })
- 
-      return NextResponse.json({
-        success: true,
-        message: 'تم استلام الرسالة وتسجيلها في المحادثات الحية',
-      })
-    }
- 
+     if (event === 'message_received' || event === 'message_sent') {
+       const incomingText = data?.text || data?.message || ''
+       const isInbound = event === 'message_received'
+
+       logIncomingMessage({
+         channel: botChannel,
+         customerPhone,
+         customerName,
+         text: incomingText,
+         event,
+         raw: data,
+       })
+
+       // حفظ الرسالة في جدول whatsapp_messages في Supabase
+       // ليتم عرضها فوراً في واجهة محادثات واتساب عبر Realtime
+       await saveMessageToSupabase({
+         phoneNumber: customerPhone,
+         text: incomingText,
+         direction: isInbound ? 'inbound' : 'outbound',
+       })
+
+       return NextResponse.json({
+         success: true,
+         message: isInbound
+           ? 'تم استلام الرسالة وتسجيلاتها في المحادثات الحية وواتساب'
+           : 'تم تسجيل رد البوت في المحادثات الحية وواتساب',
+       })
+     }
+
     if (event === 'order_created') {
       const newOrder = db.createOrder({
         customer_name: data.customer_name || 'عميل المحادثة',
@@ -123,26 +170,42 @@ export async function POST(req: NextRequest) {
         notes: `تم الطلب تلقائياً عبر بوت ${channel}. ${data.notes || ''}`,
         items: data.items || [{ id: 'it-bot', name: data.item_name || 'منتج من البوت', quantity: data.quantity || 1, price: data.total_amount || 25000 }]
       })
- 
+
       // تسجيل رسالة العميل الأصلية (إن وُجدت) + رسالة تأكيد البوت في محادثة الزبون الصحيحة
       const conversation = logIncomingMessage({
-        channel,
+        channel: botChannel,
         customerPhone,
         customerName,
         text: data.text || `طلب جديد: ${newOrder.id}`,
         event,
         raw: data,
       })
- 
+
+      // حفظ رسالة العميل في Supabase
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: data.text || `طلب جديد: ${newOrder.id}`,
+        direction: 'inbound',
+      })
+
+      const botReply = `تم تسجيل طلبك بنجاح برقم #${newOrder.id}. الإجمالي: ${newOrder.total_amount.toLocaleString('ar-IQ')} د.ع`
+
       if (conversation) {
         db.addMessageToConversation(conversation.id, {
           id: `msg-${Date.now() + 1}`,
           sender: 'bot',
-          text: `تم تسجيل طلبك بنجاح برقم #${newOrder.id}. الإجمالي: ${newOrder.total_amount.toLocaleString('ar-IQ')} د.ع`,
+          text: botReply,
           time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
         })
       }
- 
+
+      // حفظ رد البوت في Supabase أيضاً ليظهر فوراً في الواجهة
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: botReply,
+        direction: 'outbound',
+      })
+
       return NextResponse.json({
         success: true,
         message: 'تم استلام وتوثيق الطلب بنجاح في نظام برق',
@@ -152,75 +215,111 @@ export async function POST(req: NextRequest) {
         }
       })
     }
- 
+
     if (event === 'order_status_query') {
       const orderId = data.order_id
       const order = db.getOrderById(orderId)
- 
+
       logIncomingMessage({
-        channel,
+        channel: botChannel,
         customerPhone,
         customerName,
         text: data.text || `استعلام عن حالة الطلب #${orderId}`,
         event,
         raw: data,
       })
- 
+
+      // حفظ رسالة العميل في Supabase
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: data.text || `استعلام عن حالة الطلب #${orderId}`,
+        direction: 'inbound',
+      })
+
       if (!order) {
+        const notFoundReply = `عذراً، لم نتمكن من العثور على طلب برقم #${orderId}. يرجى التحقق من الرقم والمحاولة مرة أخرى.`
+        await saveMessageToSupabase({
+          phoneNumber: customerPhone,
+          text: notFoundReply,
+          direction: 'outbound',
+        })
         return NextResponse.json({
           success: false,
           message: 'لم يتم العثور على طلب بهذا الرقم',
           bot_response: {
-            reply: `عذراً، لم نتمكن من العثور على طلب برقم #${orderId}. يرجى التحقق من الرقم والمحاولة مرة أخرى.`
+            reply: notFoundReply
           }
         }, { status: 404 })
       }
- 
+
+      const statusReply = `حالة طلبك #${order.id} الحالية هي: [${order.status}]. المندوب المخصص: ${order.driver_name || 'جاري التعيين'} (${order.driver_phone || 'سيتصل بك قريباً'}).`
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: statusReply,
+        direction: 'outbound',
+      })
+
       return NextResponse.json({
         success: true,
         order,
         bot_response: {
-          reply: `حالة طلبك #${order.id} الحالية هي: [${order.status}]. المندوب المخصص: ${order.driver_name || 'جاري التعيين'} (${order.driver_phone || 'سيتصل بك قريباً'}).`
+          reply: statusReply
         }
       })
     }
- 
+
     if (event === 'human_handover') {
+      const handoverText = data?.text || 'طلب تحويل لموظف بشري'
       logIncomingMessage({
-        channel,
+        channel: botChannel,
         customerPhone,
         customerName,
-        text: data?.text || 'طلب تحويل لموظف بشري',
+        text: handoverText,
         event,
         raw: data,
       })
- 
+
+      // حفظ رسالة العميل في Supabase
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: handoverText,
+        direction: 'inbound',
+      })
+
+      const handoverReply = 'تم تحويل محادثتك لأحد ممثلي خدمة العملاء في برق. سيتواصل معك الموظف خلال لحظات.'
+      await saveMessageToSupabase({
+        phoneNumber: customerPhone,
+        text: handoverReply,
+        direction: 'outbound',
+      })
+
       return NextResponse.json({
         success: true,
         message: 'تم تصعيد المحادثة إلى لوحة تحكم موظفي العمليات',
         bot_response: {
-          reply: 'تم تحويل محادثتك لأحد ممثلي خدمة العملاء في برق. سيتواصل معك الموظف خلال لحظات.'
+          reply: handoverReply
         }
       })
     }
- 
+
     // أي حدث غير معروف - نسجّله أيضاً بدل تجاهله بصمت
     console.warn('[BOT_WEBHOOK][UNKNOWN_EVENT]', event, data)
- 
+
     return NextResponse.json({
       success: true,
       message: 'تم استقبال حدث الويب هوك بنجاح',
       event
     })
-  } catch (error: any) {
-    console.error('[BOT_WEBHOOK][ERROR]', error?.message || error)
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'خطأ داخلي في معالجة الويب هوك'
+    console.error('[BOT_WEBHOOK][ERROR]', errorMessage)
     return NextResponse.json(
-      { success: false, error: error.message || 'خطأ داخلي في معالجة الويب هوك' },
+      { success: false, error: errorMessage },
       { status: 500 }
     )
   }
 }
- 
+
 export async function GET() {
   return NextResponse.json({
     status: 'online',

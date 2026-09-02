@@ -737,6 +737,42 @@ class BariqDatabase {
     return this.conversations
   }
 
+  public getOrCreateConversation(params: {
+    channel: 'whatsapp' | 'messenger' | 'instagram' | 'telegram'
+    customer_phone: string
+    customer_name?: string
+    merchant_name?: string
+    merchant_id?: string
+  }): Conversation {
+    const { channel, customer_phone, customer_name, merchant_name, merchant_id } = params
+
+    // البحث عن محادثة موجودة بنفس القناة ورقم الهاتف
+    const existing = this.conversations.find(
+      (c) => c.channel === channel && c.customer_phone === customer_phone
+    )
+
+    if (existing) {
+      return existing
+    }
+
+    // إنشاء محادثة جديدة
+    const newConversation: Conversation = {
+      id: `conv-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      customer_name: customer_name || 'عميل واتساب',
+      customer_phone,
+      last_message: '',
+      channel,
+      status: 'يرد تلقائيًا',
+      updated_at: new Date().toISOString(),
+      merchant_name: merchant_name || 'متجر دجلة',
+      merchant_id: merchant_id || 'm1',
+      messages: [],
+    }
+
+    this.conversations.unshift(newConversation)
+    return newConversation
+  }
+
   public addMessageToConversation(conversationId: string, message: ChatMessage): Conversation | null {
     const idx = this.conversations.findIndex((c) => c.id === conversationId)
     if (idx === -1) return null
@@ -778,9 +814,11 @@ class BariqDatabase {
 }
 
 // Global Singleton Instance
-const globalDb = (global as any).__bariq_db || new BariqDatabase()
+type GlobalWithDb = typeof globalThis & { __bariq_db?: BariqDatabase }
+const globalWithDb = globalThis as GlobalWithDb
+const globalDb = globalWithDb.__bariq_db || new BariqDatabase()
 if (process.env.NODE_ENV !== 'production') {
-  ;(global as any).__bariq_db = globalDb
+  globalWithDb.__bariq_db = globalDb
 }
 
 export const db = globalDb
