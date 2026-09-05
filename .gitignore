@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+.env*
+
+# مخرجات معاينة مؤقتة (ليست مصدراً)
+"Claude outputs"/

@@ -35,10 +35,11 @@ export async function POST(req: NextRequest) {
       message: 'تم تسجيل حساب المروج بنجاح في الإدارة',
       marketer: createdMarketer
     }, { status: 201 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تسجيل المروج'
     return NextResponse.json({
       success: false,
-      error: error.message || 'حدث خطأ أثناء تسجيل المروج'
+      error: message
     }, { status: 500 })
   }
 }

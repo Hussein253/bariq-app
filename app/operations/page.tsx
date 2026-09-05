@@ -873,17 +873,31 @@ export default function OperationsPage() {
                 </span>
               </button>
 
-              {/* 4. محادثات واتساب المباشرة */}
+              {/* 4. المحادثات الحية والتحكم بالبوت */}
               <Link
                 href="/operations/whatsapp"
                 className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#25D366]/10 text-[#1DA851] hover:bg-[#25D366]/20 border border-[#25D366]/20"
               >
                 <div className="flex items-center gap-3">
                   <MessageCircle size={17} />
-                  <span>محادثات واتساب المباشرة</span>
+                  <span>المحادثات الحية والتحكم بالبوت</span>
                 </div>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#25D366] text-white">
                   Realtime
+                </span>
+              </Link>
+
+              {/* 5. لوحة الشحنات الحقيقية (Supabase) */}
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#253765]/5 text-[#253765] hover:bg-[#253765]/10 border border-[#253765]/15"
+              >
+                <div className="flex items-center gap-3">
+                  <Truck size={17} />
+                  <span>لوحة الشحنات الحقيقية</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white">
+                  Live DB
                 </span>
               </Link>
             </nav>

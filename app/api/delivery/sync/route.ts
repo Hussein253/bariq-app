@@ -61,10 +61,11 @@ export async function POST(req: NextRequest) {
       message: `تمت مزامنة حالة التوصيل للطلب #${order_id}`,
       order: updated
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'خطأ في مزامنة بيانات التوصيل'
     return NextResponse.json({
       success: false,
-      error: error.message || 'خطأ في مزامنة بيانات التوصيل'
+      error: message
     }, { status: 500 })
   }
 }

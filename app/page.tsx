@@ -69,6 +69,13 @@ export default function Home() {
             <span>فتح لوحة العمليات والتحكم</span>
             <ArrowLeft size={18} />
           </Link>
+          <Link
+            href="/dashboard"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white border border-[#253765]/30 text-[#253765] hover:bg-[#253765]/5 font-bold text-sm shadow-sm transition active:scale-95"
+          >
+            <Truck size={18} />
+            <span>لوحة الشحنات الحقيقية</span>
+          </Link>
           <a
             href="#features"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white border border-[#CBD5E1] text-[#0F172A] hover:bg-slate-50 font-bold text-sm shadow-sm transition"

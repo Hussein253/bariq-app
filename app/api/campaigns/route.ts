@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
       message: 'تم إنشاء الحملة الإعلانية بنجاح',
       campaign: createdCampaign
     }, { status: 201 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'خطأ أثناء إنشاء الحملة الإعلانية'
     return NextResponse.json({
       success: false,
-      error: error.message || 'خطأ أثناء إنشاء الحملة الإعلانية'
+      error: message
     }, { status: 500 })
   }
 }

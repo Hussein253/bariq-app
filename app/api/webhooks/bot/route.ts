@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { supabaseServer } from '@/lib/supabase-server'
+import { recordMessage } from '@/lib/conversations-server'
+import type { SenderType } from '@/lib/conversations'
 
 /**
  * نقطة استقبال Webhook الموحدة لبوتات المحادثة الذكية (WhatsApp / Messenger / Instagram / Telegram)
@@ -22,40 +23,36 @@ function getConversationKey(channel: string, customerPhone: string) {
   return `${channel}:${customerPhone}`
 }
 
-// حفظ رسالة في جدول whatsapp_messages في Supabase (Server-side)
+// تسجيل رسالة في نموذج المحادثات (conversations / messages) — المصدر الوحيد
+// يتكفّل recordMessage بإنشاء المحادثة إن لم تكن موجودة (Idempotent)
 async function saveMessageToSupabase(params: {
   phoneNumber: string
   text: string
   direction: 'inbound' | 'outbound'
+  channel?: string
+  senderType?: SenderType
 }): Promise<boolean> {
   const { phoneNumber, text, direction } = params
-  try {
-    // استخدام .select() لإرجاع الصف المُدرج - ضروري ليعمل Realtime بشكل صحيح
-    const { data, error: supabaseError } = await supabaseServer
-      .from('whatsapp_messages')
-      .insert({
-        phone_number: phoneNumber,
-        message_text: text,
-        direction,
-      })
-      .select()
 
-    if (supabaseError) {
-      console.error(`[BOT_WEBHOOK][SUPABASE_INSERT_ERROR][${direction}]`, supabaseError.message)
-      return false
-    }
-    console.log(`[BOT_WEBHOOK][SUPABASE_SAVED][${direction}]`, {
-      phoneNumber,
-      text,
-      time: new Date().toISOString(),
-      insertedId: data?.[0]?.id,
-    })
-    return true
-  } catch (supabaseErr: unknown) {
-    const msg = supabaseErr instanceof Error ? supabaseErr.message : 'خطأ في حفظ رسالة واتساب'
-    console.error(`[BOT_WEBHOOK][SUPABASE_ERROR][${direction}]`, msg)
+  const { message } = await recordMessage({
+    customerPhone: phoneNumber,
+    content: text,
+    senderType: params.senderType || (direction === 'inbound' ? 'customer' : 'bot'),
+    platform: params.channel || 'whatsapp',
+  })
+
+  if (!message) {
+    console.error(`[BOT_WEBHOOK][RECORD_MESSAGE_FAILED][${direction}]`, { phoneNumber })
     return false
   }
+
+  console.log(`[BOT_WEBHOOK][MESSAGE_SAVED][${direction}]`, {
+    phoneNumber,
+    conversationId: message.conversation_id,
+    messageId: message.id,
+    time: new Date().toISOString(),
+  })
+  return true
 }
 
 // تسجّل الرسالة الواردة في محادثة الزبون الصحيحة + طباعة تتبعية
@@ -138,12 +135,12 @@ export async function POST(req: NextRequest) {
          raw: data,
        })
 
-       // حفظ الرسالة في جدول whatsapp_messages في Supabase
-       // ليتم عرضها فوراً في واجهة محادثات واتساب عبر Realtime
+       // تسجيل الرسالة في نموذج المحادثات لتظهر فوراً في لوحة التحكم عبر Realtime
        await saveMessageToSupabase({
          phoneNumber: customerPhone,
          text: incomingText,
          direction: isInbound ? 'inbound' : 'outbound',
+         channel: botChannel,
        })
 
        return NextResponse.json({
@@ -186,6 +183,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: data.text || `طلب جديد: ${newOrder.id}`,
         direction: 'inbound',
+        channel: botChannel,
       })
 
       const botReply = `تم تسجيل طلبك بنجاح برقم #${newOrder.id}. الإجمالي: ${newOrder.total_amount.toLocaleString('ar-IQ')} د.ع`
@@ -204,6 +202,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: botReply,
         direction: 'outbound',
+        channel: botChannel,
       })
 
       return NextResponse.json({
@@ -234,6 +233,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: data.text || `استعلام عن حالة الطلب #${orderId}`,
         direction: 'inbound',
+        channel: botChannel,
       })
 
       if (!order) {
@@ -242,6 +242,7 @@ export async function POST(req: NextRequest) {
           phoneNumber: customerPhone,
           text: notFoundReply,
           direction: 'outbound',
+          channel: botChannel,
         })
         return NextResponse.json({
           success: false,
@@ -257,6 +258,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: statusReply,
         direction: 'outbound',
+        channel: botChannel,
       })
 
       return NextResponse.json({
@@ -284,6 +286,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: handoverText,
         direction: 'inbound',
+        channel: botChannel,
       })
 
       const handoverReply = 'تم تحويل محادثتك لأحد ممثلي خدمة العملاء في برق. سيتواصل معك الموظف خلال لحظات.'
@@ -291,6 +294,7 @@ export async function POST(req: NextRequest) {
         phoneNumber: customerPhone,
         text: handoverReply,
         direction: 'outbound',
+        channel: botChannel,
       })
 
       return NextResponse.json({

@@ -39,10 +39,11 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: false, error: 'لا توجد حقول صالحة للتعديل' }, { status: 400 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تعديل الحملة'
     return NextResponse.json({
       success: false,
-      error: error.message || 'حدث خطأ أثناء تعديل الحملة'
+      error: message
     }, { status: 500 })
   }
 }

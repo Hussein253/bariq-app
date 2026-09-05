@@ -58,10 +58,11 @@ export async function PATCH(
       success: true,
       order
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تعديل الطلب'
     return NextResponse.json({
       success: false,
-      error: error.message || 'حدث خطأ أثناء تعديل الطلب'
+      error: message
     }, { status: 500 })
   }
 }

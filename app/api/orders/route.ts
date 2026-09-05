@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const apiKey = authHeader ? authHeader.replace('Bearer ', '').trim() : null
 
     // التحقق من صلاحية مفتاح الـ API
-    let merchant = apiKey ? db.getMerchantByApiKey(apiKey) : null
+    const merchant = apiKey ? db.getMerchantByApiKey(apiKey) : null
     if (!merchant && apiKey) {
       return NextResponse.json({ success: false, error: 'مفتاح الـ API غير صالح أو منتهي الصلاحية' }, { status: 401 })
     }
@@ -54,10 +54,11 @@ export async function POST(req: NextRequest) {
       message: 'تم إنشاء وتوثيق الطلب بنجاح',
       order: createdOrder
     }, { status: 201 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الطلب'
     return NextResponse.json({
       success: false,
-      error: error.message || 'حدث خطأ أثناء إنشاء الطلب'
+      error: message
     }, { status: 500 })
   }
 }

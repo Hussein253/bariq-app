@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, type PaymentGateway } from '@/lib/db'
 
 /**
  * معالجة الردود المرتجعة وبلاغات الدفع الإلكتروني (Payment Callbacks & Webhooks)
@@ -44,10 +44,11 @@ export async function POST(req: NextRequest) {
         order: updatedOrder
       })
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'خطأ في معالجة إشعار الدفع'
     return NextResponse.json({
       success: false,
-      error: error.message || 'خطأ في معالجة إشعار الدفع'
+      error: message
     }, { status: 500 })
   }
 }
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   if (orderId) {
     const txRef = `TX-AUTO-${Date.now().toString().slice(-6)}`
-    db.updateOrderPayment(orderId, 'تم الدفع', txRef, gateway as any)
+    db.updateOrderPayment(orderId, 'تم الدفع', txRef, gateway as PaymentGateway)
   }
 
   // إعادة توجيه المستخدم لصفحة العمليات مع إشعار النجاح

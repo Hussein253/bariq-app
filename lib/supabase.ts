@@ -10,13 +10,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
   },
 })
-
-// نوع بيانات رسالة واتساب المطابق لجدول whatsapp_messages في Supabase
-export interface WhatsAppMessage {
-  id: string
-  phone_number: string
-  message_text: string
-  direction: 'inbound' | 'outbound'
-  channel?: string
-  created_at: string
-}

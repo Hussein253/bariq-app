@@ -99,10 +99,11 @@ export async function POST(req: NextRequest) {
       success: false,
       error: 'بوابة الدفع المحددة غير مدعومة. يرجى اختيار zaincash أو qicard'
     }, { status: 400 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'خطأ أثناء تهيئة جلسة الدفع'
     return NextResponse.json({
       success: false,
-      error: error.message || 'خطأ أثناء تهيئة جلسة الدفع'
+      error: message
     }, { status: 500 })
   }
 }
