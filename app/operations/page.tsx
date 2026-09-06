@@ -993,17 +993,17 @@ export default function OperationsPage() {
                 </div>
               </div>
 
-              {/* 5. المحادثات الحية الشاملة (Supabase Realtime) */}
+              {/* 5. المحادثات الحية الشاملة (محادثات متعددة القنوات) */}
               <Link
-                href="/operations/whatsapp"
-                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#25D366]/10 text-[#1DA851] hover:bg-[#25D366]/20 border border-[#25D366]/20"
+                href="/operations/chats"
+                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-[#25D366]/10 to-pink-50 text-[#1DA851] hover:from-[#25D366]/20 hover:to-pink-100 border border-[#25D366]/20"
               >
                 <div className="flex items-center gap-2.5">
                   <MessageCircle size={16} />
-                  <span>المحادثات المباشرة (Live)</span>
+                  <span>المحادثات المباشرة (جميع القنوات)</span>
                 </div>
-                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#25D366] text-white">
-                  Realtime
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-black">
+                  جديد ⚡
                 </span>
               </Link>
 

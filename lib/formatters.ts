@@ -68,3 +68,25 @@ export function formatArabicDate(dateStr: string | undefined | null): string {
   if (!dateStr) return ''
   return toArabicDigits(dateStr)
 }
+
+/**
+ * تنسيق التاريخ والوقت بالكامل بالأرقام العربية
+ */
+export function formatDateTime(dateStr: string | undefined | null): string {
+  if (!dateStr) return ''
+  try {
+    const date = new Date(dateStr)
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }
+    const formatted = new Intl.DateTimeFormat('ar-IQ', options).format(date)
+    return formatted
+  } catch {
+    return toArabicDigits(dateStr)
+  }
+}
