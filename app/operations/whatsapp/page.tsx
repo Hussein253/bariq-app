@@ -44,7 +44,7 @@ export default async function WhatsAppPage() {
 
       {/* المحتوى */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-[1600px] mx-auto w-full">
-        <LiveConversations initialConversations={conversations} loadError={loadError} />
+        <LiveConversations initialConversations={conversations} loadError={loadError} platform="whatsapp" />
       </main>
     </div>
   )

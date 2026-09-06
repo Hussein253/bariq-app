@@ -13,7 +13,7 @@
  * 5. واجهة أوف وايت فاخرة (#F8F9FA) مع أزرار أزرق ملكي (#253765).
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Printer,
@@ -28,7 +28,6 @@ import {
   MapPin,
   Clock,
   ShieldCheck,
-  Send,
   Key,
   Copy,
   Check,
@@ -37,7 +36,6 @@ import {
   Eye,
   ArrowUpRight,
   Link2,
-  CreditCard,
   QrCode,
   TrendingUp,
   Truck,
@@ -69,40 +67,11 @@ import {
   formatArabicPhone,
   formatArabicDate
 } from '@/lib/formatters'
+import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
+import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
+import NewOrderBooking from '@/components/NewOrderBooking'
 
 // ---------- أنواع البيانات ----------
-
-export type OrderStatus = 'جديد' | 'قيد المعالجة' | 'بالطريق' | 'تم التسليم' | 'ملغي'
-export type PaymentStatus = 'غير مدفوع' | 'قيد المعالجة' | 'تم الدفع' | 'فشل الدفع'
-export type PaymentMethod = 'عند الاستلام' | 'zaincash' | 'qicard' | 'زين كاش' | 'كي كارد'
-
-export interface OrderItem {
-  id: string
-  name: string
-  quantity: number
-  price: number
-}
-
-export interface Order {
-  id: string
-  customer_name: string
-  customer_phone: string
-  address: string
-  city: string
-  total_amount: number
-  delivery_fee?: number
-  status: OrderStatus
-  payment_status: PaymentStatus
-  payment_method: PaymentMethod
-  transaction_id?: string
-  created_at: string
-  merchant_name: string
-  merchant_id?: string
-  items?: OrderItem[]
-  notes?: string
-  driver_name?: string
-  driver_phone?: string
-}
 
 export interface Merchant {
   id: string
@@ -135,25 +104,6 @@ export interface Marketer {
   created_at: string
 }
 
-export interface ChatMessage {
-  id: string
-  sender: 'customer' | 'bot' | 'agent'
-  text: string
-  time: string
-}
-
-export interface Conversation {
-  id: string
-  customer_name: string
-  customer_phone: string
-  last_message: string
-  channel: 'whatsapp' | 'messenger' | 'instagram' | 'telegram'
-  status: 'يرد تلقائيًا' | 'بانتظار رد' | 'تم التصعيد'
-  updated_at: string
-  merchant_name: string
-  messages: ChatMessage[]
-}
-
 export type AdPlatform = 'instagram' | 'facebook' | 'tiktok' | 'snapchat' | 'google'
 export type AdCampaignStatus = 'نشطة' | 'مكتملة' | 'قيد المراجعة' | 'متوقفة'
 
@@ -184,7 +134,6 @@ type MainNavView = 'orders' | 'booking' | 'whatsapp' | 'instagram' | 'messenger'
 type AdminSubTab = 'merchants' | 'marketers' | 'permissions'
 type UserRole = 'super_admin' | 'merchant'
 type TimeRange = 'today' | 'week' | 'month' | 'all'
-type ChatPlatform = 'whatsapp' | 'instagram' | 'messenger'
 
 // ---------- البيانات الأولية المحملة ----------
 
@@ -265,85 +214,6 @@ const INITIAL_MARKETERS: Marketer[] = [
     total_ad_budget_managed: 300000,
     commission_rate: 12,
     created_at: '2025-02-10'
-  }
-]
-
-const INITIAL_ORDERS: Order[] = [
-  {
-    id: 'BRQ-1001',
-    customer_name: 'أحمد الجبوري',
-    customer_phone: '07701234567',
-    address: 'حي الكرادة - قرب ساحة الواثق - زقاق 14',
-    city: 'بغداد',
-    total_amount: 45000,
-    delivery_fee: 5000,
-    status: 'جديد',
-    payment_status: 'غير مدفوع',
-    payment_method: 'عند الاستلام',
-    created_at: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
-    merchant_name: 'متجر دجلة',
-    merchant_id: 'm1',
-    items: [
-      { id: 'it-1', name: 'ساعة يد فاخرة', quantity: 1, price: 40000 },
-      { id: 'it-2', name: 'علبة هدايا', quantity: 1, price: 5000 }
-    ],
-    notes: 'الاتصال قبل الوصول بربع ساعة',
-    driver_name: 'حيدر السعدي',
-    driver_phone: '07709988771'
-  },
-  {
-    id: 'BRQ-1002',
-    customer_name: 'زينب العبيدي',
-    customer_phone: '07809876543',
-    address: 'الجزائر - شارع 14 تموز مقابل مجمع النور',
-    city: 'البصرة',
-    total_amount: 62000,
-    delivery_fee: 6000,
-    status: 'قيد المعالجة',
-    payment_status: 'تم الدفع',
-    payment_method: 'zaincash',
-    transaction_id: 'ZC-TX-883921',
-    created_at: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
-    merchant_name: 'ستايل بغداد',
-    merchant_id: 'm2',
-    items: [{ id: 'it-3', name: 'فستان صيفي حرير', quantity: 1, price: 56000 }],
-    notes: 'تغليف خاص للهدايا'
-  },
-  {
-    id: 'BRQ-1003',
-    customer_name: 'مصطفى الحسيني',
-    customer_phone: '07505551234',
-    address: 'المنصور - تقاطع 14 رمضان',
-    city: 'بغداد',
-    total_amount: 38500,
-    delivery_fee: 5000,
-    status: 'بالطريق',
-    payment_status: 'تم الدفع',
-    payment_method: 'qicard',
-    transaction_id: 'QI-TX-440192',
-    created_at: new Date(Date.now() - 1000 * 60 * 125).toISOString(),
-    merchant_name: 'متجر دجلة',
-    merchant_id: 'm1',
-    items: [{ id: 'it-4', name: 'عطر ليلي شرقي 100ml', quantity: 1, price: 33500 }],
-    driver_name: 'عمر التكريتي',
-    driver_phone: '07705544332'
-  },
-  {
-    id: 'BRQ-1004',
-    customer_name: 'نور الهدى كامل',
-    customer_phone: '07712398745',
-    address: 'حي الجامعة - قرب مول الجامعة',
-    city: 'أربيل',
-    total_amount: 95000,
-    delivery_fee: 7000,
-    status: 'تم التسليم',
-    payment_status: 'تم الدفع',
-    payment_method: 'عند الاستلام',
-    created_at: new Date(Date.now() - 1000 * 60 * 360).toISOString(),
-    merchant_name: 'أزياء الفرات',
-    merchant_id: 'm3',
-    driver_name: 'كرديار أربيل',
-    driver_phone: '07501122334'
   }
 ]
 
@@ -438,54 +308,6 @@ const INITIAL_CAMPAIGNS: AdCampaign[] = [
   }
 ]
 
-const INITIAL_CONVERSATIONS: Conversation[] = [
-  {
-    id: 'c1',
-    customer_name: 'أحمد الجبوري',
-    customer_phone: '07701234567',
-    last_message: 'وين وصل الطلب مالتي رقم BRQ-1001؟',
-    channel: 'whatsapp',
-    status: 'بانتظار رد',
-    updated_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    merchant_name: 'متجر دجلة',
-    messages: [
-      { id: 'm1-1', sender: 'customer', text: 'مرحباً، سويت طلب الصبح من متجر دجلة', time: '١٠:٣٠ ص' },
-      { id: 'm1-2', sender: 'bot', text: 'أهلاً بك في متجر دجلة عبر برق ⚡ تم تسجيل طلبك بنجاح.', time: '١٠:٣٠ ص' },
-      { id: 'm1-3', sender: 'customer', text: 'وين وصل الطلب مالتي رقم BRQ-1001؟', time: '١١:١٥ ص' }
-    ]
-  },
-  {
-    id: 'c2',
-    customer_name: 'زينب العبيدي',
-    customer_phone: '07809876543',
-    last_message: 'أريد أتحدث مع موظف بخصوص فستان ستايل بغداد',
-    channel: 'messenger',
-    status: 'تم التصعيد',
-    updated_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-    merchant_name: 'ستايل بغداد',
-    messages: [
-      { id: 'm2-1', sender: 'customer', text: 'مساء الخير، كتبت العنوان خطأ في طلب ستايل بغداد', time: '١١:٠٠ ص' },
-      { id: 'm2-2', sender: 'bot', text: 'يرجى تزويدنا بالعنوان الصحيح وسنقوم بتحديثه', time: '١١:٠١ ص' },
-      { id: 'm2-3', sender: 'customer', text: 'أريد أتحدث مع موظف بخصوص فستان ستايل بغداد', time: '١١:٠٥ ص' }
-    ]
-  },
-  {
-    id: 'c3',
-    customer_name: 'حيدر الكعبي',
-    customer_phone: '07723456789',
-    last_message: 'مرحباً، هل متوفر العطر بلون أو حجم أكبر عبر انستغرام؟',
-    channel: 'instagram',
-    status: 'يرد تلقائيًا',
-    updated_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    merchant_name: 'متجر دجلة',
-    messages: [
-      { id: 'm3-1', sender: 'customer', text: 'مرحباً، شفت الإعلان في ريلز انستغرام', time: '٠٩:٠٠ ص' },
-      { id: 'm3-2', sender: 'bot', text: 'أهلاً بك! يمكنك طلب المنتج مباشرة عبر اختيار المقاس أو السعة المطلوبة ⚡', time: '٠٩:٠١ ص' },
-      { id: 'm3-3', sender: 'customer', text: 'مرحباً، هل متوفر العطر بلون أو حجم أكبر عبر انستغرام؟', time: '٠٩:١٥ ص' }
-    ]
-  }
-]
-
 // ---------- مكونات الشارات ----------
 
 function StatusBadge({ status }: { status: string }) {
@@ -527,26 +349,39 @@ function PlatformBadge({ platform }: { platform: AdPlatform }) {
   )
 }
 
-function PaymentMethodBadge({ method }: { method: string }) {
-  if (method === 'zaincash' || method === 'زين كاش') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 border border-purple-200 text-purple-800 text-[11px] font-bold">
-        <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
-        Zain Cash
-      </span>
-    )
-  }
-  if (method === 'qicard' || method === 'كي كارد' || method === 'ماستركارد') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
-        <CreditCard size={11} />
-        Qi Card / Master
-      </span>
-    )
-  }
+// حالات الشحنة "النشطة" (لم تصل بعد لحالة نهائية) — تُستخدم في بطاقة
+// "الشحنات النشطة" وفي مرشّح جدول الطلبات.
+const ACTIVE_SHIPMENT_STATUSES = new Set<ShipmentStatus>([
+  'ORDER_RECEIVED', 'PICKED_UP_SAME_DAY', 'IN_TRANSIT_HUB', 'OUT_FOR_DELIVERY', 'POSTPONED'
+])
+const DELIVERED_SHIPMENT_STATUSES = new Set<ShipmentStatus>(['DELIVERED', 'SETTLED_FINANCIALLY'])
+
+type OrderStageKey = 'ملغي' | 'بانتظار الشحن' | 'قيد الشحن' | 'تم التسليم'
+
+/** يشتق مرحلة الطلب من current_state (orders) وحالة الشحنة المرتبطة (shipments) إن وُجدت. */
+function deriveOrderStage(order: ConfirmedOrder): { key: OrderStageKey; label: string } {
+  if (order.current_state === 'cancelled') return { key: 'ملغي', label: 'ملغي' }
+  if (!order.shipment) return { key: 'بانتظار الشحن', label: 'بانتظار الإرسال للشحن' }
+  const status = order.shipment.status as ShipmentStatus
+  if (DELIVERED_SHIPMENT_STATUSES.has(status)) return { key: 'تم التسليم', label: STATUS_LABELS[status] ?? status }
+  return { key: 'قيد الشحن', label: STATUS_LABELS[status] ?? status }
+}
+
+function OrderStageBadge({ order }: { order: ConfirmedOrder }) {
+  const stage = deriveOrderStage(order)
+  const style =
+    stage.key === 'ملغي'
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : stage.key === 'تم التسليم'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : stage.key === 'قيد الشحن'
+      ? 'bg-sky-50 text-sky-700 border-sky-200'
+      : 'bg-amber-50 text-amber-800 border-amber-200'
+
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-medium">
-      الدفع عند الاستلام (COD)
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      {stage.label}
     </span>
   )
 }
@@ -563,11 +398,13 @@ export default function OperationsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('today')
 
   // البيانات
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
+  const [orders, setOrders] = useState<ConfirmedOrder[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
+  const [ordersError, setOrdersError] = useState<string | null>(null)
+  const [dispatchingOrderId, setDispatchingOrderId] = useState<number | null>(null)
   const [merchants, setMerchants] = useState<Merchant[]>(INITIAL_MERCHANTS)
   const [marketers, setMarketers] = useState<Marketer[]>(INITIAL_MARKETERS)
   const [campaigns, setCampaigns] = useState<AdCampaign[]>(INITIAL_CAMPAIGNS)
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS)
 
   // التصفية والبحث
   const [search, setSearch] = useState('')
@@ -575,66 +412,78 @@ export default function OperationsPage() {
   const [platformFilter, setPlatformFilter] = useState<string>('الكل')
 
   // النوافذ المنبثقة
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<ConfirmedOrder | null>(null)
   const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null)
   const [selectedCampaign, setSelectedCampaign] = useState<AdCampaign | null>(null)
-  const [paymentModalOrder, setPaymentModalOrder] = useState<Order | null>(null)
-  const [activeChat, setActiveChat] = useState<Conversation | null>(null)
   const [newOrderModal, setNewOrderModal] = useState(false)
   const [newMerchantModal, setNewMerchantModal] = useState(false)
   const [newMarketerModal, setNewMarketerModal] = useState(false)
   const [newCampaignModal, setNewCampaignModal] = useState(false)
 
-  // التنبيهات والدفع
+  // التنبيهات
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
-  const [replyText, setReplyText] = useState('')
-  const [paymentGateway, setPaymentGateway] = useState<'zaincash' | 'qicard'>('zaincash')
-  const [paymentProcessing, setPaymentProcessing] = useState(false)
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3500)
   }
 
-  const [chatPlatformTab, setChatPlatformTab] = useState<'all' | 'whatsapp' | 'instagram' | 'messenger'>('all')
-
-  // تصفية البيانات المخصصة للتاجر
-  const userScopedOrders = useMemo(() => {
-    if (currentUserRole === 'merchant') {
-      return orders.filter((o) => o.merchant_name === activeMerchantName)
+  // تحميل الطلبات الحية من public.orders عبر Supabase (لا بيانات وهمية)
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true)
+    try {
+      const res = await fetch('/api/orders/dashboard', { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل الطلبات')
+      setOrders(json.orders as ConfirmedOrder[])
+      setOrdersError(null)
+    } catch (err: unknown) {
+      setOrdersError(err instanceof Error ? err.message : 'تعذر تحميل الطلبات')
+    } finally {
+      setOrdersLoading(false)
     }
-    return orders
-  }, [orders, currentUserRole, activeMerchantName])
+  }, [])
 
-  const userScopedConversations = useMemo(() => {
-    let list = conversations
-    if (currentUserRole === 'merchant') {
-      list = list.filter((c) => c.merchant_name === activeMerchantName)
+  useEffect(() => {
+    void loadOrders()
+  }, [loadOrders])
+
+  // عدد المحادثات الحية الحقيقي لكل قناة — من Supabase عبر /api/conversations
+  // (لا بيانات وهمية: اللوحة الجانبية هنا رابط مختصر فقط، والعرض الكامل في /operations/chats)
+  const [liveChatCounts, setLiveChatCounts] = useState<{
+    whatsapp: number
+    instagram: number
+    messenger: number
+    total: number
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/conversations', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled || !json?.success) return
+        const list = (json.conversations || []) as { platform?: string }[]
+        const byPlatform = (p: string) =>
+          list.filter((c) => (c.platform || 'whatsapp').toLowerCase() === p).length
+        setLiveChatCounts({
+          whatsapp: byPlatform('whatsapp'),
+          instagram: byPlatform('instagram'),
+          messenger: byPlatform('messenger'),
+          total: list.length,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    return list
-  }, [conversations, currentUserRole, activeMerchantName])
+  }, [])
 
-  // تصنيف المحادثات الثلاث لعزل كل تطبيق على حدة
-  const whatsappConversations = useMemo(() => {
-    return userScopedConversations.filter((c) => c.channel === 'whatsapp')
-  }, [userScopedConversations])
-
-  const instagramConversations = useMemo(() => {
-    return userScopedConversations.filter((c) => c.channel === 'instagram')
-  }, [userScopedConversations])
-
-  const messengerConversations = useMemo(() => {
-    return userScopedConversations.filter((c) => c.channel === 'messenger')
-  }, [userScopedConversations])
-
-  // المحادثات المعروضة حسب التبويب المختار
-  const filteredChatConversations = useMemo(() => {
-    if (chatPlatformTab === 'whatsapp') return whatsappConversations
-    if (chatPlatformTab === 'instagram') return instagramConversations
-    if (chatPlatformTab === 'messenger') return messengerConversations
-    return userScopedConversations
-  }, [chatPlatformTab, userScopedConversations, whatsappConversations, instagramConversations, messengerConversations])
+  // ملاحظة: عمود merchant_id لم يُضَف بعد لجدول orders الحقيقي (انظر تعليق
+  // /api/orders/[id]/dispatch)، فلا يمكن تصفية الطلبات الحقيقية حسب التاجر
+  // حالياً — تُعرض جميعها بغض النظر عن الدور المختار في محاكي الصلاحيات.
+  const userScopedOrders = orders
 
   const userScopedCampaigns = useMemo(() => {
     if (currentUserRole === 'merchant') {
@@ -643,14 +492,19 @@ export default function OperationsPage() {
     return campaigns
   }, [campaigns, currentUserRole, activeMerchantName])
 
-  // الإحصائيات الحية
+  // الإحصائيات الحية — محسوبة بالكامل من public.orders + shipments المرتبطة
   const stats = useMemo(() => {
-    const totalRev = userScopedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
-    const paidOrders = userScopedOrders.filter((o) => o.payment_status === 'تم الدفع')
-    const paidRev = paidOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
-    const activeDeliveries = userScopedOrders.filter((o) => ['جديد', 'قيد المعالجة', 'بالطريق'].includes(o.status)).length
-    const deliveredCount = userScopedOrders.filter((o) => o.status === 'تم التسليم').length
-    const successRate = userScopedOrders.length > 0 ? ((deliveredCount / userScopedOrders.length) * 100).toFixed(1) : '100'
+    const nonCancelled = userScopedOrders.filter((o) => o.current_state !== 'cancelled')
+    const totalSales = nonCancelled.reduce((sum, o) => sum + (o.grand_total_iqd ?? o.items_total_iqd ?? 0), 0)
+    const cancelledCount = userScopedOrders.length - nonCancelled.length
+    const pendingDispatchCount = nonCancelled.filter((o) => !o.shipment).length
+
+    const shipmentStatuses = userScopedOrders
+      .map((o) => o.shipment?.status)
+      .filter((s): s is ShipmentStatus => Boolean(s))
+    const activeShipments = shipmentStatuses.filter((s) => ACTIVE_SHIPMENT_STATUSES.has(s)).length
+    const deliveredCount = shipmentStatuses.filter((s) => DELIVERED_SHIPMENT_STATUSES.has(s)).length
+    const successRate = shipmentStatuses.length > 0 ? ((deliveredCount / shipmentStatuses.length) * 100).toFixed(1) : '0.0'
 
     const totalAdBudget = userScopedCampaigns.reduce((sum, c) => sum + c.budget_total, 0)
     const totalAdSpent = userScopedCampaigns.reduce((sum, c) => sum + c.budget_spent, 0)
@@ -659,9 +513,10 @@ export default function OperationsPage() {
     const avgRoas = userScopedCampaigns.length > 0 ? (userScopedCampaigns.reduce((sum, c) => sum + c.roas, 0) / userScopedCampaigns.length).toFixed(1) : '4.2'
 
     return {
-      totalRev,
-      paidRev,
-      activeDeliveries,
+      totalSales,
+      cancelledCount,
+      pendingDispatchCount,
+      activeShipments,
       deliveredCount,
       successRate,
       totalOrders: userScopedOrders.length,
@@ -679,12 +534,12 @@ export default function OperationsPage() {
       const q = (search || '').trim().toLowerCase()
       const matchesSearch =
         !q ||
-        (o.customer_name ?? '').toLowerCase().includes(q) ||
-        (o.id ?? '').toLowerCase().includes(q) ||
-        (o.customer_phone ?? '').includes(q) ||
-        (o.merchant_name ?? '').toLowerCase().includes(q)
+        orderDisplayName(o).toLowerCase().includes(q) ||
+        String(o.order_id).includes(q) ||
+        orderDisplayPhone(o).includes(q) ||
+        (o.order_content ?? '').toLowerCase().includes(q)
 
-      const matchesStatus = statusFilter === 'الكل' || o.status === statusFilter
+      const matchesStatus = statusFilter === 'الكل' || deriveOrderStage(o).key === statusFilter
       return matchesSearch && matchesStatus
     })
   }, [userScopedOrders, search, statusFilter])
@@ -699,42 +554,37 @@ export default function OperationsPage() {
     })
   }, [userScopedCampaigns, search, platformFilter])
 
-  // محاكاة الدفع الإلكتروني
-  const handleExecutePayment = async () => {
-    if (!paymentModalOrder) return
-    setPaymentProcessing(true)
+  // إرسال طلب مؤكَّد للشحن (ينشئ صف shipments فعلياً عبر Supabase)
+  const handleDispatch = async (orderId: number) => {
+    setDispatchingOrderId(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/dispatch`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر إرسال الطلب للشحن')
 
-    setTimeout(() => {
-      const updatedOrder: Order = {
-        ...paymentModalOrder,
-        payment_status: 'تم الدفع',
-        payment_method: paymentGateway,
-        status: paymentModalOrder.status === 'جديد' ? 'قيد المعالجة' : paymentModalOrder.status,
-        transaction_id: `${paymentGateway === 'zaincash' ? 'ZC' : 'QI'}-TX-${Math.floor(100000 + Math.random() * 900000)}`
-      }
-
-      setOrders((prev) => prev.map((o) => (o.id === paymentModalOrder.id ? updatedOrder : o)))
-      if (selectedOrder?.id === paymentModalOrder.id) {
-        setSelectedOrder(updatedOrder)
-      }
-
-      setPaymentProcessing(false)
-      setPaymentModalOrder(null)
-      showToast(`تم تأكيد استلام الدفع عبر ${paymentGateway === 'zaincash' ? 'زين كاش' : 'كي كارد'} بنجاح!`, 'success')
-    }, 800)
+      const shipmentRef = { id: json.shipment.id, tracking_number: json.shipment.tracking_number, status: json.shipment.status }
+      setOrders((prev) => prev.map((o) => (o.order_id === orderId ? { ...o, shipment: shipmentRef } : o)))
+      setSelectedOrder((prev) => (prev && prev.order_id === orderId ? { ...prev, shipment: shipmentRef } : prev))
+      showToast(`تم إرسال الطلب #${toArabicDigits(orderId)} للشحن — رقم التتبع ${json.shipment.tracking_number}`, 'success')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'تعذر إرسال الطلب للشحن', 'error')
+    } finally {
+      setDispatchingOrderId(null)
+    }
   }
 
-  // طباعة البوليصة الحرارية بالأرقام العربية
-  const handlePrintLabel = (order: Order) => {
+  // طباعة البوليصة الحرارية بالأرقام العربية من بيانات الطلب الحقيقية
+  const handlePrintLabel = (order: ConfirmedOrder) => {
     const w = window.open('', '_blank', 'width=450,height=650')
     if (!w) {
       showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'error')
       return
     }
+    const stage = deriveOrderStage(order)
     w.document.write(`
       <html lang="ar" dir="rtl">
         <head>
-          <title>بوليصة شحن ${toArabicDigits(order.id)}</title>
+          <title>بوليصة شحن ${toArabicDigits(order.order_id)}</title>
           <style>
             body { font-family: Tahoma, sans-serif; padding: 15px; color: #111; }
             .ticket { border: 2px solid #222; border-radius: 8px; padding: 15px; max-width: 360px; margin: auto; }
@@ -746,20 +596,19 @@ export default function OperationsPage() {
         <body onload="window.print()">
           <div class="ticket">
             <div class="brand">⚡ بـرق للشحن الفوري</div>
-            <p>رقم الطلب: ${toArabicDigits(order.id)} | المتجر: ${order.merchant_name}</p>
-            <div class="row"><span>الزبون:</span><span>${order.customer_name} (${formatArabicPhone(order.customer_phone)})</span></div>
-            <div class="row"><span>العنوان:</span><span>${order.city} - ${toArabicDigits(order.address)}</span></div>
+            <p>رقم الطلب: ${toArabicDigits(order.order_id)}${order.shipment ? ` | التتبع: ${order.shipment.tracking_number}` : ''}</p>
+            <div class="row"><span>الزبون:</span><span>${orderDisplayName(order)} (${formatArabicPhone(orderDisplayPhone(order))})</span></div>
+            <div class="row"><span>العنوان:</span><span>${[order.governorate, order.district].filter(Boolean).join(' - ')} - ${toArabicDigits(order.address || '')}</span></div>
             ${
-              order.items && order.items.length > 0
+              order.order_content
                 ? `<div class="row" style="background:#f4f4f4; padding:4px; font-weight:bold;">
-                    <span>تفاصيل ومواصفات المنتج:</span>
-                    <span>${order.items.map((it) => `${it.name} (${toArabicDigits(it.quantity)} قطعة)`).join(' · ')}</span>
+                    <span>محتوى الطلب:</span>
+                    <span>${toArabicDigits(order.order_content)}</span>
                   </div>`
                 : ''
             }
-            ${order.notes ? `<div class="row"><span>المواصفات والقياس:</span><span>${toArabicDigits(order.notes)}</span></div>` : ''}
-            <div class="row"><span>حالة الدفع:</span><span>${order.payment_status} (${order.payment_method})</span></div>
-            <div class="total">الإجمالي: ${formatArabicCurrency(order.total_amount)}</div>
+            <div class="row"><span>حالة الطلب:</span><span>${stage.label}</span></div>
+            <div class="total">الإجمالي: ${formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}</div>
           </div>
         </body>
       </html>
@@ -928,68 +777,47 @@ export default function OperationsPage() {
                   محادثات المنصات المستقلة
                 </p>
                 <div className="space-y-1">
-                  {/* لوحة واتساب */}
-                  <button
-                    onClick={() => {
-                      setView('orders')
-                      setChatPlatformTab('whatsapp')
-                    }}
-                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-                      chatPlatformTab === 'whatsapp' && view === 'orders'
-                        ? 'bg-[#25D366]/15 text-[#15803d] border border-[#25D366]/30 font-black'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
+                  {/* لوحة واتساب — رابط مباشر لتبويب واتساب الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=whatsapp"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-[#25D366]/10 hover:text-[#15803d]"
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
                       <span>محادثات واتساب</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      {toArabicDigits(whatsappConversations.length)}
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
                     </span>
-                  </button>
+                  </Link>
 
-                  {/* لوحة إنستغرام */}
-                  <button
-                    onClick={() => {
-                      setView('orders')
-                      setChatPlatformTab('instagram')
-                    }}
-                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-                      chatPlatformTab === 'instagram' && view === 'orders'
-                        ? 'bg-pink-50 text-pink-700 border border-pink-200 font-black'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
+                  {/* لوحة إنستغرام — رابط مباشر لتبويب إنستغرام الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=instagram"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-pink-50 hover:text-pink-700"
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
                       <span>محادثات إنستغرام</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
-                      {toArabicDigits(instagramConversations.length)}
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
                     </span>
-                  </button>
+                  </Link>
 
-                  {/* لوحة ماسنجر */}
-                  <button
-                    onClick={() => {
-                      setView('orders')
-                      setChatPlatformTab('messenger')
-                    }}
-                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-                      chatPlatformTab === 'messenger' && view === 'orders'
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200 font-black'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
+                  {/* لوحة ماسنجر — رابط مباشر لتبويب ماسنجر الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=messenger"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-blue-50 hover:text-blue-700"
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
                       <span>محادثات ماسنجر</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                      {toArabicDigits(messengerConversations.length)}
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
                     </span>
-                  </button>
+                  </Link>
                 </div>
               </div>
 
@@ -1148,35 +976,23 @@ export default function OperationsPage() {
               </div>
             </div>
 
-            {/* البطاقات الأربع بالأرقام العربية */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* بطاقات الإحصاءات — مبنية بالكامل على استعلامات حية من public.orders/shipments */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-[#253765]" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">إجمالي المبيعات والطلبات</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                    +{toArabicDigits('18.4')}% ↗
-                  </span>
+                  <p className="text-xs text-[#64748B] font-semibold">إجمالي المبيعات (طلبات غير ملغاة)</p>
+                  <DollarSign size={15} className="text-[#253765]" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {formatArabicCurrency(stats.totalRev)}
+                  {ordersLoading ? '…' : formatArabicCurrency(stats.totalSales)}
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
-                  تم تحصيل: <strong className="text-emerald-700">{formatArabicCurrency(stats.paidRev)}</strong>
+                  {toArabicDigits(stats.totalOrders)} طلب إجمالاً
+                  {stats.cancelledCount > 0 && (
+                    <> · <strong className="text-rose-600">{toArabicDigits(stats.cancelledCount)} ملغي</strong></>
+                  )}
                 </p>
-              </div>
-
-              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
-                <div className="absolute top-0 inset-x-0 h-[3px] bg-purple-600" />
-                <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">الدفع الإلكتروني (Zain / Qi)</p>
-                  <CreditCard size={15} className="text-purple-600" />
-                </div>
-                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {toArabicDigits(userScopedOrders.filter((o) => o.payment_status === 'تم الدفع').length)}{' '}
-                  <span className="text-xs font-semibold text-purple-700">عملية مؤكدة</span>
-                </p>
-                <p className="mt-2 text-[11px] text-[#64748B]">بوابات زين كاش وكي كارد نشطة</p>
               </div>
 
               <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
@@ -1186,11 +1002,14 @@ export default function OperationsPage() {
                   <Truck size={15} className="text-sky-600" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {toArabicDigits(stats.activeDeliveries)}{' '}
+                  {ordersLoading ? '…' : toArabicDigits(stats.activeShipments)}{' '}
                   <span className="text-xs font-semibold text-sky-700">قيد الشحن</span>
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
                   نسبة التسليم الناجح: <strong className="text-emerald-700">{formatArabicPercent(stats.successRate)}</strong>
+                  {stats.pendingDispatchCount > 0 && (
+                    <> · <strong className="text-amber-700">{toArabicDigits(stats.pendingDispatchCount)}</strong> بانتظار الإرسال</>
+                  )}
                 </p>
               </div>
 
@@ -1219,7 +1038,7 @@ export default function OperationsPage() {
               <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
                 <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-xs">
-                    {['الكل', 'جديد', 'قيد المعالجة', 'بالطريق', 'تم التسليم', 'ملغي'].map((st) => (
+                    {['الكل', 'بانتظار الشحن', 'قيد الشحن', 'تم التسليم', 'ملغي'].map((st) => (
                       <button
                         key={st}
                         onClick={() => setStatusFilter(st)}
@@ -1234,79 +1053,102 @@ export default function OperationsPage() {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs border border-[#CBD5E1] rounded-xl bg-white px-3 py-2 focus-within:border-[#253765] transition">
-                    <Search size={14} className="text-[#64748B]" />
-                    <input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="بحث بالرقم، الزبون، المتجر، الهاتف..."
-                      className="bg-transparent outline-none placeholder:text-[#94A3B8] text-[#0F172A] w-48 sm:w-56 text-xs"
-                    />
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 text-xs border border-[#CBD5E1] rounded-xl bg-white px-3 py-2 focus-within:border-[#253765] transition">
+                      <Search size={14} className="text-[#64748B]" />
+                      <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="بحث بالرقم، الزبون، الهاتف، المحتوى..."
+                        className="bg-transparent outline-none placeholder:text-[#94A3B8] text-[#0F172A] w-48 sm:w-56 text-xs"
+                      />
+                    </div>
+                    <button
+                      onClick={() => void loadOrders()}
+                      disabled={ordersLoading}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#E2E8F0] hover:border-[#253765] disabled:opacity-50 text-slate-600 font-bold text-[11px] transition shrink-0"
+                    >
+                      <RefreshCw size={12} className={ordersLoading ? 'animate-spin' : ''} />
+                      تحديث
+                    </button>
                   </div>
                 </div>
+
+                {ordersError && (
+                  <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
+                    <span>{ordersError}</span>
+                    <button onClick={() => setOrdersError(null)} className="text-amber-600 hover:text-amber-900 shrink-0">
+                      إخفاء
+                    </button>
+                  </div>
+                )}
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-right text-xs">
                     <thead>
                       <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
                         <th className="p-3.5">الطلب</th>
-                        <th className="p-3.5">الزبون والمدينة</th>
+                        <th className="p-3.5">الزبون والمحافظة</th>
                         <th className="p-3.5">المبلغ المطلوب</th>
-                        <th className="p-3.5">حالة التوصيل</th>
-                        <th className="p-3.5">طريقة الدفع</th>
+                        <th className="p-3.5">حالة الطلب</th>
                         <th className="p-3.5 text-center">العمليات</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E2E8F0]">
-                      {filteredOrders.length === 0 ? (
+                      {ordersLoading ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-500">
-                            لا توجد طلبات مسجلة لهذا المتجر حالياً
+                          <td colSpan={5} className="p-8 text-center text-slate-400">
+                            <RefreshCw size={20} className="animate-spin inline-block mb-2" />
+                            <p className="text-xs font-semibold">جارِ تحميل الطلبات...</p>
+                          </td>
+                        </tr>
+                      ) : filteredOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-slate-500">
+                            لا توجد طلبات مسجلة حالياً
                           </td>
                         </tr>
                       ) : (
                         filteredOrders.map((order) => (
                           <tr
-                            key={order.id}
+                            key={order.order_id}
                             onClick={() => setSelectedOrder(order)}
                             className="hover:bg-[#F8FAFC] transition-colors cursor-pointer"
                           >
                             <td className="p-3.5 whitespace-nowrap">
-                              <span className="font-bold text-[#253765]">{toArabicDigits(order.id)}</span>
+                              <span className="font-bold text-[#253765]">#{toArabicDigits(order.order_id)}</span>
                               <div className="text-[10px] text-[#64748B] mt-0.5">
                                 {toArabicDigits(new Date(order.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }))}
                               </div>
                             </td>
                             <td className="p-3.5">
-                              <p className="font-bold text-[#0F172A] text-[13px]">{order.customer_name}</p>
-                              <p className="text-[11px] text-[#64748B]">{order.city} • {formatArabicPhone(order.customer_phone)}</p>
+                              <p className="font-bold text-[#0F172A] text-[13px]">{orderDisplayName(order)}</p>
+                              <p className="text-[11px] text-[#64748B]">
+                                {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'} • {formatArabicPhone(orderDisplayPhone(order))}
+                              </p>
                             </td>
                             <td className="p-3.5 whitespace-nowrap font-bold text-emerald-700 text-sm">
-                              {formatArabicCurrency(order.total_amount)}
+                              {formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}
                             </td>
                             <td className="p-3.5 whitespace-nowrap">
-                              <StatusBadge status={order.status} />
-                            </td>
-                            <td className="p-3.5 whitespace-nowrap">
-                              <div className="space-y-1">
-                                <PaymentMethodBadge method={order.payment_method} />
-                                <div>
-                                  <StatusBadge status={order.payment_status} />
-                                </div>
-                              </div>
+                              <OrderStageBadge order={order} />
                             </td>
                             <td className="p-3.5" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">
-                                <button
-                                  onClick={() => {
-                                    setPaymentModalOrder(order)
-                                    setPaymentGateway(order.payment_method === 'qicard' ? 'qicard' : 'zaincash')
-                                  }}
-                                  className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-[#253765] hover:bg-[#1D2B50] text-white font-bold transition shadow-sm"
-                                >
-                                  <CreditCard size={12} />
-                                  <span>دفع</span>
-                                </button>
+                                {!order.shipment && order.current_state === 'confirmed' && (
+                                  <button
+                                    onClick={() => void handleDispatch(order.order_id)}
+                                    disabled={dispatchingOrderId === order.order_id}
+                                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold transition shadow-sm"
+                                  >
+                                    {dispatchingOrderId === order.order_id ? (
+                                      <RefreshCw size={12} className="animate-spin" />
+                                    ) : (
+                                      <Truck size={12} />
+                                    )}
+                                    <span>إرسال للشحن</span>
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handlePrintLabel(order)}
                                   className="inline-flex items-center gap-1 text-[11px] px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
@@ -1323,132 +1165,67 @@ export default function OperationsPage() {
                 </div>
               </div>
 
-              {/* قسم المحادثات الجانبي — مقسم إلى ٣ لوحات للمنصات لمنع التداخل */}
+              {/* قسم المحادثات الجانبي — ملخص حقيقي من Supabase، والعرض الكامل والرد في /operations/chats */}
               <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm flex flex-col">
-                <div className="p-3.5 border-b border-[#E2E8F0] bg-[#FAFAFA] space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <MessageCircle size={17} className="text-[#253765]" />
-                      <p className="text-sm font-bold text-[#0F172A]">
-                        {currentUserRole === 'merchant' ? `محادثات ${activeMerchantName}` : 'محادثات المنصات الحية'}
-                      </p>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
-                      {toArabicDigits(filteredChatConversations.length)} محادثة
-                    </span>
+                <div className="p-3.5 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle size={17} className="text-[#253765]" />
+                    <p className="text-sm font-bold text-[#0F172A]">
+                      {currentUserRole === 'merchant' ? `محادثات ${activeMerchantName}` : 'محادثات المنصات الحية'}
+                    </p>
                   </div>
-
-                  {/* تبويبات المنصات الثلاثة المستقلة */}
-                  <div className="grid grid-cols-4 gap-1 p-1 bg-[#F1F5F9] rounded-xl text-center text-[10px]">
-                    <button
-                      type="button"
-                      onClick={() => setChatPlatformTab('all')}
-                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
-                        chatPlatformTab === 'all'
-                          ? 'bg-[#253765] text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <span>الكل</span>
-                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200'}`}>
-                        {toArabicDigits(userScopedConversations.length)}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setChatPlatformTab('whatsapp')}
-                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
-                        chatPlatformTab === 'whatsapp'
-                          ? 'bg-[#25D366] text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <span>واتساب</span>
-                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'whatsapp' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
-                        {toArabicDigits(whatsappConversations.length)}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setChatPlatformTab('instagram')}
-                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
-                        chatPlatformTab === 'instagram'
-                          ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <span>إنستا</span>
-                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'instagram' ? 'bg-white/20 text-white' : 'bg-pink-100 text-pink-800'}`}>
-                        {toArabicDigits(instagramConversations.length)}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setChatPlatformTab('messenger')}
-                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
-                        chatPlatformTab === 'messenger'
-                          ? 'bg-[#0084FF] text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <span>ماسنجر</span>
-                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'messenger' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'}`}>
-                        {toArabicDigits(messengerConversations.length)}
-                      </span>
-                    </button>
-                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
+                    {liveChatCounts ? toArabicDigits(liveChatCounts.total) : '…'} محادثة
+                  </span>
                 </div>
 
-                <div className="divide-y divide-[#E2E8F0] max-h-[560px] overflow-y-auto">
-                  {filteredChatConversations.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-400 space-y-1">
-                      <p className="font-semibold">لا توجد محادثات في هذه اللوحة</p>
-                      <p className="text-[10px] text-slate-400">
-                        {chatPlatformTab === 'whatsapp'
-                          ? 'لا توجد محادثات واردة عبر واتساب حالياً'
-                          : chatPlatformTab === 'instagram'
-                          ? 'لا توجد محادثات واردة عبر إنستغرام حالياً'
-                          : chatPlatformTab === 'messenger'
-                          ? 'لا توجد محادثات واردة عبر ماسنجر حالياً'
-                          : 'لا توجد محادثات نشطة لهذا المتجر'}
-                      </p>
+                <div className="p-3.5 space-y-2">
+                  <Link
+                    href="/operations/chats?platform=whatsapp"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-[#25D366]/40 hover:bg-[#25D366]/5 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
+                      <span>واتساب</span>
                     </div>
-                  ) : (
-                    filteredChatConversations.map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => setActiveChat(c)}
-                        className="p-3.5 hover:bg-[#F8FAFC] transition cursor-pointer"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs font-bold text-[#0F172A]">{c.customer_name}</p>
-                          <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                              c.channel === 'whatsapp'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : c.channel === 'instagram'
-                                ? 'bg-pink-50 text-pink-700 border border-pink-200'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}
-                          >
-                            {c.channel === 'whatsapp' ? 'واتساب' : c.channel === 'instagram' ? 'إنستغرام' : 'ماسنجر'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#64748B] line-clamp-2 leading-relaxed mb-2">
-                          {toArabicDigits(c.last_message)}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <StatusBadge status={c.status} />
-                          <span className="text-[10px] text-slate-400">
-                            {formatArabicPhone(c.customer_phone)}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats?platform=instagram"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-pink-300 hover:bg-pink-50 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
+                      <span>إنستغرام</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats?platform=messenger"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-blue-300 hover:bg-blue-50 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
+                      <span>ماسنجر</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats"
+                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white text-xs font-bold transition mt-1"
+                  >
+                    <MessageCircle size={13} />
+                    <span>فتح المحادثات المباشرة والرد</span>
+                  </Link>
                 </div>
               </div>
             </div>
@@ -2042,86 +1819,6 @@ export default function OperationsPage() {
       {/* ========================================================================= */}
       {/* ===== باقي النوافذ ===== */}
       {/* ========================================================================= */}
-      {paymentModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#253765] text-white flex items-center justify-center">
-                  <CreditCard size={20} />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-[#0F172A]">الدفع الإلكتروني العراقي</h2>
-                  <p className="text-xs text-[#64748B]">طلب #{toArabicDigits(paymentModalOrder.id)} • {paymentModalOrder.customer_name}</p>
-                </div>
-              </div>
-              <button onClick={() => setPaymentModalOrder(null)} className="text-slate-400 hover:text-slate-700">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5 text-xs">
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-[#64748B]">المبلغ المطلوب تحصيله:</p>
-                  <p className="text-2xl font-black text-emerald-700 font-mono mt-1">
-                    {formatArabicCurrency(paymentModalOrder.total_amount)}
-                  </p>
-                </div>
-                <StatusBadge status={paymentModalOrder.payment_status} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPaymentGateway('zaincash')}
-                  className={`p-3.5 rounded-xl border flex flex-col items-center text-center transition ${
-                    paymentGateway === 'zaincash'
-                      ? 'border-purple-600 bg-purple-50 text-purple-900 shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-xs mb-1.5">
-                    Z
-                  </div>
-                  <span className="font-bold text-xs">محفظة زين كاش</span>
-                  <span className="text-[10px] text-purple-700">Zain Cash Iraq</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentGateway('qicard')}
-                  className={`p-3.5 rounded-xl border flex flex-col items-center text-center transition ${
-                    paymentGateway === 'qicard'
-                      ? 'border-rose-600 bg-rose-50 text-rose-900 shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center font-bold text-xs mb-1.5">
-                    Qi
-                  </div>
-                  <span className="font-bold text-xs">بطاقة كي كارد / ماستر</span>
-                  <span className="text-[10px] text-rose-700">Qi Card & Master</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-              <button onClick={() => setPaymentModalOrder(null)} className="text-xs font-bold text-slate-500">
-                إلغاء
-              </button>
-              <button
-                disabled={paymentProcessing}
-                onClick={handleExecutePayment}
-                className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-md transition disabled:opacity-50 flex items-center gap-2"
-              >
-                {paymentProcessing ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                <span>تأكيد إتمام الدفع ({paymentGateway === 'zaincash' ? 'زين كاش' : 'كي كارد'})</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* تفاصيل الطلب */}
       {selectedOrder && (
@@ -2130,10 +1827,12 @@ export default function OperationsPage() {
             <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-[#0F172A]">تفاصيل الطلب #{toArabicDigits(selectedOrder.id)}</h2>
-                  <StatusBadge status={selectedOrder.status} />
+                  <h2 className="text-base font-bold text-[#0F172A]">تفاصيل الطلب #{toArabicDigits(selectedOrder.order_id)}</h2>
+                  <OrderStageBadge order={selectedOrder} />
                 </div>
-                <p className="text-xs text-[#64748B] mt-0.5">المتجر: {selectedOrder.merchant_name}</p>
+                {selectedOrder.shipment && (
+                  <p className="text-xs text-[#64748B] mt-0.5">رقم التتبع: {selectedOrder.shipment.tracking_number}</p>
+                )}
               </div>
               <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-700">
                 <X size={18} />
@@ -2142,104 +1841,45 @@ export default function OperationsPage() {
 
             <div className="p-6 space-y-4 text-xs">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="flex justify-between"><span className="text-[#64748B]">الزبون:</span><span className="font-bold">{selectedOrder.customer_name}</span></div>
-                <div className="flex justify-between"><span className="text-[#64748B]">الهاتف:</span><span>{formatArabicPhone(selectedOrder.customer_phone)}</span></div>
-                <div className="flex justify-between"><span className="text-[#64748B]">العنوان:</span><span>{selectedOrder.city} - {toArabicDigits(selectedOrder.address)}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">الزبون:</span><span className="font-bold">{orderDisplayName(selectedOrder)}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">الهاتف:</span><span>{formatArabicPhone(orderDisplayPhone(selectedOrder))}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">العنوان:</span><span>{[selectedOrder.governorate, selectedOrder.district].filter(Boolean).join(' - ')} - {toArabicDigits(selectedOrder.address || '')}</span></div>
+                {selectedOrder.order_content && (
+                  <div className="flex justify-between"><span className="text-[#64748B]">محتوى الطلب:</span><span>{selectedOrder.order_content}</span></div>
+                )}
                 <div className="flex justify-between pt-2 border-t border-slate-200 font-bold">
                   <span>المبلغ المطلوب:</span>
-                  <span className="text-emerald-700 text-sm">{formatArabicCurrency(selectedOrder.total_amount)}</span>
+                  <span className="text-emerald-700 text-sm">{formatArabicCurrency(selectedOrder.grand_total_iqd ?? selectedOrder.items_total_iqd ?? 0)}</span>
                 </div>
               </div>
             </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-              <button
-                onClick={() => handlePrintLabel(selectedOrder)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs"
-              >
-                <Printer size={14} />
-                <span>طباعة البوليصة</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePrintLabel(selectedOrder)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs"
+                >
+                  <Printer size={14} />
+                  <span>طباعة البوليصة</span>
+                </button>
+                {!selectedOrder.shipment && selectedOrder.current_state === 'confirmed' && (
+                  <button
+                    onClick={() => void handleDispatch(selectedOrder.order_id)}
+                    disabled={dispatchingOrderId === selectedOrder.order_id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-xs transition"
+                  >
+                    {dispatchingOrderId === selectedOrder.order_id ? (
+                      <RefreshCw size={14} className="animate-spin" />
+                    ) : (
+                      <Truck size={14} />
+                    )}
+                    <span>إرسال للشحن</span>
+                  </button>
+                )}
+              </div>
               <button onClick={() => setSelectedOrder(null)} className="px-5 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs">
                 إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* نافذة المحادثة */}
-      {activeChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden flex flex-col h-[560px] text-right">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#253765] text-white flex items-center justify-center">
-                  <MessageCircle size={17} />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-[#0F172A]">{activeChat.customer_name}</h3>
-                  <p className="text-[10px] text-[#64748B]">قناة {activeChat.channel} • {activeChat.merchant_name}</p>
-                </div>
-              </div>
-              <button onClick={() => setActiveChat(null)} className="text-slate-400 hover:text-slate-700">
-                <X size={17} />
-              </button>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#F8FAFC] text-xs">
-              {activeChat.messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex flex-col ${m.sender === 'agent' ? 'items-end' : m.sender === 'bot' ? 'items-center' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-xl p-3 ${
-                      m.sender === 'agent'
-                        ? 'bg-[#253765] text-white font-semibold'
-                        : m.sender === 'bot'
-                        ? 'bg-slate-200 text-slate-800 text-center'
-                        : 'bg-white border border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    <p className="leading-relaxed">{toArabicDigits(m.text)}</p>
-                  </div>
-                  <span className="text-[9px] text-slate-400 mt-1 px-1">{toArabicDigits(m.time)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="p-3 border-t border-slate-100 bg-white flex items-center gap-2">
-              <input
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && replyText.trim()) {
-                    const newM: ChatMessage = { id: `m-${Date.now()}`, sender: 'agent', text: replyText.trim(), time: 'الآن' }
-                    const updated = { ...activeChat, last_message: newM.text, messages: [...activeChat.messages, newM] }
-                    setConversations((prev) => prev.map((c) => (c.id === activeChat.id ? updated : c)))
-                    setActiveChat(updated)
-                    setReplyText('')
-                    showToast('تم إرسال الرد للزبون', 'success')
-                  }
-                }}
-                placeholder="اكتب ردك للزبون هنا..."
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-[#253765]"
-              />
-              <button
-                onClick={() => {
-                  if (replyText.trim()) {
-                    const newM: ChatMessage = { id: `m-${Date.now()}`, sender: 'agent', text: replyText.trim(), time: 'الآن' }
-                    const updated = { ...activeChat, last_message: newM.text, messages: [...activeChat.messages, newM] }
-                    setConversations((prev) => prev.map((c) => (c.id === activeChat.id ? updated : c)))
-                    setActiveChat(updated)
-                    setReplyText('')
-                    showToast('تم إرسال الرد للزبون', 'success')
-                  }
-                }}
-                className="p-2.5 rounded-xl bg-[#253765] text-white"
-              >
-                <Send size={15} />
               </button>
             </div>
           </div>
@@ -2363,128 +2003,26 @@ export default function OperationsPage() {
         </div>
       )}
 
-      {/* نافذة إضافة طلب جديد */}
+      {/* نافذة إضافة طلب جديد — حجز حقيقي عبر /api/orders/book (Supabase) */}
       {newOrderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#0F172A]">إضافة طلب شحن جديد</h2>
-              <button onClick={() => setNewOrderModal(false)} className="text-slate-400 hover:text-slate-700">
-                <X size={17} />
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="w-full max-w-lg my-8">
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+              <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#0F172A]">إضافة طلب شحن جديد</h2>
+                <button onClick={() => setNewOrderModal(false)} className="text-slate-400 hover:text-slate-700">
+                  <X size={17} />
+                </button>
+              </div>
+              <div className="[&>div]:rounded-none [&>div]:border-0 [&>div]:shadow-none">
+                <NewOrderBooking
+                  onBooked={() => {
+                    void loadOrders()
+                    showToast('تم حجز الطلب وإنشاء الشحنة بنجاح', 'success')
+                  }}
+                />
+              </div>
             </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                const fd = new FormData(e.currentTarget)
-                const itemName = (fd.get('item_name') as string) || 'منتج مخصص'
-                const itemQty = Number(fd.get('item_quantity')) || 1
-                const itemColor = (fd.get('item_color') as string) || ''
-                const itemSize = (fd.get('item_size') as string) || ''
-                const itemDim = (fd.get('item_dimensions') as string) || ''
-                const itemCap = (fd.get('item_capacity') as string) || ''
-
-                const specsDesc = [
-                  itemColor ? `اللون: ${itemColor}` : '',
-                  itemSize ? `القياس: ${itemSize}` : '',
-                  itemDim ? `الأبعاد: ${itemDim}` : '',
-                  itemCap ? `السعة: ${itemCap}` : ''
-                ].filter(Boolean).join(' | ')
-
-                const newO: Order = {
-                  id: `BRQ-${Math.floor(1000 + Math.random() * 9000)}`,
-                  customer_name: (fd.get('customer_name') as string) || 'زبون جديد',
-                  customer_phone: (fd.get('customer_phone') as string) || '07700000000',
-                  address: (fd.get('address') as string) || 'بغداد',
-                  city: (fd.get('city') as string) || 'بغداد',
-                  total_amount: Number(fd.get('total_amount')) || 25000,
-                  status: 'جديد',
-                  payment_status: 'غير مدفوع',
-                  payment_method: 'عند الاستلام',
-                  created_at: new Date().toISOString(),
-                  merchant_name: currentUserRole === 'merchant' ? activeMerchantName : ((fd.get('merchant_name') as string) || 'متجر دجلة'),
-                  notes: specsDesc,
-                  items: [{ id: `it-${Date.now()}`, name: itemName, quantity: itemQty, price: Number(fd.get('total_amount')) || 25000 }]
-                }
-                setOrders([newO, ...orders])
-                setNewOrderModal(false)
-                showToast(`تم إنشاء الطلب ${toArabicDigits(newO.id)} مع مواصفات الستيكر بنجاح`, 'success')
-              }}
-              className="p-5 space-y-3 text-xs"
-            >
-              <div>
-                <label className="text-[#64748B] block mb-1 font-bold">اسم الزبون *</label>
-                <input required name="customer_name" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">رقم الهاتف *</label>
-                  <input required name="customer_phone" placeholder="077XXXXXXXX" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
-                </div>
-                <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">المدينة</label>
-                  <select name="city" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
-                    <option value="بغداد">بغداد</option>
-                    <option value="البصرة">البصرة</option>
-                    <option value="أربيل">أربيل</option>
-                    <option value="النجف">النجف</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-[#64748B] block mb-1 font-bold">العنوان *</label>
-                <input required name="address" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
-              </div>
-              {currentUserRole === 'super_admin' && (
-                <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">المتجر التابع له</label>
-                  <select name="merchant_name" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
-                    {merchants.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-                  </select>
-                </div>
-              )}
-              {/* حقول مواصفات وتفاصيل المنتج للستيكر */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <p className="text-[11px] font-bold text-[#253765]">مواصفات وتفاصيل المنتج للستيكر (حسب طلب الزبون):</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">نوع المنتج</label>
-                    <input name="item_name" placeholder="ساعة / فستان" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">عدد القطع</label>
-                    <input type="number" name="item_quantity" defaultValue="1" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">اللون</label>
-                    <input name="item_color" placeholder="أسود / أزرق" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">القياس / الحجم</label>
-                    <input name="item_size" placeholder="L / 42 / 100ml" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">الأبعاد (طول × عرض)</label>
-                    <input name="item_dimensions" placeholder="100x50 cm" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">السعة / الوزن</label>
-                    <input name="item_capacity" placeholder="500ml / 2kg" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[#64748B] block mb-1 font-bold">المبلغ (د.ع) *</label>
-                <input required type="number" name="total_amount" defaultValue="35000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
-              </div>
-              <div className="pt-3 border-t border-slate-100 flex justify-between">
-                <button type="button" onClick={() => setNewOrderModal(false)} className="text-slate-500 font-bold">إلغاء</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">إنشاء الطلب</button>
-              </div>
-            </form>
           </div>
         </div>
       )}

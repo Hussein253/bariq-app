@@ -48,7 +48,7 @@ const EMPTY_FORM = {
   notes: '',
 }
 
-export default function NewOrderBooking() {
+export default function NewOrderBooking({ onBooked }: { onBooked?: (result: BookedResult) => void } = {}) {
   const router = useRouter()
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [submitting, setSubmitting] = useState(false)
@@ -92,8 +92,10 @@ export default function NewOrderBooking() {
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error || 'تعذر حجز الطلب')
 
-      setBooked({ shipment: json.shipment as Shipment, orderContent: json.order_content })
+      const result: BookedResult = { shipment: json.shipment as Shipment, orderContent: json.order_content }
+      setBooked(result)
       setForm({ ...EMPTY_FORM })
+      onBooked?.(result)
       router.refresh() // تحديث قائمة الشحنات في اللوحة
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'تعذر حجز الطلب'

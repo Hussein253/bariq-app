@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { normalizeIraqiPhone } from '@/lib/phone'
 import type { Shipment } from '@/lib/shipments'
 
 /**
@@ -14,17 +15,6 @@ import type { Shipment } from '@/lib/shipments'
  *   'BRQ-' || lpad(nextval('shipments_tracking_seq')::text, 6, '0')
  * توليده هنا كان سيسبب تصادماً عند حجزين متزامنين.
  */
-
-const IRAQI_PHONE = /^07[0-9]{9}$/
-
-/** يطبّع رقم الهاتف العراقي إلى الصيغة المحلية 07XXXXXXXXX */
-function normalizeIraqiPhone(raw: string): string | null {
-  if (!raw) return null
-  let digits = String(raw).replace(/[^0-9]/g, '')
-  if (digits.startsWith('964') && digits.length === 13) digits = '0' + digits.slice(3)
-  if (digits.length === 10 && digits.startsWith('7')) digits = '0' + digits
-  return IRAQI_PHONE.test(digits) ? digits : null
-}
 
 export async function POST(req: NextRequest) {
   try {

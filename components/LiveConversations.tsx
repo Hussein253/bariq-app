@@ -30,20 +30,28 @@ import {
 } from '@/lib/conversations'
 
 type BotFilter = 'all' | 'bot' | 'human'
-type PlatformTab = 'all' | 'whatsapp' | 'instagram' | 'messenger'
+export type ChannelPlatform = 'whatsapp' | 'instagram' | 'messenger'
 
 interface Props {
   initialConversations: ConversationOverview[]
   loadError?: string | null
-  defaultPlatform?: PlatformTab
+  /** القناة الثابتة لهذه اللوحة — التبويب الفعلي يُدار من الصفحة الأم */
+  platform: ChannelPlatform
 }
 
-export default function LiveConversations({ initialConversations, loadError, defaultPlatform = 'all' }: Props) {
+function firstIdForPlatform(list: ConversationOverview[], platform: ChannelPlatform): string | null {
+  return list.find((c) => (c.platform || 'whatsapp').toLowerCase() === platform)?.id ?? null
+}
+
+export default function LiveConversations({ initialConversations, loadError, platform }: Props) {
   const [conversations, setConversations] = useState<ConversationOverview[]>(initialConversations)
-  const [platformTab, setPlatformTab] = useState<PlatformTab>(defaultPlatform)
-  const [selectedId, setSelectedId] = useState<string | null>(initialConversations[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<string | null>(
+    firstIdForPlatform(initialConversations, platform)
+  )
   const [messages, setMessages] = useState<Message[]>([])
-  const [loadingMessages, setLoadingMessages] = useState(initialConversations.length > 0)
+  const [loadingMessages, setLoadingMessages] = useState(
+    firstIdForPlatform(initialConversations, platform) !== null
+  )
   const [search, setSearch] = useState('')
   const [botFilter, setBotFilter] = useState<BotFilter>('all')
   const [replyText, setReplyText] = useState('')
@@ -120,6 +128,25 @@ export default function LiveConversations({ initialConversations, loadError, def
     })
     setUnread((prev) => (prev[conversationId] ? { ...prev, [conversationId]: 0 } : prev))
   }, [])
+
+  // عند تبديل التبويب (القناة) من الصفحة الأم: إن كانت المحادثة المختارة
+  // لا تنتمي للقناة الجديدة، نختار أول محادثة منها بدل ترك اختيار من قناة أخرى
+  useEffect(() => {
+    setSelectedId((current) => {
+      const currentBelongs = current
+        ? conversations.some(
+            (c) => c.id === current && (c.platform || 'whatsapp').toLowerCase() === platform
+          )
+        : false
+      if (currentBelongs) return current
+      const next = firstIdForPlatform(conversations, platform)
+      setMessages([])
+      setLoadingMessages(next !== null)
+      return next
+    })
+    // نتعمّد عدم إدراج conversations هنا: تبديل القناة فقط هو ما يجب أن يعيد الاختيار
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform])
 
   // ------------------------------------------------------------------
   // معالج الحدث الوحيد الذي يقود الواجهة: INSERT على جدول messages
@@ -261,14 +288,15 @@ export default function LiveConversations({ initialConversations, loadError, def
   // ------------------------------------------------------------------
   // التصفية والبحث
   // ------------------------------------------------------------------
+  // محادثات هذه القناة فقط (التبويب مضبوط من الصفحة الأم) — عزل تام بين القنوات
+  const platformConversations = useMemo(
+    () => conversations.filter((c) => (c.platform || 'whatsapp').toLowerCase() === platform),
+    [conversations, platform]
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return conversations.filter((c) => {
-      // عزل حسب المنصة لمنع التداخل بين واتساب، إنستغرام، وماسنجر
-      if (platformTab !== 'all') {
-        const plat = (c.platform || 'whatsapp').toLowerCase()
-        if (plat !== platformTab) return false
-      }
+    return platformConversations.filter((c) => {
       if (c.id === selectedId) return true
       if (botFilter === 'bot' && !c.bot_active) return false
       if (botFilter === 'human' && c.bot_active) return false
@@ -279,31 +307,22 @@ export default function LiveConversations({ initialConversations, loadError, def
         (c.merchant_name || '').toLowerCase().includes(q)
       )
     })
-  }, [conversations, search, botFilter, platformTab, selectedId])
-
-  const platformCounts = useMemo(() => {
-    return {
-      all: conversations.length,
-      whatsapp: conversations.filter((c) => (c.platform || 'whatsapp').toLowerCase() === 'whatsapp').length,
-      instagram: conversations.filter((c) => (c.platform || '').toLowerCase() === 'instagram').length,
-      messenger: conversations.filter((c) => (c.platform || '').toLowerCase() === 'messenger').length,
-    }
-  }, [conversations])
+  }, [platformConversations, search, botFilter, selectedId])
 
   const selected = useMemo(
-    () => conversations.find((c) => c.id === selectedId) || null,
-    [conversations, selectedId]
+    () => platformConversations.find((c) => c.id === selectedId) || null,
+    [platformConversations, selectedId]
   )
 
   const botActiveCount = useMemo(
-    () => conversations.filter((c) => c.bot_active).length,
-    [conversations]
+    () => platformConversations.filter((c) => c.bot_active).length,
+    [platformConversations]
   )
 
-  const totalUnread = useMemo(
-    () => Object.values(unread).reduce((sum, n) => sum + n, 0),
-    [unread]
-  )
+  const totalUnread = useMemo(() => {
+    const ids = new Set(platformConversations.map((c) => c.id))
+    return Object.entries(unread).reduce((sum, [id, n]) => (ids.has(id) ? sum + n : sum), 0)
+  }, [unread, platformConversations])
 
   // ------------------------------------------------------------------
   // زر التحكم بالبوت
@@ -348,10 +367,10 @@ export default function LiveConversations({ initialConversations, loadError, def
     if (!text || !selected || sending) return
     setSending(true)
     try {
-      const res = await fetch('/api/send-whatsapp', {
+      const res = await fetch(`/api/conversations/${selected.id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: selected.customer_phone, message_text: text }),
+        body: JSON.stringify({ text }),
       })
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error || 'تعذر إرسال الرد')
@@ -365,7 +384,12 @@ export default function LiveConversations({ initialConversations, loadError, def
       )
 
       setReplyText('')
-      setError(json.n8n_sent ? null : json.n8n_error || 'تم الحفظ لكن فشل الإرسال عبر n8n')
+
+      if (!json.channel_send_supported) {
+        setError('تم حفظ الرد داخلياً — لا يوجد تكامل فعلي لإرسال الرسائل عبر هذه القناة بعد.')
+      } else {
+        setError(json.n8n_sent ? null : json.n8n_error || 'تم الحفظ لكن فشل الإرسال عبر n8n')
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'تعذر إرسال الرد'
       console.error('[LIVE_CONVERSATIONS][SEND]', msg)
@@ -395,13 +419,30 @@ export default function LiveConversations({ initialConversations, loadError, def
           <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#25D366]/15 flex items-center justify-center">
-                  <MessageCircle size={16} className="text-[#25D366]" />
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    platform === 'whatsapp'
+                      ? 'bg-[#25D366]/15'
+                      : platform === 'instagram'
+                      ? 'bg-gradient-to-br from-pink-500/15 to-purple-600/15'
+                      : 'bg-[#0084FF]/15'
+                  }`}
+                >
+                  <MessageCircle
+                    size={16}
+                    className={
+                      platform === 'whatsapp'
+                        ? 'text-[#25D366]'
+                        : platform === 'instagram'
+                        ? 'text-pink-600'
+                        : 'text-[#0084FF]'
+                    }
+                  />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-[#0F172A]">المحادثات الحية</h3>
+                  <h3 className="text-sm font-bold text-[#0F172A]">{platformLabel(platform)}</h3>
                   <p className="text-[10px] text-slate-400">
-                    {toArabicDigits(conversations.length)} محادثة · {toArabicDigits(botActiveCount)} بالبوت
+                    {toArabicDigits(platformConversations.length)} محادثة · {toArabicDigits(botActiveCount)} بالبوت
                     {totalUnread > 0 && (
                       <span className="text-[#25D366] font-bold"> · {toArabicDigits(totalUnread)} جديدة</span>
                     )}
@@ -422,69 +463,6 @@ export default function LiveConversations({ initialConversations, loadError, def
                 />
                 {connected ? 'مباشر' : 'غير متصل'}
               </span>
-            </div>
-
-            {/* تبويبات المنصات المستقلة لمنع التداخل */}
-            <div className="grid grid-cols-4 gap-1 p-1 bg-[#F1F5F9] rounded-xl text-center">
-              <button
-                type="button"
-                onClick={() => setPlatformTab('all')}
-                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
-                  platformTab === 'all'
-                    ? 'bg-[#253765] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <span>الكل</span>
-                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                  {toArabicDigits(platformCounts.all)}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPlatformTab('whatsapp')}
-                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
-                  platformTab === 'whatsapp'
-                    ? 'bg-[#25D366] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <span>واتساب</span>
-                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'whatsapp' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
-                  {toArabicDigits(platformCounts.whatsapp)}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPlatformTab('instagram')}
-                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
-                  platformTab === 'instagram'
-                    ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <span>إنستغرام</span>
-                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'instagram' ? 'bg-white/20 text-white' : 'bg-pink-100 text-pink-800'}`}>
-                  {toArabicDigits(platformCounts.instagram)}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPlatformTab('messenger')}
-                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
-                  platformTab === 'messenger'
-                    ? 'bg-[#0084FF] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <span>ماسنجر</span>
-                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'messenger' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'}`}>
-                  {toArabicDigits(platformCounts.messenger)}
-                </span>
-              </button>
             </div>
 
             <div className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl px-3 py-2 focus-within:border-[#253765] transition">
@@ -672,15 +650,17 @@ export default function LiveConversations({ initialConversations, loadError, def
                     </button>
                   </div>
 
-                  <a
-                    href={waLink(selected.customer_phone)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#25D366] hover:bg-[#25D366]/10 p-2 rounded-lg transition"
-                    title="فتح في واتساب"
-                  >
-                    <Phone size={16} />
-                  </a>
+                  {platform === 'whatsapp' && (
+                    <a
+                      href={waLink(selected.customer_phone)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#25D366] hover:bg-[#25D366]/10 p-2 rounded-lg transition"
+                      title="فتح في واتساب"
+                    >
+                      <Phone size={16} />
+                    </a>
+                  )}
                 </div>
               </div>
 
