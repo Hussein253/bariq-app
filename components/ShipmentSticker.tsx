@@ -269,17 +269,20 @@ export function ShipmentSticker({
         </div>
       </div>
 
-      {/* ===== محتوى الطلب ===== */}
+      {/* ===== محتوى ومواصفات المنتج حسب طلب الزبون ===== */}
       {orderContent && (
         <div
           style={{
             border: '1.5px solid #000',
-            padding: '1.2mm 2mm',
+            padding: '1.5mm 2mm',
             marginBottom: '2mm',
+            background: '#fafafa',
           }}
         >
-          <Label>محتوى الطلب</Label>
-          <div style={{ fontSize: '12pt', fontWeight: 900 }}>{orderContent}</div>
+          <Label>محتوى وتفاصيل المنتج</Label>
+          <div style={{ fontSize: '11pt', fontWeight: 900, whiteSpace: 'pre-line', lineHeight: 1.3 }}>
+            {orderContent}
+          </div>
         </div>
       )}
 

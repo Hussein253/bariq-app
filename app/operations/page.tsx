@@ -180,10 +180,11 @@ export interface AdCampaign {
   marketer_name: string
 }
 
-type MainNavView = 'orders' | 'admin' | 'campaigns'
+type MainNavView = 'orders' | 'booking' | 'whatsapp' | 'instagram' | 'messenger' | 'admin' | 'campaigns'
 type AdminSubTab = 'merchants' | 'marketers' | 'permissions'
 type UserRole = 'super_admin' | 'merchant'
 type TimeRange = 'today' | 'week' | 'month' | 'all'
+type ChatPlatform = 'whatsapp' | 'instagram' | 'messenger'
 
 // ---------- البيانات الأولية المحملة ----------
 
@@ -467,6 +468,21 @@ const INITIAL_CONVERSATIONS: Conversation[] = [
       { id: 'm2-2', sender: 'bot', text: 'يرجى تزويدنا بالعنوان الصحيح وسنقوم بتحديثه', time: '١١:٠١ ص' },
       { id: 'm2-3', sender: 'customer', text: 'أريد أتحدث مع موظف بخصوص فستان ستايل بغداد', time: '١١:٠٥ ص' }
     ]
+  },
+  {
+    id: 'c3',
+    customer_name: 'حيدر الكعبي',
+    customer_phone: '07723456789',
+    last_message: 'مرحباً، هل متوفر العطر بلون أو حجم أكبر عبر انستغرام؟',
+    channel: 'instagram',
+    status: 'يرد تلقائيًا',
+    updated_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    merchant_name: 'متجر دجلة',
+    messages: [
+      { id: 'm3-1', sender: 'customer', text: 'مرحباً، شفت الإعلان في ريلز انستغرام', time: '٠٩:٠٠ ص' },
+      { id: 'm3-2', sender: 'bot', text: 'أهلاً بك! يمكنك طلب المنتج مباشرة عبر اختيار المقاس أو السعة المطلوبة ⚡', time: '٠٩:٠١ ص' },
+      { id: 'm3-3', sender: 'customer', text: 'مرحباً، هل متوفر العطر بلون أو حجم أكبر عبر انستغرام؟', time: '٠٩:١٥ ص' }
+    ]
   }
 ]
 
@@ -581,6 +597,8 @@ export default function OperationsPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  const [chatPlatformTab, setChatPlatformTab] = useState<'all' | 'whatsapp' | 'instagram' | 'messenger'>('all')
+
   // تصفية البيانات المخصصة للتاجر
   const userScopedOrders = useMemo(() => {
     if (currentUserRole === 'merchant') {
@@ -590,11 +608,33 @@ export default function OperationsPage() {
   }, [orders, currentUserRole, activeMerchantName])
 
   const userScopedConversations = useMemo(() => {
+    let list = conversations
     if (currentUserRole === 'merchant') {
-      return conversations.filter((c) => c.merchant_name === activeMerchantName)
+      list = list.filter((c) => c.merchant_name === activeMerchantName)
     }
-    return conversations
+    return list
   }, [conversations, currentUserRole, activeMerchantName])
+
+  // تصنيف المحادثات الثلاث لعزل كل تطبيق على حدة
+  const whatsappConversations = useMemo(() => {
+    return userScopedConversations.filter((c) => c.channel === 'whatsapp')
+  }, [userScopedConversations])
+
+  const instagramConversations = useMemo(() => {
+    return userScopedConversations.filter((c) => c.channel === 'instagram')
+  }, [userScopedConversations])
+
+  const messengerConversations = useMemo(() => {
+    return userScopedConversations.filter((c) => c.channel === 'messenger')
+  }, [userScopedConversations])
+
+  // المحادثات المعروضة حسب التبويب المختار
+  const filteredChatConversations = useMemo(() => {
+    if (chatPlatformTab === 'whatsapp') return whatsappConversations
+    if (chatPlatformTab === 'instagram') return instagramConversations
+    if (chatPlatformTab === 'messenger') return messengerConversations
+    return userScopedConversations
+  }, [chatPlatformTab, userScopedConversations, whatsappConversations, instagramConversations, messengerConversations])
 
   const userScopedCampaigns = useMemo(() => {
     if (currentUserRole === 'merchant') {
@@ -709,6 +749,15 @@ export default function OperationsPage() {
             <p>رقم الطلب: ${toArabicDigits(order.id)} | المتجر: ${order.merchant_name}</p>
             <div class="row"><span>الزبون:</span><span>${order.customer_name} (${formatArabicPhone(order.customer_phone)})</span></div>
             <div class="row"><span>العنوان:</span><span>${order.city} - ${toArabicDigits(order.address)}</span></div>
+            ${
+              order.items && order.items.length > 0
+                ? `<div class="row" style="background:#f4f4f4; padding:4px; font-weight:bold;">
+                    <span>تفاصيل ومواصفات المنتج:</span>
+                    <span>${order.items.map((it) => `${it.name} (${toArabicDigits(it.quantity)} قطعة)`).join(' · ')}</span>
+                  </div>`
+                : ''
+            }
+            ${order.notes ? `<div class="row"><span>المواصفات والقياس:</span><span>${toArabicDigits(order.notes)}</span></div>` : ''}
             <div class="row"><span>حالة الدفع:</span><span>${order.payment_status} (${order.payment_method})</span></div>
             <div class="total">الإجمالي: ${formatArabicCurrency(order.total_amount)}</div>
           </div>
@@ -873,31 +922,102 @@ export default function OperationsPage() {
                 </span>
               </button>
 
-              {/* 4. المحادثات الحية والتحكم بالبوت */}
+              {/* 4. لوحات محادثات التطبيقات الثلاثة المستقلة (عزل تام دون تداخل) */}
+              <div className="pt-2 pb-1">
+                <p className="text-[10px] font-bold text-[#64748B] px-3 mb-1.5 uppercase tracking-wider">
+                  محادثات المنصات المستقلة
+                </p>
+                <div className="space-y-1">
+                  {/* لوحة واتساب */}
+                  <button
+                    onClick={() => {
+                      setView('orders')
+                      setChatPlatformTab('whatsapp')
+                    }}
+                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                      chatPlatformTab === 'whatsapp' && view === 'orders'
+                        ? 'bg-[#25D366]/15 text-[#15803d] border border-[#25D366]/30 font-black'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
+                      <span>محادثات واتساب</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {toArabicDigits(whatsappConversations.length)}
+                    </span>
+                  </button>
+
+                  {/* لوحة إنستغرام */}
+                  <button
+                    onClick={() => {
+                      setView('orders')
+                      setChatPlatformTab('instagram')
+                    }}
+                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                      chatPlatformTab === 'instagram' && view === 'orders'
+                        ? 'bg-pink-50 text-pink-700 border border-pink-200 font-black'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
+                      <span>محادثات إنستغرام</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
+                      {toArabicDigits(instagramConversations.length)}
+                    </span>
+                  </button>
+
+                  {/* لوحة ماسنجر */}
+                  <button
+                    onClick={() => {
+                      setView('orders')
+                      setChatPlatformTab('messenger')
+                    }}
+                    className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                      chatPlatformTab === 'messenger' && view === 'orders'
+                        ? 'bg-blue-50 text-blue-700 border border-blue-200 font-black'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
+                      <span>محادثات ماسنجر</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                      {toArabicDigits(messengerConversations.length)}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 5. المحادثات الحية الشاملة (Supabase Realtime) */}
               <Link
                 href="/operations/whatsapp"
-                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#25D366]/10 text-[#1DA851] hover:bg-[#25D366]/20 border border-[#25D366]/20"
+                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#25D366]/10 text-[#1DA851] hover:bg-[#25D366]/20 border border-[#25D366]/20"
               >
-                <div className="flex items-center gap-3">
-                  <MessageCircle size={17} />
-                  <span>المحادثات الحية والتحكم بالبوت</span>
+                <div className="flex items-center gap-2.5">
+                  <MessageCircle size={16} />
+                  <span>المحادثات المباشرة (Live)</span>
                 </div>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#25D366] text-white">
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#25D366] text-white">
                   Realtime
                 </span>
               </Link>
 
-              {/* 5. لوحة الشحنات الحقيقية (Supabase) */}
+              {/* 6. لوحة تتبع الشحنات الحقيقية (بمعزل عن الحجز) */}
               <Link
                 href="/dashboard"
-                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#253765]/5 text-[#253765] hover:bg-[#253765]/10 border border-[#253765]/15"
+                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#253765]/5 text-[#253765] hover:bg-[#253765]/10 border border-[#253765]/15"
               >
-                <div className="flex items-center gap-3">
-                  <Truck size={17} />
-                  <span>لوحة الشحنات الحقيقية</span>
+                <div className="flex items-center gap-2.5">
+                  <Truck size={16} />
+                  <span>تتبع الشحنات الميداني</span>
                 </div>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white">
-                  Live DB
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white">
+                  Tracking
                 </span>
               </Link>
             </nav>
@@ -1203,39 +1323,129 @@ export default function OperationsPage() {
                 </div>
               </div>
 
-              {/* قسم المحادثات الجانبي */}
-              <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
-                <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle size={17} className="text-[#253765]" />
-                    <p className="text-sm font-bold text-[#0F172A]">
-                      {currentUserRole === 'merchant' ? `محادثات زبائن ${activeMerchantName}` : 'محادثات البوت الحية'}
-                    </p>
+              {/* قسم المحادثات الجانبي — مقسم إلى ٣ لوحات للمنصات لمنع التداخل */}
+              <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm flex flex-col">
+                <div className="p-3.5 border-b border-[#E2E8F0] bg-[#FAFAFA] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MessageCircle size={17} className="text-[#253765]" />
+                      <p className="text-sm font-bold text-[#0F172A]">
+                        {currentUserRole === 'merchant' ? `محادثات ${activeMerchantName}` : 'محادثات المنصات الحية'}
+                      </p>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
+                      {toArabicDigits(filteredChatConversations.length)} محادثة
+                    </span>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
-                    {toArabicDigits(userScopedConversations.length)} نشطة
-                  </span>
+
+                  {/* تبويبات المنصات الثلاثة المستقلة */}
+                  <div className="grid grid-cols-4 gap-1 p-1 bg-[#F1F5F9] rounded-xl text-center text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setChatPlatformTab('all')}
+                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
+                        chatPlatformTab === 'all'
+                          ? 'bg-[#253765] text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>الكل</span>
+                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200'}`}>
+                        {toArabicDigits(userScopedConversations.length)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setChatPlatformTab('whatsapp')}
+                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
+                        chatPlatformTab === 'whatsapp'
+                          ? 'bg-[#25D366] text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>واتساب</span>
+                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'whatsapp' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {toArabicDigits(whatsappConversations.length)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setChatPlatformTab('instagram')}
+                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
+                        chatPlatformTab === 'instagram'
+                          ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>إنستا</span>
+                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'instagram' ? 'bg-white/20 text-white' : 'bg-pink-100 text-pink-800'}`}>
+                        {toArabicDigits(instagramConversations.length)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setChatPlatformTab('messenger')}
+                      className={`py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
+                        chatPlatformTab === 'messenger'
+                          ? 'bg-[#0084FF] text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>ماسنجر</span>
+                      <span className={`text-[9px] px-1 rounded-full ${chatPlatformTab === 'messenger' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'}`}>
+                        {toArabicDigits(messengerConversations.length)}
+                      </span>
+                    </button>
+                  </div>
                 </div>
-                <div className="divide-y divide-[#E2E8F0]">
-                  {userScopedConversations.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-slate-400">لا توجد محادثات نشطة لهذا المتجر</p>
+
+                <div className="divide-y divide-[#E2E8F0] max-h-[560px] overflow-y-auto">
+                  {filteredChatConversations.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 space-y-1">
+                      <p className="font-semibold">لا توجد محادثات في هذه اللوحة</p>
+                      <p className="text-[10px] text-slate-400">
+                        {chatPlatformTab === 'whatsapp'
+                          ? 'لا توجد محادثات واردة عبر واتساب حالياً'
+                          : chatPlatformTab === 'instagram'
+                          ? 'لا توجد محادثات واردة عبر إنستغرام حالياً'
+                          : chatPlatformTab === 'messenger'
+                          ? 'لا توجد محادثات واردة عبر ماسنجر حالياً'
+                          : 'لا توجد محادثات نشطة لهذا المتجر'}
+                      </p>
+                    </div>
                   ) : (
-                    userScopedConversations.map((c) => (
+                    filteredChatConversations.map((c) => (
                       <div
                         key={c.id}
                         onClick={() => setActiveChat(c)}
-                        className="p-4 hover:bg-[#F8FAFC] transition cursor-pointer"
+                        className="p-3.5 hover:bg-[#F8FAFC] transition cursor-pointer"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <p className="text-xs font-bold text-[#0F172A]">{c.customer_name}</p>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold">
-                            {c.channel}
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              c.channel === 'whatsapp'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : c.channel === 'instagram'
+                                ? 'bg-pink-50 text-pink-700 border border-pink-200'
+                                : 'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}
+                          >
+                            {c.channel === 'whatsapp' ? 'واتساب' : c.channel === 'instagram' ? 'إنستغرام' : 'ماسنجر'}
                           </span>
                         </div>
                         <p className="text-[11px] text-[#64748B] line-clamp-2 leading-relaxed mb-2">
                           {toArabicDigits(c.last_message)}
                         </p>
-                        <StatusBadge status={c.status} />
+                        <div className="flex items-center justify-between">
+                          <StatusBadge status={c.status} />
+                          <span className="text-[10px] text-slate-400">
+                            {formatArabicPhone(c.customer_phone)}
+                          </span>
+                        </div>
                       </div>
                     ))
                   )}
@@ -2167,6 +2377,20 @@ export default function OperationsPage() {
               onSubmit={(e) => {
                 e.preventDefault()
                 const fd = new FormData(e.currentTarget)
+                const itemName = (fd.get('item_name') as string) || 'منتج مخصص'
+                const itemQty = Number(fd.get('item_quantity')) || 1
+                const itemColor = (fd.get('item_color') as string) || ''
+                const itemSize = (fd.get('item_size') as string) || ''
+                const itemDim = (fd.get('item_dimensions') as string) || ''
+                const itemCap = (fd.get('item_capacity') as string) || ''
+
+                const specsDesc = [
+                  itemColor ? `اللون: ${itemColor}` : '',
+                  itemSize ? `القياس: ${itemSize}` : '',
+                  itemDim ? `الأبعاد: ${itemDim}` : '',
+                  itemCap ? `السعة: ${itemCap}` : ''
+                ].filter(Boolean).join(' | ')
+
                 const newO: Order = {
                   id: `BRQ-${Math.floor(1000 + Math.random() * 9000)}`,
                   customer_name: (fd.get('customer_name') as string) || 'زبون جديد',
@@ -2178,11 +2402,13 @@ export default function OperationsPage() {
                   payment_status: 'غير مدفوع',
                   payment_method: 'عند الاستلام',
                   created_at: new Date().toISOString(),
-                  merchant_name: currentUserRole === 'merchant' ? activeMerchantName : ((fd.get('merchant_name') as string) || 'متجر دجلة')
+                  merchant_name: currentUserRole === 'merchant' ? activeMerchantName : ((fd.get('merchant_name') as string) || 'متجر دجلة'),
+                  notes: specsDesc,
+                  items: [{ id: `it-${Date.now()}`, name: itemName, quantity: itemQty, price: Number(fd.get('total_amount')) || 25000 }]
                 }
                 setOrders([newO, ...orders])
                 setNewOrderModal(false)
-                showToast(`تم إنشاء الطلب ${toArabicDigits(newO.id)} بنجاح`, 'success')
+                showToast(`تم إنشاء الطلب ${toArabicDigits(newO.id)} مع مواصفات الستيكر بنجاح`, 'success')
               }}
               className="p-5 space-y-3 text-xs"
             >
@@ -2217,6 +2443,39 @@ export default function OperationsPage() {
                   </select>
                 </div>
               )}
+              {/* حقول مواصفات وتفاصيل المنتج للستيكر */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <p className="text-[11px] font-bold text-[#253765]">مواصفات وتفاصيل المنتج للستيكر (حسب طلب الزبون):</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">نوع المنتج</label>
+                    <input name="item_name" placeholder="ساعة / فستان" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">عدد القطع</label>
+                    <input type="number" name="item_quantity" defaultValue="1" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">اللون</label>
+                    <input name="item_color" placeholder="أسود / أزرق" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">القياس / الحجم</label>
+                    <input name="item_size" placeholder="L / 42 / 100ml" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">الأبعاد (طول × عرض)</label>
+                    <input name="item_dimensions" placeholder="100x50 cm" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#64748B] block font-bold mb-0.5">السعة / الوزن</label>
+                    <input name="item_capacity" placeholder="500ml / 2kg" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 text-[11px] outline-none focus:border-[#253765]" />
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="text-[#64748B] block mb-1 font-bold">المبلغ (د.ع) *</label>
                 <input required type="number" name="total_amount" defaultValue="35000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />

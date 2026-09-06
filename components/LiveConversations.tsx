@@ -30,14 +30,17 @@ import {
 } from '@/lib/conversations'
 
 type BotFilter = 'all' | 'bot' | 'human'
+type PlatformTab = 'all' | 'whatsapp' | 'instagram' | 'messenger'
 
 interface Props {
   initialConversations: ConversationOverview[]
   loadError?: string | null
+  defaultPlatform?: PlatformTab
 }
 
-export default function LiveConversations({ initialConversations, loadError }: Props) {
+export default function LiveConversations({ initialConversations, loadError, defaultPlatform = 'all' }: Props) {
   const [conversations, setConversations] = useState<ConversationOverview[]>(initialConversations)
+  const [platformTab, setPlatformTab] = useState<PlatformTab>(defaultPlatform)
   const [selectedId, setSelectedId] = useState<string | null>(initialConversations[0]?.id ?? null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingMessages, setLoadingMessages] = useState(initialConversations.length > 0)
@@ -47,6 +50,8 @@ export default function LiveConversations({ initialConversations, loadError }: P
   const [sending, setSending] = useState(false)
   const [togglingBot, setTogglingBot] = useState(false)
   const [connected, setConnected] = useState(false)
+  // عدّاد رسائل الزبون غير المقروءة لكل محادثة — يُصفَّر عند فتحها
+  const [unread, setUnread] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(loadError ?? null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -113,6 +118,7 @@ export default function LiveConversations({ initialConversations, loadError }: P
       }
       return conversationId
     })
+    setUnread((prev) => (prev[conversationId] ? { ...prev, [conversationId]: 0 } : prev))
   }, [])
 
   // ------------------------------------------------------------------
@@ -152,6 +158,12 @@ export default function LiveConversations({ initialConversations, loadError }: P
     // إضافة الرسالة لنافذة المحادثة المفتوحة (مع حماية من الازدواج)
     if (msg.conversation_id === selectedIdRef.current) {
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
+    } else if (msg.sender_type === 'customer') {
+      // رسالة زبون لمحادثة غير مفتوحة — تُعلَّم كغير مقروءة.
+      // هذا جوهري في وضع «إدارة موظف»: الموظف يحتاج إشارة بصرية
+      // لكل رد جديد، وإلا بدا كأن الرسائل توقفت.
+      const id = msg.conversation_id
+      setUnread((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }))
     }
   }, [])
 
@@ -252,6 +264,12 @@ export default function LiveConversations({ initialConversations, loadError }: P
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return conversations.filter((c) => {
+      // عزل حسب المنصة لمنع التداخل بين واتساب، إنستغرام، وماسنجر
+      if (platformTab !== 'all') {
+        const plat = (c.platform || 'whatsapp').toLowerCase()
+        if (plat !== platformTab) return false
+      }
+      if (c.id === selectedId) return true
       if (botFilter === 'bot' && !c.bot_active) return false
       if (botFilter === 'human' && c.bot_active) return false
       if (!q) return true
@@ -261,7 +279,16 @@ export default function LiveConversations({ initialConversations, loadError }: P
         (c.merchant_name || '').toLowerCase().includes(q)
       )
     })
-  }, [conversations, search, botFilter])
+  }, [conversations, search, botFilter, platformTab, selectedId])
+
+  const platformCounts = useMemo(() => {
+    return {
+      all: conversations.length,
+      whatsapp: conversations.filter((c) => (c.platform || 'whatsapp').toLowerCase() === 'whatsapp').length,
+      instagram: conversations.filter((c) => (c.platform || '').toLowerCase() === 'instagram').length,
+      messenger: conversations.filter((c) => (c.platform || '').toLowerCase() === 'messenger').length,
+    }
+  }, [conversations])
 
   const selected = useMemo(
     () => conversations.find((c) => c.id === selectedId) || null,
@@ -271,6 +298,11 @@ export default function LiveConversations({ initialConversations, loadError }: P
   const botActiveCount = useMemo(
     () => conversations.filter((c) => c.bot_active).length,
     [conversations]
+  )
+
+  const totalUnread = useMemo(
+    () => Object.values(unread).reduce((sum, n) => sum + n, 0),
+    [unread]
   )
 
   // ------------------------------------------------------------------
@@ -370,6 +402,9 @@ export default function LiveConversations({ initialConversations, loadError }: P
                   <h3 className="text-sm font-bold text-[#0F172A]">المحادثات الحية</h3>
                   <p className="text-[10px] text-slate-400">
                     {toArabicDigits(conversations.length)} محادثة · {toArabicDigits(botActiveCount)} بالبوت
+                    {totalUnread > 0 && (
+                      <span className="text-[#25D366] font-bold"> · {toArabicDigits(totalUnread)} جديدة</span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -387,6 +422,69 @@ export default function LiveConversations({ initialConversations, loadError }: P
                 />
                 {connected ? 'مباشر' : 'غير متصل'}
               </span>
+            </div>
+
+            {/* تبويبات المنصات المستقلة لمنع التداخل */}
+            <div className="grid grid-cols-4 gap-1 p-1 bg-[#F1F5F9] rounded-xl text-center">
+              <button
+                type="button"
+                onClick={() => setPlatformTab('all')}
+                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
+                  platformTab === 'all'
+                    ? 'bg-[#253765] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>الكل</span>
+                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                  {toArabicDigits(platformCounts.all)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPlatformTab('whatsapp')}
+                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
+                  platformTab === 'whatsapp'
+                    ? 'bg-[#25D366] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>واتساب</span>
+                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'whatsapp' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {toArabicDigits(platformCounts.whatsapp)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPlatformTab('instagram')}
+                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
+                  platformTab === 'instagram'
+                    ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>إنستغرام</span>
+                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'instagram' ? 'bg-white/20 text-white' : 'bg-pink-100 text-pink-800'}`}>
+                  {toArabicDigits(platformCounts.instagram)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPlatformTab('messenger')}
+                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${
+                  platformTab === 'messenger'
+                    ? 'bg-[#0084FF] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>ماسنجر</span>
+                <span className={`text-[9px] px-1 rounded-full ${platformTab === 'messenger' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'}`}>
+                  {toArabicDigits(platformCounts.messenger)}
+                </span>
+              </button>
             </div>
 
             <div className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl px-3 py-2 focus-within:border-[#253765] transition">
@@ -459,9 +557,16 @@ export default function LiveConversations({ initialConversations, loadError }: P
                       <p className="text-xs font-bold text-[#0F172A] truncate" dir="ltr">
                         {displayPhone(conv.customer_phone)}
                       </p>
-                      <span className="text-[9px] text-slate-400 shrink-0">
-                        {relativeTime(conv.last_message_at)}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {(unread[conv.id] || 0) > 0 && (
+                          <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#25D366] text-white text-[9px] font-black flex items-center justify-center">
+                            {toArabicDigits(unread[conv.id])}
+                          </span>
+                        )}
+                        <span className="text-[9px] text-slate-400">
+                          {relativeTime(conv.last_message_at)}
+                        </span>
+                      </div>
                     </div>
                     <p className="text-[11px] text-slate-500 truncate mt-0.5">
                       {conv.last_sender_type && conv.last_sender_type !== 'customer' && (

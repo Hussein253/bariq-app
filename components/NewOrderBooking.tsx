@@ -35,6 +35,13 @@ const EMPTY_FORM = {
   district: '',
   full_address: '',
   nearest_landmark: '',
+  // مواصفات وتفاصيل المنتج حسب طلب الزبون
+  product_type: '',
+  quantity: '1',
+  colors: '',
+  size_volume: '',
+  dimensions: '', // الطول والعرض
+  capacity: '', // السعة أو الحجم
   order_content: '',
   cod_amount_iqd: '',
   delivery_fee_iqd: '',
@@ -56,12 +63,28 @@ export default function NewOrderBooking() {
     setSubmitting(true)
     setError(null)
 
+    // تجميع مواصفات المنتج الدقيقة حسب طلب الزبون
+    const specsParts: string[] = []
+    if (form.product_type.trim()) specsParts.push(`المنتج: ${form.product_type.trim()}`)
+    if (form.quantity.trim() && form.quantity !== '1') specsParts.push(`الكمية: ${form.quantity.trim()} قطعة`)
+    else if (form.quantity.trim()) specsParts.push(`الكمية: ١ قطعة`)
+    if (form.colors.trim()) specsParts.push(`اللون: ${form.colors.trim()}`)
+    if (form.size_volume.trim()) specsParts.push(`القياس/الحجم: ${form.size_volume.trim()}`)
+    if (form.dimensions.trim()) specsParts.push(`الأبعاد: ${form.dimensions.trim()}`)
+    if (form.capacity.trim()) specsParts.push(`السعة: ${form.capacity.trim()}`)
+
+    const generatedContent = specsParts.join(' | ')
+    const finalOrderContent = form.order_content.trim()
+      ? (specsParts.length > 0 ? `${form.order_content.trim()} (${generatedContent})` : form.order_content.trim())
+      : (generatedContent || 'بضاعة عامة')
+
     try {
       const res = await fetch('/api/orders/book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          order_content: finalOrderContent,
           cod_amount_iqd: Number(form.cod_amount_iqd || 0),
           delivery_fee_iqd: Number(form.delivery_fee_iqd || 0),
         }),
@@ -222,30 +245,99 @@ export default function NewOrderBooking() {
           />
         </Field>
 
-        {/* ===== محتوى الطلب — الحقل البارز ===== */}
-        <div className="rounded-xl border-2 border-[#253765]/30 bg-[#253765]/5 p-3.5">
-          <label className="block text-xs font-black text-[#253765] mb-2">
-            محتوى الطلب <span className="text-rose-600">*</span>
+        {/* ===== مواصفات وتفاصيل المنتج حسب طلب الزبون (للطباعة في الستيكر) ===== */}
+        <div className="rounded-xl border-2 border-[#253765]/20 bg-[#F8FAFC] p-3.5 space-y-3">
+          <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+            <label className="text-xs font-black text-[#253765] flex items-center gap-1.5">
+              <span>📋 مواصفات المنتج وتفاصيل الستيكر (حسب طلب الزبون)</span>
+            </label>
+            <span className="text-[10px] text-slate-500 font-semibold">تُطبع مباشرة على ستيكر الشحنة</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">اسم أو نوع المنتج</label>
+              <input
+                value={form.product_type}
+                onChange={(e) => set('product_type', e.target.value)}
+                placeholder="مثال: فستان سهرة، عطر، ساعة"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">عدد القطع</label>
+              <input
+                value={form.quantity}
+                onChange={(e) => set('quantity', e.target.value)}
+                placeholder="مثال: 1 أو 2"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">اللون / الألوان</label>
+              <input
+                value={form.colors}
+                onChange={(e) => set('colors', e.target.value)}
+                placeholder="مثال: أسود ملكي، ماروني"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">القياس / الحجم</label>
+              <input
+                value={form.size_volume}
+                onChange={(e) => set('size_volume', e.target.value)}
+                placeholder="مثال: L / XL أو 42 أو 100ml"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">الأبعاد (الطول والعرض)</label>
+              <input
+                value={form.dimensions}
+                onChange={(e) => set('dimensions', e.target.value)}
+                placeholder="مثال: 120cm × 60cm"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">السعة / الوزن</label>
+              <input
+                value={form.capacity}
+                onChange={(e) => set('capacity', e.target.value)}
+                placeholder="مثال: 250ml أو 1.5kg"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ===== محتوى الطلب العام ===== */}
+        <div className="rounded-xl border border-[#CBD5E1] bg-white p-3 space-y-2">
+          <label className="block text-xs font-bold text-slate-700">
+            ملخص محتوى الطلب (أو اختر اقتراحاً سريعاً)
           </label>
           <input
             value={form.order_content}
             onChange={(e) => set('order_content', e.target.value)}
-            placeholder="مثال: ملابس، عطور، إلكترونيات"
-            className="w-full px-3 py-2.5 rounded-xl border border-[#253765]/30 bg-white text-sm font-bold text-[#0F172A] outline-none focus:border-[#253765] transition"
+            placeholder="اتركه فارغاً ليتم توليده تلقائياً من المواصفات أعلاه، أو اكتب وصفاً إضافياً"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-[#253765] transition"
           />
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="flex flex-wrap gap-1.5 pt-1">
             {CONTENT_SUGGESTIONS.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => set('order_content', c)}
-                className="px-2.5 py-1 rounded-lg bg-white border border-[#253765]/20 text-[10px] font-bold text-[#253765] hover:bg-[#253765] hover:text-white transition"
+                className="px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-700 hover:bg-[#253765] hover:text-white transition"
               >
                 {c}
               </button>
             ))}
           </div>
-          <p className="text-[10px] text-slate-500 mt-2">يُطبع على ستيكر الشحنة ليعرف المندوب طبيعة الطرد.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

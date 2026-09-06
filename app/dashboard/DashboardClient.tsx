@@ -297,6 +297,7 @@ export default function DashboardClient({
             </div>
 
             <nav className="space-y-1.5">
+              {/* 1. لوحة تتبع الشحنات اللوجستية (بمعزل عن الحجز) */}
               <button
                 onClick={() => setTab('shipments')}
                 className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
@@ -304,15 +305,15 @@ export default function DashboardClient({
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Package size={17} />
-                  <span>{role === 'merchant' ? 'شحناتي' : 'كل الشحنات'}</span>
+                  <Truck size={17} />
+                  <span>{role === 'merchant' ? 'تتبع شحناتي' : 'تتبع الشحنات'}</span>
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'shipments' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
                   {toArabicDigits(scopedShipments.length)}
                 </span>
               </button>
 
-              {/* حجز طلب جديد — إجراء أساسي مستقل */}
+              {/* 2. خانة حجز الطلبات — مستقلة تماماً عن خانة التتبع */}
               <button
                 onClick={() => setTab('booking')}
                 className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
@@ -323,8 +324,11 @@ export default function DashboardClient({
               >
                 <div className="flex items-center gap-3">
                   <PackagePlus size={17} />
-                  <span>حجز طلب جديد</span>
+                  <span>حجز الطلبات (جديد)</span>
                 </div>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${tab === 'booking' ? 'bg-white/25 text-white' : 'bg-[#253765]/10 text-[#253765]'} font-bold`}>
+                  حجز
+                </span>
               </button>
 
               {role === 'admin' && (
@@ -400,17 +404,21 @@ export default function DashboardClient({
             <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
               {tab === 'shipments'
                 ? role === 'merchant'
-                  ? `شحنات ${activeMerchant?.name || ''}`
-                  : 'مركز تحكم الشحنات'
+                  ? `تتبع شحنات ${activeMerchant?.name || ''}`
+                  : 'لوحة تتبع الشحنات الميدانية واللوجستيات'
                 : tab === 'booking'
-                ? 'حجز طلب جديد'
+                ? 'خانة حجز وتصعيد الطلبات (مع الستيكر الحراري)'
                 : tab === 'merchants'
                 ? 'إدارة التجار'
                 : 'إدارة المندوبين'}
             </h1>
             <p className="text-xs sm:text-sm text-[#64748B] mt-1">
               {tab === 'booking'
-                ? 'أدخل بيانات الزبون ومحتوى الطلب — يُنشأ الطلب والشحنة معاً ويصدر رقم التتبع تلقائياً'
+                ? 'خانة الحجز بمعزل عن التتبع: أدخل بيانات الزبون ومواصفات المنتج الدقيقة — يُصدر رقم التتبع ويُطبع الستيكر فورياً'
+                : tab === 'shipments'
+                ? role === 'merchant'
+                  ? 'متابعة مسار شحنات متجرك، السائق المخصص، وتحديثات الوصول والتسليم'
+                  : 'متابعة ومراقبة حالات الشحنات الميدانية (بالطريق، مؤجلة، مرتجعة، تم التسليم) وتعيين المناديب'
                 : role === 'merchant'
                 ? 'تظهر فقط الشحنات والتسويات الخاصة بمتجرك'
                 : 'رؤية كاملة على شحنات كل التجار وحالاتها المالية واللوجستية'}
