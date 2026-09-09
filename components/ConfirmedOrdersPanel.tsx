@@ -1,9 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, Loader, PackageCheck, RefreshCw, Truck } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import {
+  CheckCircle2, ChevronDown, ChevronUp, ClipboardCheck, Loader, MapPin,
+  MessageSquare, Package, PackageCheck, Phone, Receipt, RefreshCw, Truck, User,
+} from 'lucide-react'
 import { toArabicDigits, formatArabicCurrency, formatDateTime } from '@/lib/formatters'
-import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
+import {
+  itemLabel, itemLineTotal, orderDisplayName, orderDisplayPhone, toNumber,
+  type ConfirmedOrder,
+} from '@/lib/orders'
 
 /**
  * قسم "الطلبات المؤكدة" — أسفل المحادثات
@@ -18,6 +24,7 @@ export default function ConfirmedOrdersPanel() {
   const [error, setError] = useState<string | null>(null)
   const [dispatchingId, setDispatchingId] = useState<number | null>(null)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -125,60 +132,232 @@ export default function ConfirmedOrdersPanel() {
             <p className="text-xs font-semibold text-slate-400">لا توجد طلبات مؤكدة حالياً</p>
           </div>
         ) : (
-          <table className="w-full text-right text-xs min-w-[900px]">
+          <table className="w-full text-right text-xs min-w-[960px]">
             <thead className="bg-[#F8FAFC] text-slate-500 border-b border-[#E2E8F0]">
               <tr>
+                <th className="px-3 py-2.5 font-bold w-10" />
                 <th className="px-4 py-2.5 font-bold">رقم الطلب</th>
                 <th className="px-4 py-2.5 font-bold">الزبون</th>
                 <th className="px-4 py-2.5 font-bold">الهاتف</th>
                 <th className="px-4 py-2.5 font-bold">العنوان</th>
-                <th className="px-4 py-2.5 font-bold">المحتوى</th>
+                <th className="px-4 py-2.5 font-bold">القطع</th>
                 <th className="px-4 py-2.5 font-bold">الإجمالي</th>
                 <th className="px-4 py-2.5 font-bold">التاريخ</th>
                 <th className="px-4 py-2.5 font-bold">الحالة</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
-              {orders.map((order) => (
-                <tr key={order.order_id} className="hover:bg-[#F8FAFC] transition">
-                  <td className="px-4 py-3 font-bold text-[#253765]">#{toArabicDigits(order.order_id)}</td>
-                  <td className="px-4 py-3 text-[#0F172A] font-semibold">{orderDisplayName(order)}</td>
-                  <td className="px-4 py-3 text-slate-500" dir="ltr">
-                    {toArabicDigits(orderDisplayPhone(order))}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 max-w-[220px] truncate" title={order.address || ''}>
-                    {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 max-w-[180px] truncate" title={order.order_content || ''}>
-                    {order.order_content || '—'}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-[#0F172A]">
-                    {formatArabicCurrency(order.grand_total_iqd || 0)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{formatDateTime(order.created_at)}</td>
-                  <td className="px-4 py-3">
-                    {order.shipment ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 size={12} />
-                        أُرسل — {order.shipment.tracking_number}
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => void handleDispatch(order.order_id)}
-                        disabled={dispatchingId === order.order_id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-[11px] transition"
-                      >
-                        {dispatchingId === order.order_id ? (
-                          <Loader size={12} className="animate-spin" />
+              {orders.map((order) => {
+                const isOpen = expandedId === order.order_id
+                const piecesCount = order.items.reduce((sum, it) => sum + toNumber(it.quantity), 0)
+                const itemsSum = order.items.reduce((sum, it) => sum + itemLineTotal(it), 0)
+                const recordedItemsTotal = toNumber(order.items_total_iqd)
+                const totalsMismatch =
+                  order.items.length > 0 && recordedItemsTotal > 0 && itemsSum !== recordedItemsTotal
+
+                return (
+                  <Fragment key={order.order_id}>
+                    <tr className={isOpen ? 'bg-[#F1F5F9] transition' : 'hover:bg-[#F8FAFC] transition'}>
+                      <td className="px-3 py-3">
+                        <button
+                          onClick={() => setExpandedId(isOpen ? null : order.order_id)}
+                          aria-expanded={isOpen}
+                          aria-label={isOpen ? 'إخفاء تفاصيل الطلب' : 'عرض تفاصيل الطلب'}
+                          className="w-7 h-7 rounded-lg border border-[#E2E8F0] bg-white hover:border-[#253765] hover:text-[#253765] text-slate-400 flex items-center justify-center transition"
+                        >
+                          {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-[#253765]">#{toArabicDigits(order.order_id)}</td>
+                      <td className="px-4 py-3 text-[#0F172A] font-semibold">{orderDisplayName(order)}</td>
+                      <td className="px-4 py-3 text-slate-500" dir="ltr">
+                        {toArabicDigits(orderDisplayPhone(order))}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 max-w-[220px] truncate" title={order.address || ''}>
+                        {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {order.items.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 font-semibold text-[#0F172A]">
+                            <Package size={12} className="text-slate-400" />
+                            {toArabicDigits(piecesCount)} قطعة
+                          </span>
                         ) : (
-                          <Truck size={12} />
+                          <span className="text-slate-300">—</span>
                         )}
-                        إرسال للشحن
-                      </button>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-[#0F172A]">
+                        {formatArabicCurrency(toNumber(order.grand_total_iqd))}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">{formatDateTime(order.created_at)}</td>
+                      <td className="px-4 py-3">
+                        {order.shipment ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 size={12} />
+                            أُرسل — {order.shipment.tracking_number}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => void handleDispatch(order.order_id)}
+                            disabled={dispatchingId === order.order_id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-[11px] transition"
+                          >
+                            {dispatchingId === order.order_id ? (
+                              <Loader size={12} className="animate-spin" />
+                            ) : (
+                              <Truck size={12} />
+                            )}
+                            إرسال للشحن
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+
+                    {isOpen && (
+                      <tr className="bg-[#F8FAFC]">
+                        <td colSpan={9} className="px-4 pt-1 pb-5">
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <section className="rounded-xl border border-[#E2E8F0] bg-white p-3.5">
+                              <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-[#253765] mb-2.5">
+                                <Package size={13} />
+                                المنتجات المطلوبة
+                              </h4>
+                              {order.items.length === 0 ? (
+                                <p className="text-[11px] text-slate-400 py-2">
+                                  لم تُسجَّل عناصر لهذا الطلب في جدول order_items.
+                                </p>
+                              ) : (
+                                <table className="w-full text-right text-[11px]">
+                                  <thead className="text-slate-400 border-b border-[#F1F5F9]">
+                                    <tr>
+                                      <th className="pb-1.5 font-bold">المنتج</th>
+                                      <th className="pb-1.5 font-bold">الكمية</th>
+                                      <th className="pb-1.5 font-bold">سعر الوحدة</th>
+                                      <th className="pb-1.5 font-bold">المجموع</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[#F8FAFC]">
+                                    {order.items.map((item) => (
+                                      <tr key={item.id}>
+                                        <td className="py-2 font-semibold text-[#0F172A]">{itemLabel(item)}</td>
+                                        <td className="py-2 text-slate-500">{toArabicDigits(toNumber(item.quantity))}</td>
+                                        <td className="py-2 text-slate-500">
+                                          {formatArabicCurrency(toNumber(item.unit_price_iqd))}
+                                        </td>
+                                        <td className="py-2 font-bold text-[#0F172A]">
+                                          {formatArabicCurrency(itemLineTotal(item))}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </section>
+
+                            <section className="rounded-xl border border-[#E2E8F0] bg-white p-3.5">
+                              <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-[#253765] mb-2.5">
+                                <MapPin size={13} />
+                                بيانات التوصيل
+                              </h4>
+                              <dl className="space-y-1.5 text-[11px]">
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24 flex items-center gap-1">
+                                    <User size={11} /> الزبون
+                                  </dt>
+                                  <dd className="font-semibold text-[#0F172A]">{orderDisplayName(order)}</dd>
+                                </div>
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24 flex items-center gap-1">
+                                    <Phone size={11} /> الهاتف
+                                  </dt>
+                                  <dd className="font-semibold text-[#0F172A]" dir="ltr">
+                                    {toArabicDigits(orderDisplayPhone(order))}
+                                  </dd>
+                                </div>
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24">المحافظة</dt>
+                                  <dd className="font-semibold text-[#0F172A]">{order.governorate || '—'}</dd>
+                                </div>
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24">المنطقة</dt>
+                                  <dd className="font-semibold text-[#0F172A]">{order.district || '—'}</dd>
+                                </div>
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24">العنوان</dt>
+                                  <dd className="text-[#0F172A]">{order.address || '—'}</dd>
+                                </div>
+                                <div className="flex gap-2">
+                                  <dt className="text-slate-400 shrink-0 w-24">نقطة دالة</dt>
+                                  <dd className="text-[#0F172A]">{order.address_details || '—'}</dd>
+                                </div>
+                              </dl>
+                            </section>
+
+                            <section className="rounded-xl border border-[#E2E8F0] bg-white p-3.5">
+                              <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-[#253765] mb-2.5">
+                                <Receipt size={13} />
+                                الحساب
+                              </h4>
+                              <dl className="space-y-1.5 text-[11px]">
+                                <div className="flex justify-between gap-2">
+                                  <dt className="text-slate-400">مجموع القطع</dt>
+                                  <dd className="font-semibold text-[#0F172A]">
+                                    {formatArabicCurrency(recordedItemsTotal)}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                  <dt className="text-slate-400">أجرة التوصيل</dt>
+                                  <dd className="font-semibold text-[#0F172A]">
+                                    {formatArabicCurrency(toNumber(order.delivery_fee_iqd))}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-2 border-t border-[#F1F5F9] pt-1.5 mt-1.5">
+                                  <dt className="font-bold text-[#253765]">الحساب الكلي</dt>
+                                  <dd className="font-bold text-[#253765]">
+                                    {formatArabicCurrency(toNumber(order.grand_total_iqd))}
+                                  </dd>
+                                </div>
+                              </dl>
+                              {totalsMismatch && (
+                                <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[10px] font-semibold text-amber-800">
+                                  تنبيه: مجموع الأسطر ({formatArabicCurrency(itemsSum)}) لا يطابق مجموع القطع المسجَّل.
+                                </p>
+                              )}
+                            </section>
+
+                            <section className="rounded-xl border border-[#E2E8F0] bg-white p-3.5">
+                              <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-[#253765] mb-2.5">
+                                <MessageSquare size={13} />
+                                ملخص البوت
+                              </h4>
+                              {order.order_content?.trim() ? (
+                                <p className="text-[11px] text-[#0F172A] leading-relaxed whitespace-pre-line">
+                                  {order.order_content}
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-slate-400 py-2">
+                                  لم يسجّل البوت ملخصاً لهذا الطلب (العمود order_content فارغ).
+                                </p>
+                              )}
+                              {order.shipment && (
+                                <div className="mt-3 pt-2.5 border-t border-[#F1F5F9] flex items-center gap-1.5 text-[11px] flex-wrap">
+                                  <Truck size={12} className="text-emerald-600" />
+                                  <span className="text-slate-400">رقم التتبع:</span>
+                                  <span className="font-bold text-emerald-700" dir="ltr">
+                                    {order.shipment.tracking_number}
+                                  </span>
+                                  <span className="text-slate-400">·</span>
+                                  <span className="font-semibold text-slate-600">{order.shipment.status}</span>
+                                </div>
+                              )}
+                            </section>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         )}

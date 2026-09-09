@@ -9,7 +9,9 @@ export const dynamic = 'force-dynamic'
  * --------------------------
  * يُرجع طلبات public.orders التي current_state = 'confirmed'، مع حالة
  * الشحن (إن وُجدت شحنة مرتبطة بالفعل عبر shipments.order_id) لتحديد
- * أي الطلبات ما زالت بحاجة لزر "إرسال للشحن".
+ * أي الطلبات ما زالت بحاجة لزر "إرسال للشحن"، ومع عناصر الطلب من
+ * order_items (المنتج واللون والقياس والكمية وسعر الوحدة) لعرض التفاصيل
+ * الكاملة في بطاقة الطلب.
  */
 export async function GET() {
   try {
@@ -19,7 +21,8 @@ export async function GET() {
         `order_id, created_at, phone_number, contact_phone, name, customer_name,
          governorate, district, address, address_details, order_content,
          items_total_iqd, delivery_fee_iqd, grand_total_iqd, current_state, updated_at,
-         shipments ( id, tracking_number, status )`
+         shipments ( id, tracking_number, status ),
+         order_items ( id, variant_id, product_name_snapshot, color_snapshot, size_snapshot, quantity, unit_price_iqd )`
       )
       .eq('current_state', 'confirmed')
       .order('created_at', { ascending: false })
