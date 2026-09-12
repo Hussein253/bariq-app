@@ -73,21 +73,36 @@ import NewOrderBooking from '@/components/NewOrderBooking'
 
 // ---------- أنواع البيانات ----------
 
+/**
+ * التاجر كما يصل من /api/merchants — جدول merchants الحقيقي مُثرى بباقته
+ * الفعّالة وعدد شحناته. الحقول التي لم يُدخلها التاجر بعد تصل null ولا
+ * تُستبدل بقيم افتراضية: رقم مُخترع في عمولة أو رصيد قرار مالي خاطئ.
+ */
 export interface Merchant {
   id: string
   name: string
-  owner_name: string
-  phone: string
-  city: string
-  plan: 'أساسية' | 'متقدمة' | 'احترافية'
-  subscription_status: 'نشط' | 'متوقف' | 'تجريبي'
+  owner_name: string | null
+  phone: string | null
+  city: string | null
+  /** اسم الباقة الفعّالة (Spark…Storm)، أو null إن لم يشترك بعد. */
+  plan: string | null
+  /** حالة الاشتراك بالعربية، أو null إن لم يوجد اشتراك فعّال. */
+  subscription_status: string | null
   api_connected: boolean
-  monthly_fee: number
-  commission_rate?: number
-  api_key: string
-  webhook_url?: string
+  monthly_fee: number | null
+  commission_rate: number | null
+  api_key: string | null
+  webhook_url: string | null
   orders_count: number
   balance: number
+}
+
+/** حالة الاشتراك في قاعدة البيانات → التسمية المعروضة. */
+const SUBSCRIPTION_LABELS: Record<string, string> = {
+  trialing: 'تجريبي',
+  active: 'نشط',
+  past_due: 'متأخر السداد',
+  canceled: 'ملغى',
 }
 
 export interface Marketer {
@@ -136,57 +151,6 @@ type UserRole = 'super_admin' | 'merchant'
 type TimeRange = 'today' | 'week' | 'month' | 'all'
 
 // ---------- البيانات الأولية المحملة ----------
-
-const INITIAL_MERCHANTS: Merchant[] = [
-  {
-    id: 'm1',
-    name: 'متجر دجلة',
-    owner_name: 'علي التميمي',
-    phone: '07700112233',
-    city: 'بغداد',
-    plan: 'متقدمة',
-    subscription_status: 'نشط',
-    api_connected: true,
-    monthly_fee: 35000,
-    commission_rate: 5,
-    api_key: 'brq_live_key_99f8a32b0c',
-    webhook_url: 'https://api.dijlastore.com/webhooks/bariq',
-    orders_count: 142,
-    balance: 420000
-  },
-  {
-    id: 'm2',
-    name: 'ستايل بغداد',
-    owner_name: 'سارة الراوي',
-    phone: '07800223344',
-    city: 'البصرة',
-    plan: 'أساسية',
-    subscription_status: 'تجريبي',
-    api_connected: true,
-    monthly_fee: 0,
-    commission_rate: 7,
-    api_key: 'brq_test_key_44b1c87a1d',
-    webhook_url: '',
-    orders_count: 28,
-    balance: 85000
-  },
-  {
-    id: 'm3',
-    name: 'أزياء الفرات',
-    owner_name: 'محمد الدليمي',
-    phone: '07500334455',
-    city: 'أربيل',
-    plan: 'احترافية',
-    subscription_status: 'متوقف',
-    api_connected: false,
-    monthly_fee: 50000,
-    commission_rate: 4,
-    api_key: 'brq_live_key_11e7d90a5f',
-    webhook_url: '',
-    orders_count: 310,
-    balance: 0
-  }
-]
 
 const INITIAL_MARKETERS: Marketer[] = [
   {
@@ -402,7 +366,9 @@ export default function OperationsPage() {
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersError, setOrdersError] = useState<string | null>(null)
   const [dispatchingOrderId, setDispatchingOrderId] = useState<number | null>(null)
-  const [merchants, setMerchants] = useState<Merchant[]>(INITIAL_MERCHANTS)
+  const [merchants, setMerchants] = useState<Merchant[]>([])
+  const [merchantsLoading, setMerchantsLoading] = useState(true)
+  const [merchantsError, setMerchantsError] = useState<string | null>(null)
   const [marketers, setMarketers] = useState<Marketer[]>(INITIAL_MARKETERS)
   const [campaigns, setCampaigns] = useState<AdCampaign[]>(INITIAL_CAMPAIGNS)
 
@@ -448,6 +414,64 @@ export default function OperationsPage() {
   useEffect(() => {
     void loadOrders()
   }, [loadOrders])
+
+  // التجار الحقيقيون من public.merchants مع باقتهم الفعّالة (لا بيانات وهمية)
+  const loadMerchants = useCallback(async () => {
+    setMerchantsLoading(true)
+    try {
+      const res = await fetch('/api/merchants', { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل التجار')
+
+      const rows = json.merchants as {
+        id: string
+        name: string
+        owner_name: string | null
+        phone: string | null
+        city: string | null
+        status: string
+        balance_iqd: number
+        commission_rate: number | null
+        api_key: string | null
+        webhook_url: string | null
+        api_connected: boolean
+        plan_name: string | null
+        subscription_status: string | null
+        monthly_fee_iqd: number | null
+        orders_count: number
+      }[]
+
+      setMerchants(
+        rows.map((m) => ({
+          id: m.id,
+          name: m.name,
+          owner_name: m.owner_name,
+          phone: m.phone,
+          city: m.city,
+          plan: m.plan_name,
+          subscription_status: m.subscription_status
+            ? SUBSCRIPTION_LABELS[m.subscription_status] ?? m.subscription_status
+            : null,
+          api_connected: m.api_connected,
+          monthly_fee: m.monthly_fee_iqd,
+          commission_rate: m.commission_rate,
+          api_key: m.api_key,
+          webhook_url: m.webhook_url,
+          orders_count: m.orders_count,
+          balance: m.balance_iqd,
+        }))
+      )
+      setMerchantsError(null)
+    } catch (err: unknown) {
+      setMerchantsError(err instanceof Error ? err.message : 'تعذر تحميل التجار')
+    } finally {
+      setMerchantsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadMerchants()
+  }, [loadMerchants])
 
   // عدد المحادثات الحية الحقيقي لكل قناة — من Supabase عبر /api/conversations
   // (لا بيانات وهمية: اللوحة الجانبية هنا رابط مختصر فقط، والعرض الكامل في /operations/chats)
@@ -1353,26 +1377,66 @@ export default function OperationsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0]">
+                        {merchantsLoading && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-[#64748B]">
+                              <RefreshCw size={16} className="animate-spin inline-block ml-2" />
+                              جارِ تحميل التجار من قاعدة البيانات...
+                            </td>
+                          </tr>
+                        )}
+                        {!merchantsLoading && merchantsError && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-rose-700 font-semibold">
+                              تعذّر تحميل التجار: {merchantsError}
+                            </td>
+                          </tr>
+                        )}
+                        {!merchantsLoading && !merchantsError && merchants.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-[#64748B]">
+                              لا يوجد تاجر مسجّل بعد — سجّل أول تاجر من الزر أعلاه.
+                            </td>
+                          </tr>
+                        )}
                         {merchants.map((m) => (
                           <tr key={m.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="p-3.5">
                               <p className="font-bold text-[13px] text-[#0F172A]">{m.name}</p>
-                              <p className="text-[10px] text-[#64748B]">المعرف: {toArabicDigits(m.id)}</p>
+                              <p className="text-[10px] text-[#64748B] font-mono">
+                                {m.id.slice(0, 8)}
+                              </p>
                             </td>
                             <td className="p-3.5">
-                              <p className="font-semibold text-slate-800">{m.city}</p>
-                              <p className="text-[11px] text-[#64748B]">{m.owner_name} • {formatArabicPhone(m.phone)}</p>
+                              <p className="font-semibold text-slate-800">
+                                {m.city ?? <span className="text-slate-400 font-normal">غير مسجّلة</span>}
+                              </p>
+                              <p className="text-[11px] text-[#64748B]">
+                                {m.owner_name ?? 'المالك غير مسجّل'}
+                                {m.phone ? ` • ${formatArabicPhone(m.phone)}` : ''}
+                              </p>
                             </td>
                             <td className="p-3.5">
-                              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 font-bold text-[11px]">
-                                {m.plan}
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                                  m.plan
+                                    ? 'bg-[#253765]/10 text-[#253765]'
+                                    : 'bg-slate-100 text-slate-400'
+                                }`}
+                              >
+                                {m.plan ?? 'بلا باقة'}
                               </span>
                             </td>
                             <td className="p-3.5">
-                              <StatusBadge status={m.subscription_status} />
+                              <StatusBadge status={m.subscription_status ?? 'بلا اشتراك'} />
                             </td>
+                            {/* العمولة تُعرض فارغة إن لم تُتفق — رقم افتراضي هنا التزام مالي مُخترع */}
                             <td className="p-3.5 font-bold text-[#253765]">
-                              {formatArabicPercent(m.commission_rate || 5)}
+                              {m.commission_rate === null ? (
+                                <span className="text-slate-400 font-normal">لم تُحدَّد</span>
+                              ) : (
+                                formatArabicPercent(m.commission_rate)
+                              )}
                             </td>
                             <td className="p-3.5 font-bold text-emerald-700 text-sm">
                               {formatArabicCurrency(m.balance)}
@@ -1663,9 +1727,12 @@ export default function OperationsPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-base font-bold text-[#0F172A]">{selectedMerchant.name}</h2>
-                    <StatusBadge status={selectedMerchant.subscription_status} />
+                    <StatusBadge status={selectedMerchant.subscription_status ?? 'بلا اشتراك'} />
                   </div>
-                  <p className="text-xs text-[#64748B]">المعرف: {toArabicDigits(selectedMerchant.id)} • مدينة {selectedMerchant.city}</p>
+                  <p className="text-xs text-[#64748B]">
+                    المعرف: {toArabicDigits(selectedMerchant.id)} •{' '}
+                    {selectedMerchant.city ? `مدينة ${selectedMerchant.city}` : 'المدينة غير مسجّلة'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setSelectedMerchant(null)} className="text-slate-400 hover:text-slate-700">
@@ -1704,8 +1771,8 @@ export default function OperationsPage() {
                   <div>
                     <label className="text-[#64748B] block mb-1 font-bold">باقة المتجر</label>
                     <select
-                      value={selectedMerchant.plan}
-                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value as Merchant['plan'] })}
+                      value={selectedMerchant.plan ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value || null })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
                       <option value="أساسية">أساسية</option>
@@ -1716,8 +1783,8 @@ export default function OperationsPage() {
                   <div>
                     <label className="text-[#64748B] block mb-1 font-bold">حالة الاشتراك</label>
                     <select
-                      value={selectedMerchant.subscription_status}
-                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value as Merchant['subscription_status'] })}
+                      value={selectedMerchant.subscription_status ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value || null })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
                       <option value="نشط">نشط</option>
@@ -1732,8 +1799,8 @@ export default function OperationsPage() {
                     <label className="text-[#64748B] block mb-1 font-bold">الرسوم الشهرية (د.ع)</label>
                     <input
                       type="number"
-                      value={selectedMerchant.monthly_fee}
-                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, monthly_fee: Number(e.target.value) })}
+                      value={selectedMerchant.monthly_fee ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, monthly_fee: e.target.value === '' ? null : Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     />
                   </div>
@@ -1741,7 +1808,8 @@ export default function OperationsPage() {
                     <label className="text-[#64748B] block mb-1 font-bold">نسبة عمولة التوصيل (%)</label>
                     <input
                       type="number"
-                      value={selectedMerchant.commission_rate || 5}
+                      value={selectedMerchant.commission_rate ?? ''}
+                      placeholder="لم تُحدَّد"
                       onChange={(e) => setSelectedMerchant({ ...selectedMerchant, commission_rate: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     />
@@ -1757,7 +1825,7 @@ export default function OperationsPage() {
                   <span className="font-mono text-[11px] text-slate-800 flex-1 truncate">{selectedMerchant.api_key}</span>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(selectedMerchant.api_key)
+                      navigator.clipboard.writeText(selectedMerchant.api_key ?? '')
                       setCopiedKey(true)
                       setTimeout(() => setCopiedKey(false), 2000)
                       showToast('تم نسخ مفتاح الـ API', 'info')
@@ -2002,26 +2070,33 @@ export default function OperationsPage() {
               </button>
             </div>
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault()
                 const fd = new FormData(e.currentTarget)
-                const newM: Merchant = {
-                  id: `m${merchants.length + 1}`,
-                  name: (fd.get('name') as string) || 'متجر جديد',
-                  owner_name: (fd.get('owner_name') as string) || '',
-                  phone: (fd.get('phone') as string) || '',
-                  city: (fd.get('city') as string) || 'بغداد',
-                  plan: 'أساسية',
-                  subscription_status: 'تجريبي',
-                  api_connected: true,
-                  monthly_fee: 25000,
-                  api_key: `brq_key_${Math.random().toString(36).substring(2, 9)}`,
-                  orders_count: 0,
-                  balance: 0
+                const name = (fd.get('name') as string)?.trim()
+
+                try {
+                  const res = await fetch('/api/merchants', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      owner_name: fd.get('owner_name'),
+                      phone: fd.get('phone'),
+                      city: fd.get('city'),
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+
+                  // إعادة الجلب بدل الإضافة محلياً: الباقة وعدد الشحنات
+                  // يحسبهما الخادم، ولا يصحّ تخمينهما في المتصفح
+                  await loadMerchants()
+                  setNewMerchantModal(false)
+                  showToast(`تم تسجيل المتجر "${name}" في قاعدة البيانات`, 'success')
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
                 }
-                setMerchants([...merchants, newM])
-                setNewMerchantModal(false)
-                showToast(`تم تسجيل المتجر "${newM.name}" في الإدارة بنجاح`, 'success')
               }}
               className="p-5 space-y-3 text-xs"
             >
