@@ -78,7 +78,7 @@ function PlanCard({ plan, isRecommended }: { plan: Plan; isRecommended: boolean 
       </ul>
 
       <Link
-        href="/operations"
+        href="/workspace"
         className={`mt-6 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs transition active:scale-95 ${
           highlight
             ? 'bg-[#253765] hover:bg-[#1D2B50] text-white shadow-md'

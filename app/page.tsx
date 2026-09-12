@@ -83,7 +83,7 @@ export default async function Home() {
           </nav>
 
           <Link
-            href="/operations"
+            href="/workspace"
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-md shadow-[#253765]/20 transition active:scale-95"
           >
             <span>دخول المنصة</span>
@@ -113,7 +113,7 @@ export default async function Home() {
 
           <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
             <Link
-              href="/operations"
+              href="/workspace"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-black text-sm shadow-xl shadow-[#253765]/25 transition active:scale-95"
             >
               <span>ابدأ الآن مجاناً</span>
@@ -431,7 +431,7 @@ export default async function Home() {
             ابدأ على الباقة المجانية اليوم، واترك المحادثات والشحنات تدار نفسها بينما تتفرّغ أنت للنمو.
           </p>
           <Link
-            href="/operations"
+            href="/workspace"
             className="mt-8 inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-black text-sm shadow-xl shadow-[#253765]/25 transition active:scale-95"
           >
             <span>ابدأ مجاناً — بلا بطاقة ائتمان</span>
@@ -453,6 +453,7 @@ export default async function Home() {
             <span className="font-bold text-[#253765]">منصة برق</span>
           </div>
           <nav className="flex items-center gap-5 font-semibold">
+            <Link href="/workspace" className="hover:text-[#253765] transition">مساحة التاجر</Link>
             <Link href="/operations" className="hover:text-[#253765] transition">لوحة العمليات</Link>
             <Link href="/operations/chats" className="hover:text-[#253765] transition">خدمة العملاء</Link>
             <Link href="/dashboard" className="hover:text-[#253765] transition">تتبّع الشحنات</Link>
