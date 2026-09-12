@@ -57,8 +57,12 @@ export default function CatalogManager({
     }
   }, [merchantId])
 
+  // التحميل داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
+  // setState متزامن هناك يُطلق دورات تصيير متتالية.
   useEffect(() => {
-    load()
+    void (async () => {
+      await load()
+    })()
   }, [load])
 
   const atLimit = products.length >= productLimit

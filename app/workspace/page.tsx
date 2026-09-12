@@ -10,12 +10,12 @@ import {
   Lock,
   MessageCircle,
   Package,
-  ShieldAlert,
+
   Terminal,
   Truck,
   Users,
 } from 'lucide-react'
-import MerchantSwitcher from '@/components/MerchantSwitcher'
+import WorkspaceShell from '@/components/WorkspaceShell'
 import {
   listMerchantsWithPlan,
   loadMerchantEntitlements,
@@ -283,40 +283,18 @@ export default async function WorkspacePage({
   const activeId = ent?.merchant.id ?? merchants[0]?.id ?? ''
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
-      {/* شريط تنبيه انعدام تسجيل الدخول */}
-      <div className="bg-[#253765] text-white px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2">
-          <ShieldAlert size={15} className="text-amber-300 shrink-0" />
-          <span className="font-bold">لا يوجد تسجيل دخول بعد:</span>
-          <span className="text-slate-200 hidden md:inline">
-            محوّل التاجر تبديل عرض فقط، وليس حماية أمنية.
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/admin"
-            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 font-bold transition whitespace-nowrap"
-          >
-            لوحة المالك
-          </Link>
-          {merchants.length > 0 && <MerchantSwitcher merchants={merchants} activeId={activeId} />}
-        </div>
-      </div>
-
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-8 py-8">
+    <WorkspaceShell
+      merchantId={activeId}
+      merchantName={ent?.merchant.name ?? 'التاجر'}
+      planName={ent?.plan.name_en ?? null}
+      merchants={merchants}
+    >
+      <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-6xl">
         <div className="mb-7">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#253765] transition mb-2"
-          >
-            <ArrowLeft size={14} />
-            الصفحة الرئيسية
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
             {ent ? `مساحة ${ent.merchant.name}` : 'مساحة التاجر'}
           </h1>
-          <p className="text-sm text-[#64748B] mt-1">
+          <p className="text-xs sm:text-sm text-[#64748B] mt-1">
             باقتك، استهلاكك، وما تفتحه لك من إمكانات المنصة
           </p>
         </div>
@@ -354,7 +332,7 @@ export default async function WorkspacePage({
         )}
 
         {ent && <Workspace ent={ent} />}
-      </main>
-    </div>
+      </div>
+    </WorkspaceShell>
   )
 }
