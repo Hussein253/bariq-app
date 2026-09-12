@@ -413,9 +413,15 @@ export default function LiveConversations({ initialConversations, loadError, pla
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 h-[calc(100vh-240px)] min-h-[520px]">
+      {/*
+        الارتفاع الثابت للشاشتين معاً يصلح فقط حين تكونان جنباً إلى جنب (lg).
+        دونه تتكدّسان عمودياً فيقتسمان الارتفاع نفسه، فتنكمش نافذة الرسائل
+        إلى ما دون ٣٠٠ بكسل وتُقطع الرسالة. لذا يُقيَّد الارتفاع عند lg فقط،
+        وتأخذ كل لوحة على الهاتف ارتفاعاً يناسبها.
+      */}
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 lg:h-[calc(100vh-240px)] lg:min-h-[520px]">
         {/* ================= قائمة المحادثات ================= */}
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden flex flex-col shadow-sm">
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden flex flex-col shadow-sm max-h-[55vh] min-h-0 lg:max-h-none">
           <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -576,8 +582,11 @@ export default function LiveConversations({ initialConversations, loadError, pla
           </div>
         </div>
 
-        {/* ================= نافذة المحادثة ================= */}
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden flex flex-col shadow-sm">
+        {/*
+          min-h-0 ضروري: عنصر الشبكة يأخذ min-height:auto تلقائياً، وهي تساوي
+          حجم محتواه فتتجاوز الارتفاع الصريح وتمدّد اللوحة لآلاف البكسلات.
+        */}
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden flex flex-col shadow-sm h-[75vh] min-h-0 lg:h-auto">
           {!selected ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-300 gap-4">
               <div className="w-20 h-20 rounded-full bg-[#F1F5F9] flex items-center justify-center">
@@ -664,8 +673,8 @@ export default function LiveConversations({ initialConversations, loadError, pla
                 </div>
               </div>
 
-              {/* الرسائل */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#F8FAFC]">
+              {/* الرسائل — min-h-0 يسمح للمنطقة بالانكماش داخل الأب فتُمرَّر بدل أن تمدّده */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-[#F8FAFC]">
                 {loadingMessages ? (
                   <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
                     <RefreshCw size={28} className="animate-spin text-[#253765]" />
