@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BarChart3,
   Bot,
+  Brain,
   Check,
   Headphones,
   Lock,
@@ -225,8 +226,14 @@ function Workspace({ ent }: { ent: MerchantEntitlements }) {
       {/* روابط التشغيل */}
       <section>
         <h2 className="text-sm font-black text-[#0F172A] mb-3">ابدأ العمل</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
+            {
+              href: `/workspace/catalog?merchant=${ent.merchant.id}`,
+              icon: Brain,
+              label: 'العقل المعرفي',
+              sub: `${toArabicDigits(usage.products.used ?? 0)} منتج يجيب عنه موظفك الذكي`,
+            },
             { href: '/operations/chats', icon: MessageCircle, label: 'خدمة العملاء', sub: 'محادثات القنوات الثلاث' },
             { href: '/operations', icon: Package, label: 'الطلبات والشحنات', sub: 'إدارة ومتابعة' },
             { href: '/dashboard', icon: Truck, label: 'تتبّع الشحنات', sub: 'الحالة الميدانية' },

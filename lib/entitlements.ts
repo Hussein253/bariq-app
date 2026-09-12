@@ -78,9 +78,10 @@ export async function loadMerchantEntitlements(
   const { plans: plan, merchants: merchant, ...subscription } = row
   if (!plan || !merchant) return null
 
-  const [actionsUsed, seatsUsed] = await Promise.all([
+  const [actionsUsed, seatsUsed, productsUsed] = await Promise.all([
     countBotActions(merchantId, subscription.current_period_start),
     countTeamSeats(merchantId),
+    countProducts(merchantId),
   ])
 
   return {
@@ -99,12 +100,9 @@ export async function loadMerchantEntitlements(
         label: 'مقاعد الفريق',
       },
       products: {
-        used: null,
+        used: productsUsed,
         limit: plan.max_products,
         label: 'المنتجات والخدمات',
-        // جدول products عام بلا عمود merchant_id، فلا يمكن نسب منتج
-        // إلى تاجر بعينه. القياس يصبح ممكناً فور إضافة العمود وترحيل الصفوف.
-        unavailableReason: 'يتطلب ربط جدول المنتجات بالتاجر',
       },
     },
   }
@@ -131,6 +129,17 @@ async function countBotActions(merchantId: string, periodStart: string): Promise
     .in('conversation_id', ids)
     .eq('sender_type', 'bot')
     .gte('created_at', periodStart)
+
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+/** حجم قاعدة معرفة التاجر — المنتجات والخدمات التي يجيب منها الموظف الذكي. */
+async function countProducts(merchantId: string): Promise<number> {
+  const { count, error } = await supabaseServer
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .eq('merchant_id', merchantId)
 
   if (error) throw new Error(error.message)
   return count ?? 0
