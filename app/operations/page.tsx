@@ -105,44 +105,64 @@ const SUBSCRIPTION_LABELS: Record<string, string> = {
   canceled: 'ملغى',
 }
 
+/** المروّج كما يصل من /api/marketers — جدول public.marketers الحقيقي. */
 export interface Marketer {
   id: string
   name: string
-  agency_name?: string
-  email: string
-  phone: string
-  status: 'نشط' | 'متوقف'
-  assigned_merchants: string[]
+  agency_name: string | null
+  email: string | null
+  phone: string | null
+  /** الحالة بالعربية بعد الترجمة من active/suspended. */
+  status: string
+  /** التجار المسندون — من جدول marketer_merchants لا مصفوفة أسماء. */
+  assigned_merchants: { id: string; name: string }[]
   active_campaigns_count: number
   total_ad_budget_managed: number
-  commission_rate: number
+  commission_rate: number | null
   created_at: string
 }
 
 export type AdPlatform = 'instagram' | 'facebook' | 'tiktok' | 'snapchat' | 'google'
-export type AdCampaignStatus = 'نشطة' | 'مكتملة' | 'قيد المراجعة' | 'متوقفة'
 
+/** حالات الحملة في قاعدة البيانات → التسمية المعروضة. */
+export const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
+  active: 'نشطة',
+  completed: 'مكتملة',
+  under_review: 'قيد المراجعة',
+  paused: 'متوقفة',
+}
+
+const MARKETER_STATUS_LABELS: Record<string, string> = {
+  active: 'نشط',
+  suspended: 'متوقف',
+}
+
+/** الحملة كما تصل من /api/campaigns — جدول public.ad_campaigns الحقيقي. */
 export interface AdCampaign {
   id: string
   name: string
   merchant_id: string
-  merchant_name: string
+  merchant_name: string | null
+  marketer_id: string | null
+  marketer_name: string | null
   platform: AdPlatform
-  status: AdCampaignStatus
+  /** الحالة بالعربية بعد الترجمة. */
+  status: string
   budget_total: number
   budget_spent: number
   daily_budget: number
+  attributed_revenue: number
   reach: number
   impressions: number
   clicks: number
   conversions: number
-  roas: number
-  start_date: string
-  end_date: string
-  target_audience: string
-  ad_headline: string
-  marketer_notes?: string
-  marketer_name: string
+  /** عمود محسوب في قاعدة البيانات = الإيراد ÷ الإنفاق. null حين لا إنفاق. */
+  roas: number | null
+  start_date: string | null
+  end_date: string | null
+  target_audience: string | null
+  ad_headline: string | null
+  marketer_notes: string | null
 }
 
 type MainNavView = 'orders' | 'booking' | 'whatsapp' | 'instagram' | 'messenger' | 'admin' | 'campaigns'
@@ -152,125 +172,6 @@ type TimeRange = 'today' | 'week' | 'month' | 'all'
 
 // ---------- البيانات الأولية المحملة ----------
 
-const INITIAL_MARKETERS: Marketer[] = [
-  {
-    id: 'mkt-1',
-    name: 'أحمد عادل الخفاجي',
-    agency_name: 'وكالة برق ميديا ديجيتال',
-    email: 'ahmed@bariqmedia.iq',
-    phone: '07709922114',
-    status: 'نشط',
-    assigned_merchants: ['متجر دجلة', 'أزياء الفرات'],
-    active_campaigns_count: 3,
-    total_ad_budget_managed: 900000,
-    commission_rate: 10,
-    created_at: '2025-01-15'
-  },
-  {
-    id: 'mkt-2',
-    name: 'مريم خليل الشمري',
-    agency_name: 'تريند للتسويق الرقمي',
-    email: 'maryam@trendiq.com',
-    phone: '07801133445',
-    status: 'نشط',
-    assigned_merchants: ['ستايل بغداد'],
-    active_campaigns_count: 1,
-    total_ad_budget_managed: 300000,
-    commission_rate: 12,
-    created_at: '2025-02-10'
-  }
-]
-
-const INITIAL_CAMPAIGNS: AdCampaign[] = [
-  {
-    id: 'CMP-701',
-    name: 'حملة العطور الصيفية - ريلز انستغرام',
-    merchant_id: 'm1',
-    merchant_name: 'متجر دجلة',
-    platform: 'instagram',
-    status: 'نشطة',
-    budget_total: 450000,
-    budget_spent: 285000,
-    daily_budget: 25000,
-    reach: 128400,
-    impressions: 195000,
-    clicks: 7620,
-    conversions: 245,
-    roas: 4.6,
-    start_date: '2026-08-15',
-    end_date: '2026-09-05',
-    target_audience: 'عشاق الأناقة والعطور (18-38 سنة) في بغداد والبصرة وأربيل',
-    ad_headline: 'خصم 30% مع توصيل سريع بنفس اليوم عبر منصة برق ⚡',
-    marketer_notes: 'الحملة تحقق عائد استثمار ممتاز (4.6x ROAS)، ريلز الإنستغرام هو الأكثر تحويلاً للطلبات.',
-    marketer_name: 'أحمد عادل الخفاجي'
-  },
-  {
-    id: 'CMP-702',
-    name: 'تريند كولكشن الفساتين - تيك توك سبونسرد',
-    merchant_id: 'm2',
-    merchant_name: 'ستايل بغداد',
-    platform: 'tiktok',
-    status: 'نشطة',
-    budget_total: 300000,
-    budget_spent: 190000,
-    daily_budget: 20000,
-    reach: 215000,
-    impressions: 340000,
-    clicks: 12400,
-    conversions: 180,
-    roas: 3.9,
-    start_date: '2026-08-18',
-    end_date: '2026-09-02',
-    target_audience: 'النساء والفتيات (16-32 سنة) في كافة محافظات العراق',
-    ad_headline: 'أحدث موديلات الصيف الحصرية وصلت الآن! اطلبي بضغطة زر',
-    marketer_notes: 'الفيديو الإعلاني الأول تريند على تيك توك بنسبة تفاعل 8.2%. خيار الدفع عند الاستلام هو المفضل.',
-    marketer_name: 'مريم خليل الشمري'
-  },
-  {
-    id: 'CMP-703',
-    name: 'إعلانات فيسبوك ممولة - الدفع عبر زين كاش',
-    merchant_id: 'm1',
-    merchant_name: 'متجر دجلة',
-    platform: 'facebook',
-    status: 'نشطة',
-    budget_total: 250000,
-    budget_spent: 110000,
-    daily_budget: 18000,
-    reach: 89000,
-    impressions: 122000,
-    clicks: 3900,
-    conversions: 115,
-    roas: 4.1,
-    start_date: '2026-08-22',
-    end_date: '2026-09-08',
-    target_audience: 'عشاق الساعات الفاخرة ورجال الأعمال (24-50 سنة)',
-    ad_headline: 'تسوق بأمان وادفع إلكترونياً عبر زين كاش أو كي كارد',
-    marketer_notes: 'الإعلان يستهدف جمهور الدفع الرقمي والطلبات ذات القيمة المرتفعة.',
-    marketer_name: 'أحمد عادل الخفاجي'
-  },
-  {
-    id: 'CMP-704',
-    name: 'حملة سناب شات كولكشن أربيل',
-    merchant_id: 'm3',
-    merchant_name: 'أزياء الفرات',
-    platform: 'snapchat',
-    status: 'متوقفة',
-    budget_total: 200000,
-    budget_spent: 200000,
-    daily_budget: 15000,
-    reach: 98000,
-    impressions: 145000,
-    clicks: 4300,
-    conversions: 88,
-    roas: 2.8,
-    start_date: '2026-08-01',
-    end_date: '2026-08-15',
-    target_audience: 'إقليم كردستان (أربيل، السليمانية، دهوك)',
-    ad_headline: 'أزياء الخريف الفاخرة متوفرة الآن مع توصيل برق',
-    marketer_notes: 'تم إنهاء الحملة بنجاح، بانتظار تجديد الميزانية للموسم القادم.',
-    marketer_name: 'أحمد عادل الخفاجي'
-  }
-]
 
 // ---------- مكونات الشارات ----------
 
@@ -369,8 +270,10 @@ export default function OperationsPage() {
   const [merchants, setMerchants] = useState<Merchant[]>([])
   const [merchantsLoading, setMerchantsLoading] = useState(true)
   const [merchantsError, setMerchantsError] = useState<string | null>(null)
-  const [marketers, setMarketers] = useState<Marketer[]>(INITIAL_MARKETERS)
-  const [campaigns, setCampaigns] = useState<AdCampaign[]>(INITIAL_CAMPAIGNS)
+  const [marketers, setMarketers] = useState<Marketer[]>([])
+  const [campaigns, setCampaigns] = useState<AdCampaign[]>([])
+  const [promoLoading, setPromoLoading] = useState(true)
+  const [promoError, setPromoError] = useState<string | null>(null)
 
   // التصفية والبحث
   const [search, setSearch] = useState('')
@@ -479,6 +382,91 @@ export default function OperationsPage() {
     })()
   }, [loadMerchants])
 
+  // المروّجون والحملات من Supabase (لا بيانات وهمية)
+  const loadPromotion = useCallback(async () => {
+    setPromoLoading(true)
+    try {
+      const [mRes, cRes] = await Promise.all([
+        fetch('/api/marketers', { cache: 'no-store' }),
+        fetch('/api/campaigns', { cache: 'no-store' }),
+      ])
+      const [mJson, cJson] = await Promise.all([mRes.json(), cRes.json()])
+
+      if (!mRes.ok || !mJson.success) throw new Error(mJson.error || 'تعذر تحميل المروّجين')
+      if (!cRes.ok || !cJson.success) throw new Error(cJson.error || 'تعذر تحميل الحملات')
+
+      setMarketers(
+        (mJson.marketers as (Omit<Marketer, 'status'> & { status: string })[]).map((m) => ({
+          ...m,
+          status: MARKETER_STATUS_LABELS[m.status] ?? m.status,
+        }))
+      )
+
+      setCampaigns(
+        (
+          cJson.campaigns as {
+            id: string
+            name: string
+            merchant_id: string
+            merchant_name: string | null
+            marketer_id: string | null
+            marketer_name: string | null
+            platform: AdPlatform
+            status: string
+            budget_total_iqd: number
+            budget_spent_iqd: number
+            daily_budget_iqd: number
+            attributed_revenue_iqd: number
+            reach: number
+            impressions: number
+            clicks: number
+            conversions: number
+            roas: number | null
+            start_date: string | null
+            end_date: string | null
+            target_audience: string | null
+            ad_headline: string | null
+            marketer_notes: string | null
+          }[]
+        ).map((c) => ({
+          id: c.id,
+          name: c.name,
+          merchant_id: c.merchant_id,
+          merchant_name: c.merchant_name,
+          marketer_id: c.marketer_id,
+          marketer_name: c.marketer_name,
+          platform: c.platform,
+          status: CAMPAIGN_STATUS_LABELS[c.status] ?? c.status,
+          budget_total: c.budget_total_iqd,
+          budget_spent: c.budget_spent_iqd,
+          daily_budget: c.daily_budget_iqd,
+          attributed_revenue: c.attributed_revenue_iqd,
+          reach: c.reach,
+          impressions: c.impressions,
+          clicks: c.clicks,
+          conversions: c.conversions,
+          roas: c.roas,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          target_audience: c.target_audience,
+          ad_headline: c.ad_headline,
+          marketer_notes: c.marketer_notes,
+        }))
+      )
+      setPromoError(null)
+    } catch (err: unknown) {
+      setPromoError(err instanceof Error ? err.message : 'تعذر تحميل بيانات الترويج')
+    } finally {
+      setPromoLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      await loadPromotion()
+    })()
+  }, [loadPromotion])
+
   // عدد المحادثات الحية الحقيقي لكل قناة — من Supabase عبر /api/conversations
   // (لا بيانات وهمية: اللوحة الجانبية هنا رابط مختصر فقط، والعرض الكامل في /operations/chats)
   const [liveChatCounts, setLiveChatCounts] = useState<{
@@ -540,7 +528,17 @@ export default function OperationsPage() {
     const totalAdSpent = userScopedCampaigns.reduce((sum, c) => sum + c.budget_spent, 0)
     const totalReach = userScopedCampaigns.reduce((sum, c) => sum + c.reach, 0)
     const totalAdOrders = userScopedCampaigns.reduce((sum, c) => sum + c.conversions, 0)
-    const avgRoas = userScopedCampaigns.length > 0 ? (userScopedCampaigns.reduce((sum, c) => sum + c.roas, 0) / userScopedCampaigns.length).toFixed(1) : '4.2'
+    // المتوسط على الحملات التي أنفقت فعلاً فقط: حملة بلا إنفاق ليس عائدها
+    // صفراً بل غير معرّف، وإدراجها تسحب المتوسط لأسفل وتضلّل قرار الميزانية.
+    // ولا يوجد رقم افتراضي حين لا حملات — null تُعرض شرطة لا عائداً مُخترعاً.
+    const scoredCampaigns = userScopedCampaigns.filter((c) => c.roas !== null)
+    const avgRoas =
+      scoredCampaigns.length > 0
+        ? (
+            scoredCampaigns.reduce((sum, c) => sum + (c.roas as number), 0) /
+            scoredCampaigns.length
+          ).toFixed(1)
+        : null
 
     return {
       totalSales,
@@ -578,7 +576,10 @@ export default function OperationsPage() {
   const filteredCampaigns = useMemo(() => {
     return userScopedCampaigns.filter((c) => {
       const q = (search || '').trim().toLowerCase()
-      const matchesSearch = !q || c.name.toLowerCase().includes(q) || c.merchant_name.toLowerCase().includes(q)
+      const matchesSearch =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        (c.merchant_name || '').toLowerCase().includes(q)
       const matchesPlatform = platformFilter === 'الكل' || c.platform === platformFilter
       return matchesSearch && matchesPlatform
     })
@@ -1094,8 +1095,14 @@ export default function OperationsPage() {
                   <Megaphone size={15} className="text-amber-600" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {toArabicDigits(stats.avgRoas)}x{' '}
-                  <span className="text-xs font-semibold text-emerald-700">معدل العائد</span>
+                  {stats.avgRoas === null ? (
+                    <span className="text-lg text-slate-400">—</span>
+                  ) : (
+                    <>
+                      {toArabicDigits(stats.avgRoas)}x{' '}
+                      <span className="text-xs font-semibold text-emerald-700">معدل العائد</span>
+                    </>
+                  )}
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
                   طلبات مولدة: <strong className="text-[#0F172A]">{toArabicDigits(stats.totalAdOrders)} طلب</strong>
@@ -1495,6 +1502,28 @@ export default function OperationsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0]">
+                        {promoLoading && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-[#64748B]">
+                              <RefreshCw size={16} className="animate-spin inline-block ml-2" />
+                              جارِ تحميل المروّجين من قاعدة البيانات...
+                            </td>
+                          </tr>
+                        )}
+                        {!promoLoading && promoError && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-rose-700 font-semibold">
+                              {promoError}
+                            </td>
+                          </tr>
+                        )}
+                        {!promoLoading && !promoError && marketers.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-[#64748B]">
+                              لا يوجد مروّج مسجّل بعد — سجّل أول مروّج من الزر أعلاه.
+                            </td>
+                          </tr>
+                        )}
                         {marketers.map((mkt) => (
                           <tr key={mkt.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="p-3.5">
@@ -1507,9 +1536,12 @@ export default function OperationsPage() {
                             </td>
                             <td className="p-3.5">
                               <div className="flex flex-wrap gap-1">
-                                {mkt.assigned_merchants.map((merchantName) => (
-                                  <span key={merchantName} className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-[10px] font-bold">
-                                    {merchantName}
+                                {mkt.assigned_merchants.length === 0 && (
+                                  <span className="text-[10px] text-slate-400">لا تجار مسندون</span>
+                                )}
+                                {mkt.assigned_merchants.map((m) => (
+                                  <span key={m.id} className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-[10px] font-bold">
+                                    {m.name}
                                   </span>
                                 ))}
                               </div>
@@ -1606,13 +1638,26 @@ export default function OperationsPage() {
 
               {/* بطاقات الحملات الإعلانية */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {filteredCampaigns.length === 0 ? (
+                {promoLoading ? (
                   <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
-                    لا توجد حملات إعلانية مسجلة لهذا المتجر حالياً
+                    <RefreshCw size={18} className="animate-spin inline-block ml-2" />
+                    جارِ تحميل الحملات من قاعدة البيانات...
+                  </div>
+                ) : promoError ? (
+                  <div className="col-span-2 p-12 bg-white rounded-2xl border border-rose-200 text-center text-rose-700 font-semibold">
+                    {promoError}
+                  </div>
+                ) : filteredCampaigns.length === 0 ? (
+                  <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
+                    لا توجد حملات إعلانية مسجلة حالياً
                   </div>
                 ) : (
                   filteredCampaigns.map((camp) => {
-                    const spendPercent = Math.min(100, Math.round((camp.budget_spent / camp.budget_total) * 100))
+                    // ميزانية صفر تجعل القسمة NaN — والشريط يظهر فارغاً لا مكسوراً
+                    const spendPercent =
+                      camp.budget_total > 0
+                        ? Math.min(100, Math.round((camp.budget_spent / camp.budget_total) * 100))
+                        : 0
                     return (
                       <div
                         key={camp.id}
@@ -1632,10 +1677,24 @@ export default function OperationsPage() {
 
                           {currentUserRole === 'super_admin' && (
                             <button
-                              onClick={() => {
-                                const nextSt: AdCampaignStatus = camp.status === 'نشطة' ? 'متوقفة' : 'نشطة'
-                                setCampaigns((prev) => prev.map((c) => (c.id === camp.id ? { ...c, status: nextSt } : c)))
-                                showToast(`تم ${nextSt === 'نشطة' ? 'تفعيل' : 'إيقاف'} الحملة`, 'info')
+                              onClick={async () => {
+                                // الحفظ في قاعدة البيانات لا في حالة المتصفح:
+                                // إيقاف حملة يعني إيقاف إنفاق فعلي، ولا يصحّ
+                                // أن يعود المبلغ يُصرف بمجرد تحديث الصفحة.
+                                const nextDb = camp.status === 'نشطة' ? 'paused' : 'active'
+                                try {
+                                  const res = await fetch(`/api/campaigns/${camp.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ status: nextDb }),
+                                  })
+                                  const json = await res.json()
+                                  if (!res.ok || !json.success) throw new Error(json.error)
+                                  await loadPromotion()
+                                  showToast(`تم ${nextDb === 'active' ? 'تفعيل' : 'إيقاف'} الحملة`, 'success')
+                                } catch (err: unknown) {
+                                  showToast(err instanceof Error ? err.message : 'تعذّر التحديث', 'error')
+                                }
                               }}
                               className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 ${
                                 camp.status === 'نشطة'
@@ -1665,7 +1724,9 @@ export default function OperationsPage() {
                           </div>
                           <div>
                             <p className="text-[10px] text-[#64748B]">العائد (ROAS)</p>
-                            <p className="font-black text-[#253765] mt-0.5 font-mono">{toArabicDigits(camp.roas)}x</p>
+                            <p className="font-black text-[#253765] mt-0.5 font-mono">
+                              {camp.roas === null ? <span className="text-slate-400">—</span> : `${toArabicDigits(camp.roas)}x`}
+                            </p>
                           </div>
                         </div>
 
@@ -1876,25 +1937,39 @@ export default function OperationsPage() {
               </button>
             </div>
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault()
                 const fd = new FormData(e.currentTarget)
-                const newMkt: Marketer = {
-                  id: `mkt-${Math.floor(100 + Math.random() * 900)}`,
-                  name: (fd.get('name') as string) || 'مروج جديد',
-                  agency_name: (fd.get('agency_name') as string) || 'وكالة إعلانات',
-                  email: (fd.get('email') as string) || '',
-                  phone: (fd.get('phone') as string) || '',
-                  status: 'نشط',
-                  assigned_merchants: [(fd.get('assigned_merchant') as string) || 'متجر دجلة'],
-                  active_campaigns_count: 0,
-                  total_ad_budget_managed: 0,
-                  commission_rate: Number(fd.get('commission_rate')) || 10,
-                  created_at: new Date().toISOString().split('T')[0]
+                const name = (fd.get('name') as string)?.trim()
+                const rate = fd.get('commission_rate')
+                const assigned = fd.get('assigned_merchant') as string
+
+                try {
+                  const res = await fetch('/api/marketers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      agency_name: fd.get('agency_name'),
+                      email: fd.get('email'),
+                      phone: fd.get('phone'),
+                      // العمولة تبقى فارغة إن لم تُدخل — لا نسبة افتراضية
+                      commission_rate: rate ? Number(rate) : null,
+                      merchant_ids: assigned ? [assigned] : [],
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+
+                  await loadPromotion()
+                  setNewMarketerModal(false)
+                  showToast(
+                    json.warning || `تم تسجيل المروّج "${name}" في قاعدة البيانات`,
+                    json.warning ? 'info' : 'success'
+                  )
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
                 }
-                setMarketers([newMkt, ...marketers])
-                setNewMarketerModal(false)
-                showToast(`تم تسجيل المروج "${newMkt.name}" بنجاح`, 'success')
               }}
               className="p-5 space-y-3 text-xs"
             >
@@ -1915,9 +1990,11 @@ export default function OperationsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[#64748B] block mb-1 font-bold">إسناد المتجر الأولي</label>
+                  {/* القيمة معرّف التاجر لا اسمه: الإسناد مفتاح أجنبي حقيقي */}
                   <select name="assigned_merchant" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                    <option value="">بلا إسناد</option>
                     {merchants.map((m) => (
-                      <option key={m.id} value={m.name}>{m.name}</option>
+                      <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
                 </div>
@@ -2034,7 +2111,13 @@ export default function OperationsPage() {
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-500">معدل العائد (ROAS)</p>
-                  <p className="font-black text-[#253765] text-sm mt-0.5 font-mono">{toArabicDigits(selectedCampaign.roas)}x</p>
+                  <p className="font-black text-[#253765] text-sm mt-0.5 font-mono">
+                    {selectedCampaign.roas === null ? (
+                      <span className="text-slate-400 text-xs font-normal">لا إنفاق بعد</span>
+                    ) : (
+                      `${toArabicDigits(selectedCampaign.roas)}x`
+                    )}
+                  </p>
                 </div>
               </div>
 
@@ -2164,34 +2247,50 @@ export default function OperationsPage() {
               </button>
             </div>
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault()
                 const fd = new FormData(e.currentTarget)
-                const newC: AdCampaign = {
-                  id: `CMP-${Math.floor(700 + Math.random() * 300)}`,
-                  name: (fd.get('name') as string) || 'حملة إعلانية جديدة',
-                  merchant_id: 'm1',
-                  merchant_name: currentUserRole === 'merchant' ? activeMerchantName : ((fd.get('merchant_name') as string) || 'متجر دجلة'),
-                  platform: (fd.get('platform') as AdPlatform) || 'instagram',
-                  status: 'نشطة',
-                  budget_total: Number(fd.get('budget_total')) || 250000,
-                  budget_spent: 0,
-                  daily_budget: Number(fd.get('daily_budget')) || 20000,
-                  reach: 0,
-                  impressions: 0,
-                  clicks: 0,
-                  conversions: 0,
-                  roas: 0,
-                  start_date: new Date().toISOString().split('T')[0],
-                  end_date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString().split('T')[0],
-                  target_audience: (fd.get('target_audience') as string) || 'العراق',
-                  ad_headline: (fd.get('ad_headline') as string) || '',
-                  marketer_notes: 'تم إطلاق الحملة حديثاً من قبل المروج.',
-                  marketer_name: 'وكالة برق ميديا'
+                const name = (fd.get('name') as string)?.trim()
+
+                // التاجر يُحدَّد بمعرّفه: في وضع التاجر هو نفسه، وفي وضع
+                // المدير يُختار من القائمة. لا معرّف افتراضي مُخترع.
+                const merchantId =
+                  currentUserRole === 'merchant'
+                    ? merchants.find((m) => m.name === activeMerchantName)?.id
+                    : (fd.get('merchant_id') as string)
+
+                if (!merchantId) {
+                  showToast('اختر التاجر أولاً', 'error')
+                  return
                 }
-                setCampaigns([newC, ...campaigns])
-                setNewCampaignModal(false)
-                showToast(`تم إطلاق الحملة "${newC.name}" بنجاح`, 'success')
+
+                try {
+                  const res = await fetch('/api/campaigns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      merchant_id: merchantId,
+                      platform: (fd.get('platform') as string) || 'instagram',
+                      status: 'under_review',
+                      // الميزانيات تصل كما أُدخلت — بلا مبالغ افتراضية
+                      budget_total_iqd: Number(fd.get('budget_total') || 0),
+                      daily_budget_iqd: Number(fd.get('daily_budget') || 0),
+                      start_date: fd.get('start_date') || null,
+                      end_date: fd.get('end_date') || null,
+                      target_audience: fd.get('target_audience'),
+                      ad_headline: fd.get('ad_headline'),
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر الإنشاء')
+
+                  await loadPromotion()
+                  setNewCampaignModal(false)
+                  showToast(`أُنشئت الحملة "${name}" وهي قيد المراجعة`, 'success')
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر الإنشاء', 'error')
+                }
               }}
               className="p-5 space-y-3 text-xs"
             >
@@ -2214,9 +2313,10 @@ export default function OperationsPage() {
                 {currentUserRole === 'super_admin' && (
                   <div>
                     <label className="text-[#64748B] block mb-1 font-bold">المتجر / العميل *</label>
-                    <select name="merchant_name" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                    <select required name="merchant_id" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                      <option value="">اختر التاجر…</option>
                       {merchants.map((m) => (
-                        <option key={m.id} value={m.name}>{m.name}</option>
+                        <option key={m.id} value={m.id}>{m.name}</option>
                       ))}
                     </select>
                   </div>
