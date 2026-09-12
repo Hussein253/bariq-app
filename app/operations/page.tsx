@@ -884,6 +884,50 @@ export default function OperationsPage() {
         </aside>
 
         {/* ===== مساحة المحتوى الرئيسية ===== */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/*
+            شريط تنقّل الهاتف — الشريط الجانبي أعلاه مخفي دون lg، فبدونه
+            تختفي كل وسائل التنقّل على الهاتف ويعلق المستخدم في تبويب واحد.
+          */}
+          <nav className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E2E8F0] overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 px-3 py-2 w-max">
+              {([
+                { key: 'orders', label: 'الطلبات' },
+                ...(currentUserRole === 'super_admin'
+                  ? ([{ key: 'admin', label: 'الإدارة' }] as { key: MainNavView; label: string }[])
+                  : []),
+                { key: 'campaigns', label: 'الحملات' },
+              ] as { key: MainNavView; label: string }[]).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setView(item.key)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition ${
+                    view === item.key ? 'bg-[#253765] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <span className="w-px h-5 bg-[#E2E8F0] mx-1 shrink-0" />
+              {[
+                { href: '/operations/chats?platform=whatsapp', label: 'واتساب' },
+                { href: '/operations/chats?platform=instagram', label: 'إنستغرام' },
+                { href: '/operations/chats?platform=messenger', label: 'ماسنجر' },
+                { href: '/workspace', label: 'مساحتي' },
+                { href: '/dashboard', label: 'الشحنات' },
+                { href: '/admin', label: 'لوحة المالك' },
+              ].map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-[#253765] bg-[#253765]/5 hover:bg-[#253765]/10 whitespace-nowrap transition"
+                >
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </nav>
+
         <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full overflow-y-auto">
           {/* الترويسة العليا */}
           <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -1602,6 +1646,7 @@ export default function OperationsPage() {
             </div>
           )}
         </main>
+        </div>
       </div>
 
       {/* ========================================================================= */}

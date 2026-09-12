@@ -385,7 +385,49 @@ export default function DashboardClient({
           </button>
         </aside>
 
-        {/* المحتوى */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/*
+            شريط تنقّل الهاتف — الشريط الجانبي أعلاه مخفي دون lg، فبدونه
+            لا سبيل للوصول إلى الحجز أو التجار أو المندوبين من الهاتف.
+          */}
+          <nav className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E2E8F0] overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 px-3 py-2 w-max">
+              {([
+                { key: 'shipments', label: role === 'merchant' ? 'شحناتي' : 'الشحنات' },
+                { key: 'booking', label: 'حجز طلب' },
+                ...(role === 'admin'
+                  ? ([
+                      { key: 'merchants', label: 'التجار' },
+                      { key: 'couriers', label: 'المندوبون' },
+                    ] as { key: Tab; label: string }[])
+                  : []),
+              ] as { key: Tab; label: string }[]).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition ${
+                    tab === item.key ? 'bg-[#253765] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <span className="w-px h-5 bg-[#E2E8F0] mx-1 shrink-0" />
+              {[
+                { href: '/workspace', label: 'مساحتي' },
+                { href: '/operations', label: 'العمليات' },
+              ].map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-[#253765] bg-[#253765]/5 whitespace-nowrap"
+                >
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </nav>
+
         <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full overflow-y-auto">
           {loadError && (
             <div className="mb-5 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
@@ -671,6 +713,7 @@ export default function DashboardClient({
             </div>
           )}
         </main>
+        </div>
       </div>
 
       {/* ===== لوحة تفاصيل الشحنة الجانبية ===== */}

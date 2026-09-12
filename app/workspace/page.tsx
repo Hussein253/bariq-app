@@ -293,7 +293,15 @@ export default async function WorkspacePage({
             محوّل التاجر تبديل عرض فقط، وليس حماية أمنية.
           </span>
         </div>
-        {merchants.length > 0 && <MerchantSwitcher merchants={merchants} activeId={activeId} />}
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin"
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 font-bold transition whitespace-nowrap"
+          >
+            لوحة المالك
+          </Link>
+          {merchants.length > 0 && <MerchantSwitcher merchants={merchants} activeId={activeId} />}
+        </div>
       </div>
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-8 py-8">

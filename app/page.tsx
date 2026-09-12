@@ -453,6 +453,7 @@ export default async function Home() {
             <span className="font-bold text-[#253765]">منصة برق</span>
           </div>
           <nav className="flex items-center gap-5 font-semibold">
+            <Link href="/admin" className="hover:text-[#253765] transition">لوحة المالك</Link>
             <Link href="/workspace" className="hover:text-[#253765] transition">مساحة التاجر</Link>
             <Link href="/operations" className="hover:text-[#253765] transition">لوحة العمليات</Link>
             <Link href="/operations/chats" className="hover:text-[#253765] transition">خدمة العملاء</Link>
