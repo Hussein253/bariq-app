@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# برق ⚡ — منصة الأتمتة والربط اللوجستي الذكي
 
-## Getting Started
+منصة "شركة المندوب للتوصيل السريع" التي تربط قنوات المراسلة (واتساب، إنستغرام، ماسنجر)
+بنظام إدارة الطلبات والشحن، من أول رسالة للزبون حتى التسوية المالية مع التاجر.
 
-First, run the development server:
+> قواعد التطوير الملزمة لهذا المشروع في [`CLAUDE.md`](CLAUDE.md) — اقرأها قبل أي تعديل.
+> أهمّها: منع تخمين المعرّفات والمبالغ المالية، واعتماد هيكل البيانات قبل كتابة منطق الأعمال.
+
+---
+
+## التشغيل محلياً
 
 ```bash
+npm install
+cp .env.example .env.local   # ثم املأ مفاتيح Supabase
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+يفتح على <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### متغيّرات البيئة
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| المتغيّر | الاستخدام |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | عنوان مشروع Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | مفتاح المتصفح — محكوم بسياسات RLS |
+| `SUPABASE_SERVICE_ROLE_KEY` | مفتاح الخادم حصراً — **لا يُستورد أبداً في كود المتصفح** |
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## المسارات
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| المسار | الوصف |
+|---|---|
+| `/` | صفحة التعريف بالمنصة والباقات |
+| `/operations` | لوحة العمليات: الطلبات، التجار، المروّجون، الحملات |
+| `/operations/chats` | خدمة العملاء: محادثات القنوات الثلاث عبر Supabase Realtime |
+| `/operations/whatsapp` | لوحة واتساب المستقلة |
+| `/dashboard` | تتبّع الشحنات الميداني وحالاتها المالية |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## المكدّس التقني
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Next.js 16** (App Router, Turbopack) + **React 19** + **TypeScript**
+- **Tailwind CSS 4** — واجهة RTL بخط IBM Plex Sans Arabic
+- **Supabase** (PostgreSQL + Realtime + RLS) لكل البيانات
+- **n8n** لمسارات الأتمتة — التوثيق في [`docs/`](docs/)
+- **Meta Graph API** لقنوات المراسلة
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## أعراف المشروع
+
+**الأرقام العربية موحّدة في كل الواجهات.** استخدم دوال [`lib/formatters.ts`](lib/formatters.ts)
+(`toArabicDigits`, `formatArabicCurrency`, `formatArabicNumber`) ولا تطبع أرقاماً خاماً.
+
+**فصل الخادم عن المتصفح.** ملفات `*-server.ts` تستعمل `service_role` ويُمنع استيرادها
+في مكوّنات العميل. ما يُقرأ بمفتاح anon يجب أن تحميه سياسة RLS.
+
+**آلة حالات الشحنة** تتبع تدفقاً صارماً لا يقبل القفز العشوائي:
+
+```
+ORDER_RECEIVED → PICKED_UP_SAME_DAY → IN_TRANSIT_HUB → OUT_FOR_DELIVERY
+    → DELIVERED | POSTPONED | RETURNED → SETTLED_FINANCIALLY
+```
+
+**الفصل المالي إلزامي:** قيمة البضاعة (COD) وأجرة التوصيل حقلان منفصلان، وصافي
+مستحق التاجر يُحتسب منهما ولا يُخزَّن مُخمَّناً.
+
+---
+
+## الباقات
+
+تُقرأ من جدول `plans` في Supabase وتُعرض في `/` فوراً عند أي تعديل، بلا إعادة نشر.
+الباقة التي لم يُعتمد سعرها بعد (`price_iqd_monthly IS NULL`) تظهر "قريباً" بدل رقم مُخمَّن.
+
+---
+
+## النشر
+
+يُنشر تلقائياً على Vercel عند الدفع إلى `main`. تأكّد من ضبط متغيّرات البيئة الثلاثة
+في إعدادات المشروع على Vercel قبل أول نشر.
