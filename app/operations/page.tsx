@@ -411,8 +411,12 @@ export default function OperationsPage() {
     }
   }, [])
 
+  // الاستدعاء داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
+  // setState متزامن هناك يُطلق دورات تصيير متتالية.
   useEffect(() => {
-    void loadOrders()
+    void (async () => {
+      await loadOrders()
+    })()
   }, [loadOrders])
 
   // التجار الحقيقيون من public.merchants مع باقتهم الفعّالة (لا بيانات وهمية)
@@ -470,7 +474,9 @@ export default function OperationsPage() {
   }, [])
 
   useEffect(() => {
-    void loadMerchants()
+    void (async () => {
+      await loadMerchants()
+    })()
   }, [loadMerchants])
 
   // عدد المحادثات الحية الحقيقي لكل قناة — من Supabase عبر /api/conversations
