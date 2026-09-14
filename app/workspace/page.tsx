@@ -155,10 +155,14 @@ function Workspace({ ent }: { ent: MerchantEntitlements }) {
       {/* الاستهلاك */}
       <section className="mb-8">
         <h2 className="text-sm font-black text-[#0F172A] mb-3">استهلاكك في الدورة الحالية</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <UsageMeter metric={usage.actions} />
-          <UsageMeter metric={usage.teamSeats} />
+          <UsageMeter metric={usage.aiAgents} />
+          <UsageMeter metric={usage.socialAccounts} />
           <UsageMeter metric={usage.products} />
+          <UsageMeter metric={usage.catalogs} />
+          <UsageMeter metric={usage.orderBooks} />
+          <UsageMeter metric={usage.teamSeats} />
         </div>
       </section>
 

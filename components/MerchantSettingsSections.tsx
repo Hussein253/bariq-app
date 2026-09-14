@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Check,
   Loader,
+  Package,
   Pause,
   Play,
   Plus,
@@ -116,6 +117,161 @@ const EMPTY_COUPON = {
   min_order_iqd: '',
   max_uses: '',
   expires_at: '',
+}
+
+/**
+ * سجلات الطلبات — خط استقبال مستقل لكل فرع أو نشاط تجاري.
+ * الحدّ مفروض بمُحفّز في قاعدة البيانات (plans.max_order_books).
+ */
+export function OrderBooksSection({
+  merchantId,
+  limit,
+}: {
+  merchantId: string
+  limit: number
+}) {
+  const [books, setBooks] = useState<
+    { id: string; name: string; is_default: boolean; orders_count: number }[]
+  >([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [newName, setNewName] = useState('')
+  const { toast, show, clear } = useToast()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/order-books?merchant_id=${merchantId}`, { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التحميل')
+      setBooks(json.books)
+    } catch (err: unknown) {
+      show(err instanceof Error ? err.message : 'تعذّر التحميل', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [merchantId, show])
+
+  useEffect(() => {
+    void (async () => {
+      await load()
+    })()
+  }, [load])
+
+  const full = books.length >= limit
+
+  const create = async () => {
+    const name = newName.trim()
+    if (!name) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/order-books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant_id: merchantId, name }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'فشل الإنشاء')
+      setNewName('')
+      await load()
+      show('أُنشئ السجل')
+    } catch (err: unknown) {
+      show(err instanceof Error ? err.message : 'فشل الإنشاء', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id: string) => {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/order-books?id=${id}&merchant_id=${merchantId}`, {
+        method: 'DELETE',
+      })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'فشل الحذف')
+      await load()
+      show('حُذف السجل')
+    } catch (err: unknown) {
+      show(err instanceof Error ? err.message : 'فشل الحذف', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <ToastBar toast={toast} onClose={clear} />
+      <SectionCard
+        icon={Package}
+        title="سجلات الطلبات"
+        description={`خط استقبال طلبات مستقل لكل فرع أو نشاط. ${toArabicDigits(
+          books.length
+        )} من ${toArabicDigits(limit)}`}
+      >
+        {loading ? (
+          <p className="text-xs text-[#64748B] py-4 text-center">جارِ التحميل...</p>
+        ) : (
+          <div className="space-y-3">
+            {books.length === 0 && (
+              <p className="text-xs text-[#64748B] py-2">لا سجل بعد — أنشئ السجل الرئيسي.</p>
+            )}
+            {books.map((b) => (
+              <div
+                key={b.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-bold text-[#0F172A]">{b.name}</p>
+                    {b.is_default && (
+                      <span className="px-2 py-0.5 rounded-full bg-[#253765]/10 text-[#253765] text-[10px] font-bold">
+                        الافتراضي
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[#64748B] mt-0.5">
+                    {toArabicDigits(b.orders_count)} طلب
+                  </p>
+                </div>
+                <button
+                  onClick={() => remove(b.id)}
+                  disabled={busy}
+                  className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                  title="حذف"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+
+            {full ? (
+              <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                بلغت حدّ باقتك: {toArabicDigits(limit)} سجل. الترقية تفتح المزيد.
+              </p>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="اسم السجل الجديد"
+                  className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#253765]"
+                />
+                <button
+                  onClick={create}
+                  disabled={busy || !newName.trim()}
+                  className="px-4 py-2 rounded-xl bg-[#253765] text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <Plus size={14} />
+                  <span>إضافة</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </SectionCard>
+    </>
+  )
 }
 
 export function CouponsSection({ merchantId }: { merchantId: string }) {

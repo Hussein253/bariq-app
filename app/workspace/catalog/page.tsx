@@ -4,6 +4,7 @@ import CatalogManager from '@/components/CatalogManager'
 import {
   CouponsSection,
   BusinessAndDeliverySections,
+  OrderBooksSection,
 } from '@/components/MerchantSettingsSections'
 import { listMerchantsWithPlan, loadMerchantEntitlements } from '@/lib/entitlements'
 import { formatArabicNumber } from '@/lib/formatters'
@@ -83,6 +84,7 @@ export default async function CatalogPage({
         productLimit={ent.plan.max_products}
       />
 
+      <OrderBooksSection merchantId={ent.merchant.id} limit={ent.plan.max_order_books} />
       <CouponsSection merchantId={ent.merchant.id} />
       <BusinessAndDeliverySections merchantId={ent.merchant.id} />
     </div>

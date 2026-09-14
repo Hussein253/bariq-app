@@ -50,7 +50,7 @@ function buildNav(merchantId: string): Section[] {
         { label: 'المنتجات / الخدمات', href: `/workspace/catalog${q}`, icon: Boxes },
         { label: 'الطلبات', href: '/operations', icon: Package },
         { label: 'الشحنات', href: '/dashboard', icon: Truck },
-        { label: 'الموظفون الأذكياء', icon: Bot, soon: true },
+        { label: 'الموظفون الأذكياء', href: `/workspace/agents${q}`, icon: Bot },
       ],
     },
     {
@@ -64,7 +64,7 @@ function buildNav(merchantId: string): Section[] {
     {
       title: 'التهيئة',
       items: [
-        { label: 'الربط', icon: Plug, soon: true },
+        { label: 'الربط', href: `/workspace/agents${q}`, icon: Plug },
         { label: 'المطوّرون', icon: Code2, soon: true },
       ],
     },

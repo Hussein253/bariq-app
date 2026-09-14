@@ -39,6 +39,10 @@ export interface MerchantEntitlements {
     actions: UsageMetric
     teamSeats: UsageMetric
     products: UsageMetric
+    socialAccounts: UsageMetric
+    aiAgents: UsageMetric
+    orderBooks: UsageMetric
+    catalogs: UsageMetric
   }
 }
 
@@ -78,11 +82,16 @@ export async function loadMerchantEntitlements(
   const { plans: plan, merchants: merchant, ...subscription } = row
   if (!plan || !merchant) return null
 
-  const [actionsUsed, seatsUsed, productsUsed] = await Promise.all([
-    countBotActions(merchantId, subscription.current_period_start),
-    countTeamSeats(merchantId),
-    countProducts(merchantId),
-  ])
+  const [actionsUsed, seatsUsed, productsUsed, accountsUsed, agentsUsed, booksUsed, catalogsUsed] =
+    await Promise.all([
+      countBotActions(merchantId, subscription.current_period_start),
+      countTeamSeats(merchantId),
+      countRows('products', merchantId),
+      countRows('social_accounts', merchantId),
+      countRows('ai_agents', merchantId),
+      countRows('order_books', merchantId),
+      countRows('catalogs', merchantId),
+    ])
 
   return {
     merchant,
@@ -103,6 +112,26 @@ export async function loadMerchantEntitlements(
         used: productsUsed,
         limit: plan.max_products,
         label: 'المنتجات والخدمات',
+      },
+      socialAccounts: {
+        used: accountsUsed,
+        limit: plan.max_social_accounts,
+        label: 'حسابات التواصل المربوطة',
+      },
+      aiAgents: {
+        used: agentsUsed,
+        limit: plan.max_ai_agents,
+        label: 'الموظفون الأذكياء',
+      },
+      orderBooks: {
+        used: booksUsed,
+        limit: plan.max_order_books,
+        label: 'سجلات الطلبات',
+      },
+      catalogs: {
+        used: catalogsUsed,
+        limit: plan.max_catalogs,
+        label: 'قواعد المنتجات',
       },
     },
   }
@@ -134,10 +163,17 @@ async function countBotActions(merchantId: string, periodStart: string): Promise
   return count ?? 0
 }
 
-/** حجم قاعدة معرفة التاجر — المنتجات والخدمات التي يجيب منها الموظف الذكي. */
-async function countProducts(merchantId: string): Promise<number> {
+/**
+ * عدّ صفوف التاجر في جدول محدود بالباقة.
+ * الجداول كلها تتبع النمط نفسه (عمود merchant_id)، والحدّ المقابل مفروض
+ * أيضاً بمُحفّز في قاعدة البيانات — هذا العدّ للعرض لا للحماية.
+ */
+async function countRows(
+  table: 'products' | 'social_accounts' | 'ai_agents' | 'order_books' | 'catalogs',
+  merchantId: string
+): Promise<number> {
   const { count, error } = await supabaseServer
-    .from('products')
+    .from(table)
     .select('id', { count: 'exact', head: true })
     .eq('merchant_id', merchantId)
 
