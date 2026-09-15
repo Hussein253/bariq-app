@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { MessageCircle, RefreshCw } from 'lucide-react'
+import { MessageCircle } from 'lucide-react'
 import LiveConversations, { type ChannelPlatform } from '@/components/LiveConversations'
 import { toArabicDigits } from '@/lib/formatters'
 import type { ConversationOverview } from '@/lib/conversations'

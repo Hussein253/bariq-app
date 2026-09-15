@@ -26,8 +26,9 @@ export default function ConfirmedOrdersPanel() {
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // كل setState هنا يقع بعد await — لا شيء يُضبط تزامنياً في جسم التأثير،
+  // وإلا صُيِّرت الواجهة مرتين عند كل تحميل (تصيير متتالٍ).
+  const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch('/api/orders/confirmed', { cache: 'no-store' })
       const json = await res.json()
@@ -41,9 +42,20 @@ export default function ConfirmedOrdersPanel() {
     }
   }, [])
 
+  // التحميل الأول: الحالة الابتدائية loading = true أصلاً، فلا حاجة لضبطها.
+  // العمل غير المتزامن معرَّف داخل جسم التأثير حتى يتبيّن للمُدقّق أن لا
+  // setState يقع تزامنياً قبل أول await.
   useEffect(() => {
-    void load()
-  }, [load])
+    void (async () => {
+      await fetchOrders()
+    })()
+  }, [fetchOrders])
+
+  // إعادة تحميل يدوية من الزر — هنا فقط نُظهر مؤشّر التحميل من جديد
+  const reload = useCallback(() => {
+    setLoading(true)
+    void fetchOrders()
+  }, [fetchOrders])
 
   const handleDispatch = async (orderId: number) => {
     setDispatchingId(orderId)
@@ -94,7 +106,7 @@ export default function ConfirmedOrdersPanel() {
           </div>
         </div>
         <button
-          onClick={() => void load()}
+          onClick={reload}
           disabled={loading}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#E2E8F0] hover:border-[#253765] disabled:opacity-50 text-slate-600 font-bold text-[11px] transition"
         >
