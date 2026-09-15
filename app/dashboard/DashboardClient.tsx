@@ -21,7 +21,6 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Sparkles,
   TrendingUp,
   Wallet,
   Clock,
@@ -36,7 +35,7 @@ import {
   Ban,
   PackagePlus,
 } from 'lucide-react'
-import { formatArabicCurrency, formatArabicNumber, toArabicDigits } from '@/lib/formatters'
+import { formatArabicCurrency, toArabicDigits } from '@/lib/formatters'
 import { PrintStickerButton } from '@/components/ShipmentSticker'
 import NewOrderBooking from '@/components/NewOrderBooking'
 import {

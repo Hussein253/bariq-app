@@ -130,23 +130,27 @@ export default function LiveConversations({ initialConversations, loadError, pla
   }, [])
 
   // عند تبديل التبويب (القناة) من الصفحة الأم: إن كانت المحادثة المختارة
-  // لا تنتمي للقناة الجديدة، نختار أول محادثة منها بدل ترك اختيار من قناة أخرى
-  useEffect(() => {
-    setSelectedId((current) => {
-      const currentBelongs = current
-        ? conversations.some(
-            (c) => c.id === current && (c.platform || 'whatsapp').toLowerCase() === platform
-          )
-        : false
-      if (currentBelongs) return current
+  // لا تنتمي للقناة الجديدة، نختار أول محادثة منها بدل ترك اختيار من قناة أخرى.
+  //
+  // يُضبط أثناء التصيير لا داخل useEffect — وهو النمط الذي يوصي به React
+  // لمواءمة حالة مع تغيّر prop. النسخة السابقة كانت تستدعي setState داخل
+  // تأثير، فتُصيَّر الواجهة مرة بمحادثة القناة القديمة ثم تُصيَّر ثانية
+  // بالصحيحة: وميض مرئي عند كل تبديل تبويب، إضافة إلى تصيير متتالٍ زائد.
+  const [lastPlatform, setLastPlatform] = useState(platform)
+  if (platform !== lastPlatform) {
+    setLastPlatform(platform)
+    const currentBelongs = selectedId
+      ? conversations.some(
+          (c) => c.id === selectedId && (c.platform || 'whatsapp').toLowerCase() === platform
+        )
+      : false
+    if (!currentBelongs) {
       const next = firstIdForPlatform(conversations, platform)
+      setSelectedId(next)
       setMessages([])
       setLoadingMessages(next !== null)
-      return next
-    })
-    // نتعمّد عدم إدراج conversations هنا: تبديل القناة فقط هو ما يجب أن يعيد الاختيار
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform])
+    }
+  }
 
   // ------------------------------------------------------------------
   // معالج الحدث الوحيد الذي يقود الواجهة: INSERT على جدول messages
