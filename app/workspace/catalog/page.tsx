@@ -6,8 +6,9 @@ import {
   BusinessAndDeliverySections,
   OrderBooksSection,
 } from '@/components/MerchantSettingsSections'
-import { listMerchantsWithPlan, loadMerchantEntitlements } from '@/lib/entitlements'
+import { loadMerchantEntitlements } from '@/lib/entitlements'
 import { formatArabicNumber } from '@/lib/formatters'
+import { loadWorkspaceContext } from '@/lib/workspace-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,15 +19,13 @@ export default async function CatalogPage({
 }) {
   const { merchant: requestedId } = await searchParams
 
-  let merchants: { id: string; name: string; planName: string | null }[] = []
+  const ctx = await loadWorkspaceContext(requestedId)
+  const merchants = ctx.merchants
   let ent = null
   let loadError: string | null = null
 
   try {
-    merchants = await listMerchantsWithPlan()
-    const activeId =
-      requestedId && merchants.some((m) => m.id === requestedId) ? requestedId : merchants[0]?.id
-    if (activeId) ent = await loadMerchantEntitlements(activeId)
+    if (ctx.merchantId) ent = await loadMerchantEntitlements(ctx.merchantId)
   } catch (err: unknown) {
     loadError = err instanceof Error ? err.message : 'تعذّر تحميل بيانات التاجر'
     console.error('[CATALOG_PAGE][LOAD_ERROR]', loadError)
@@ -96,6 +95,7 @@ export default async function CatalogPage({
       merchantName={ent?.merchant.name ?? 'التاجر'}
       planName={ent?.plan.name_en ?? null}
       merchants={merchants}
+      impersonating={ctx.impersonating}
     >
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         <div className="mb-6">

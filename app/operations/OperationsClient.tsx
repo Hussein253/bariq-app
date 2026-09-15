@@ -236,7 +236,7 @@ function OrderStageBadge({ order }: { order: ConfirmedOrder }) {
 
 // ---------- المكون الرئيسي للوحة العمليات والإدارة بالأرقام العربية ----------
 
-export default function OperationsPage() {
+export default function OperationsClient() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('super_admin')
   const [activeMerchantName, setActiveMerchantName] = useState<string>('متجر دجلة')
 
