@@ -1,0 +1,48 @@
+name: CI
+
+# يعمل على كل دفعة وكل طلب دمج إلى main.
+# قبل هذا الملف كان كل push إلى main يُنشر على Vercel مباشرة بلا أي فحص:
+# لا فحص أنواع، ولا lint، ولا بناء، ولا اختبار.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: تثبيت الحزم
+        run: npm ci
+
+      - name: فحص الأنواع
+        run: npm run typecheck
+
+      - name: فحص الأسلوب
+        run: npm run lint
+
+      - name: الاختبارات
+        run: npm test
+
+      - name: البناء
+        # مفاتيح وهمية: البناء يحتاج وجود المتغيّرات لا صحّتها، ولا يتصل
+        # بـ Supabase. المفاتيح الحقيقية تبقى في Vercel وحدها.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-key
+        run: npm run build
