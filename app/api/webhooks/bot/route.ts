@@ -1,334 +1,273 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-import { recordMessage } from '@/lib/conversations-server'
-import type { SenderType } from '@/lib/conversations'
+import { NextResponse } from 'next/server'
+import { supabaseServer } from '@/lib/supabase-server'
+import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
+import { createOrderWithShipment } from '@/lib/order-intake'
+import { verifySignature } from '@/lib/webhook-signature'
+import { normalizeIraqiPhone } from '@/lib/phone'
+import { clientKey, rateLimit, tooManyRequests } from '@/lib/rate-limit'
+import { log, maskPhone, maskText } from '@/lib/log'
+import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
+import { formatArabicCurrency, toArabicDigits } from '@/lib/formatters'
+
+export const dynamic = 'force-dynamic'
 
 /**
- * نقطة استقبال Webhook الموحدة لبوتات المحادثة الذكية (WhatsApp / Messenger / Instagram / Telegram)
- * --------------------------------------------------------------------------------------------
- * تستقبل الأحداث التلقائية:
- * 1. event: "order_created"        -> تسجيل طلب جديد من الزبون وإرجاع رقم التتبع
- * 2. event: "order_status_query"   -> الاستعلام عن حالة الطلب وموقع المندوب
- * 3. event: "human_handover"       -> تحويل المحادثة لموظف الدعم والعمليات
- * 4. event: "message_received"     -> رسالة نصية عادية واردة من الزبون (بدون طلب)
+ * POST /api/webhooks/bot — نقطة استقبال أحداث بوتات المحادثة
+ * ============================================================
+ * الأحداث: message_received | message_sent | order_created |
+ *          order_status_query | human_handover
  *
- * كل رسالة واردة، أياً كان نوعها، تُسجَّل في محادثة الزبون الصحيحة (وليس محادثة ثابتة)
- * وتُطبع في الـ Console لأغراض التتبع، لتظهر فوراً في قسم "محادثات البوت الحية".
+ * ⚠️ ثلاث مشاكل جوهرية أُصلحت هنا:
+ *
+ * 1. المسار كان مفتوحاً بلا توقيع ولا سرّ. أي شخص على الإنترنت كان يحقن
+ *    رسائل وطلبات باسم زبائن حقيقيين. الآن توقيع HMAC إلزامي، والغياب
+ *    يُغلق المسار (٥٠٣) بدل فتحه.
+ *
+ * 2. المبالغ المُخمَّنة: كان `Number(data.total_amount) || 25000` و
+ *    `delivery_fee || 5000` و رقم هاتف افتراضي '07700000000'. حقل مفقود في
+ *    رسالة واردة كان يُنتج طلباً بمبلغ مُخترع. الآن الرفض صريح (lib/order-intake).
+ *
+ * 3. التخزين: كان الطلب يُكتب في مصفوفة داخل الذاكرة ويضيع عند إعادة النشر،
+ *    ثم يُرد على الزبون برقم طلب لا وجود له بعد دقائق. الآن في القاعدة.
+ *
+ * التوقيع: x-bariq-signature = HMAC-SHA256(الجسم الخام، BARIQ_BOT_WEBHOOK_SECRET)
  */
 
+const LIMIT = 600
+const WINDOW_MS = 60_000
+
 type BotChannel = 'whatsapp' | 'messenger' | 'instagram' | 'telegram'
+const CHANNELS: BotChannel[] = ['whatsapp', 'messenger', 'instagram', 'telegram']
 
-// معرّف فريد للمحادثة بناءً على القناة ورقم هاتف الزبون
-function getConversationKey(channel: string, customerPhone: string) {
-  return `${channel}:${customerPhone}`
+function asChannel(raw: unknown): BotChannel {
+  return CHANNELS.includes(raw as BotChannel) ? (raw as BotChannel) : 'whatsapp'
 }
 
-// تسجيل رسالة في نموذج المحادثات (conversations / messages) — المصدر الوحيد
-// يتكفّل recordMessage بإنشاء المحادثة إن لم تكن موجودة (Idempotent)
-async function saveMessageToSupabase(params: {
-  phoneNumber: string
-  text: string
-  direction: 'inbound' | 'outbound'
-  channel?: string
-  senderType?: SenderType
-}): Promise<boolean> {
-  const { phoneNumber, text, direction } = params
+function str(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : ''
+}
 
-  const { message } = await recordMessage({
-    customerPhone: phoneNumber,
-    content: text,
-    senderType: params.senderType || (direction === 'inbound' ? 'customer' : 'bot'),
-    platform: params.channel || 'whatsapp',
+/** رد موحّد يحمل نص رسالة للزبون. */
+function botReply(reply: string, extra?: Record<string, unknown>) {
+  return NextResponse.json({ success: true, bot_response: { reply }, ...extra })
+}
+
+export async function POST(req: Request) {
+  const limit = rateLimit(`bot:webhook:${clientKey(req)}`, LIMIT, WINDOW_MS)
+  if (!limit.allowed) return tooManyRequests(limit)
+
+  const rawBody = await req.text()
+  const check = verifySignature({
+    rawBody,
+    signature: req.headers.get('x-bariq-signature'),
+    secret: process.env.BARIQ_BOT_WEBHOOK_SECRET,
   })
-
-  if (!message) {
-    console.error(`[BOT_WEBHOOK][RECORD_MESSAGE_FAILED][${direction}]`, { phoneNumber })
-    return false
+  if (!check.ok) {
+    log.warn('BOT_WEBHOOK_REJECTED', { reason: check.error })
+    return NextResponse.json({ success: false, error: check.error }, { status: check.status })
   }
 
-  console.log(`[BOT_WEBHOOK][MESSAGE_SAVED][${direction}]`, {
-    phoneNumber,
-    conversationId: message.conversation_id,
-    messageId: message.id,
-    time: new Date().toISOString(),
-  })
-  return true
-}
-
-// تسجّل الرسالة الواردة في محادثة الزبون الصحيحة + طباعة تتبعية
-function logIncomingMessage(params: {
-  channel: BotChannel
-  customerPhone: string
-  customerName?: string
-  text: string
-  event: string
-  raw?: unknown
-}) {
-  const { channel, customerPhone, customerName, text, event, raw } = params
-  const conversationKey = getConversationKey(channel, customerPhone)
-
-  // 1. Console log فوري لكل رسالة واردة (يظهر في لوق السيرفر عند كل Webhook)
-  console.log('[BOT_WEBHOOK][IN]', {
-    time: new Date().toISOString(),
-    event,
-    channel,
-    customerPhone,
-    text,
-  })
-
+  let body: Record<string, unknown>
   try {
-    // 2. حفظ في قاعدة البيانات ضمن محادثة الزبون الصحيحة
-    const conversation = db.getOrCreateConversation({
-      channel,
-      customer_phone: customerPhone,
-      customer_name: customerName || 'عميل واتساب',
-    })
-
-    db.addMessageToConversation(conversation.id, {
-      id: `msg-${Date.now()}`,
-      sender: 'customer',
-      text,
-      time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
-    })
-
-    return conversation
-  } catch (err: unknown) {
-    // لا نكسر الـ Webhook إن فشل الحفظ في المحادثة - فقط نسجّل الخطأ
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    console.error('[BOT_WEBHOOK][LOG_ERROR]', errorMessage)
-    return null
+    body = JSON.parse(rawBody) as Record<string, unknown>
+  } catch {
+    return NextResponse.json({ success: false, error: 'جسم الطلب ليس JSON صالحاً' }, { status: 400 })
   }
-}
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-    const { event, channel = 'whatsapp', merchant_api_key, data } = body
+  const event = str(body.event)
+  const channel = asChannel(body.channel)
+  const data = (body.data ?? {}) as Record<string, unknown>
 
-    // طباعة كل payload وارد فوراً (قبل أي معالجة) لتتبع كل ما يصل من واتساب
-    console.log('[BOT_WEBHOOK][RAW]', JSON.stringify(body))
-
-    // التحقق من مفتاح التاجر إذا وُجد
-    let merchant = merchant_api_key ? db.getMerchantByApiKey(merchant_api_key) : null
-    if (!merchant) {
-      merchant = db.getMerchants()[0]
-    }
-
-    const customerPhone = data?.customer_phone || data?.from || '07700000000'
-    const customerName = data?.customer_name
-    const botChannel = (channel as BotChannel) || 'whatsapp'
-
-    // ---------------------------------------------------------------
-    // رسالة نصية عادية واردة من الزبون (بدون إنشاء طلب) - هذا هو الحدث
-    // الذي يجب أن يرسله بوت واتساب لكل رسالة يكتبها الزبون
-    // ---------------------------------------------------------------
-     if (event === 'message_received' || event === 'message_sent') {
-       const incomingText = data?.text || data?.message || ''
-       const isInbound = event === 'message_received'
-
-       logIncomingMessage({
-         channel: botChannel,
-         customerPhone,
-         customerName,
-         text: incomingText,
-         event,
-         raw: data,
-       })
-
-       // تسجيل الرسالة في نموذج المحادثات لتظهر فوراً في لوحة التحكم عبر Realtime
-       await saveMessageToSupabase({
-         phoneNumber: customerPhone,
-         text: incomingText,
-         direction: isInbound ? 'inbound' : 'outbound',
-         channel: botChannel,
-       })
-
-       return NextResponse.json({
-         success: true,
-         message: isInbound
-           ? 'تم استلام الرسالة وتسجيلاتها في المحادثات الحية وواتساب'
-           : 'تم تسجيل رد البوت في المحادثات الحية وواتساب',
-       })
-     }
-
-    if (event === 'order_created') {
-      const newOrder = db.createOrder({
-        customer_name: data.customer_name || 'عميل المحادثة',
-        customer_phone: data.customer_phone || '07700000000',
-        address: data.address || 'العنوان غير محدد',
-        city: data.city || 'بغداد',
-        total_amount: Number(data.total_amount) || 25000,
-        delivery_fee: Number(data.delivery_fee) || 5000,
-        status: 'جديد',
-        payment_status: data.payment_method === 'zaincash' || data.payment_method === 'qicard' ? 'قيد المعالجة' : 'غير مدفوع',
-        payment_method: data.payment_method || 'عند الاستلام',
-        merchant_name: merchant?.name || 'متجر دجلة',
-        merchant_id: merchant?.id || 'm1',
-        notes: `تم الطلب تلقائياً عبر بوت ${channel}. ${data.notes || ''}`,
-        items: data.items || [{ id: 'it-bot', name: data.item_name || 'منتج من البوت', quantity: data.quantity || 1, price: data.total_amount || 25000 }]
-      })
-
-      // تسجيل رسالة العميل الأصلية (إن وُجدت) + رسالة تأكيد البوت في محادثة الزبون الصحيحة
-      const conversation = logIncomingMessage({
-        channel: botChannel,
-        customerPhone,
-        customerName,
-        text: data.text || `طلب جديد: ${newOrder.id}`,
-        event,
-        raw: data,
-      })
-
-      // حفظ رسالة العميل في Supabase
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: data.text || `طلب جديد: ${newOrder.id}`,
-        direction: 'inbound',
-        channel: botChannel,
-      })
-
-      const botReply = `تم تسجيل طلبك بنجاح برقم #${newOrder.id}. الإجمالي: ${newOrder.total_amount.toLocaleString('ar-IQ')} د.ع`
-
-      if (conversation) {
-        db.addMessageToConversation(conversation.id, {
-          id: `msg-${Date.now() + 1}`,
-          sender: 'bot',
-          text: botReply,
-          time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
-        })
-      }
-
-      // حفظ رد البوت في Supabase أيضاً ليظهر فوراً في الواجهة
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: botReply,
-        direction: 'outbound',
-        channel: botChannel,
-      })
-
-      return NextResponse.json({
-        success: true,
-        message: 'تم استلام وتوثيق الطلب بنجاح في نظام برق',
-        order: newOrder,
-        bot_response: {
-          reply: `شكراً لك! ⚡ تم تأكيد طلبك برقم #${newOrder.id} بقيمة ${newOrder.total_amount.toLocaleString('ar-IQ')} د.ع. سنقوم بإشعارك عند خروج المندوب للتسليم.`
-        }
-      })
-    }
-
-    if (event === 'order_status_query') {
-      const orderId = data.order_id
-      const order = db.getOrderById(orderId)
-
-      logIncomingMessage({
-        channel: botChannel,
-        customerPhone,
-        customerName,
-        text: data.text || `استعلام عن حالة الطلب #${orderId}`,
-        event,
-        raw: data,
-      })
-
-      // حفظ رسالة العميل في Supabase
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: data.text || `استعلام عن حالة الطلب #${orderId}`,
-        direction: 'inbound',
-        channel: botChannel,
-      })
-
-      if (!order) {
-        const notFoundReply = `عذراً، لم نتمكن من العثور على طلب برقم #${orderId}. يرجى التحقق من الرقم والمحاولة مرة أخرى.`
-        await saveMessageToSupabase({
-          phoneNumber: customerPhone,
-          text: notFoundReply,
-          direction: 'outbound',
-          channel: botChannel,
-        })
-        return NextResponse.json({
-          success: false,
-          message: 'لم يتم العثور على طلب بهذا الرقم',
-          bot_response: {
-            reply: notFoundReply
-          }
-        }, { status: 404 })
-      }
-
-      const statusReply = `حالة طلبك #${order.id} الحالية هي: [${order.status}]. المندوب المخصص: ${order.driver_name || 'جاري التعيين'} (${order.driver_phone || 'سيتصل بك قريباً'}).`
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: statusReply,
-        direction: 'outbound',
-        channel: botChannel,
-      })
-
-      return NextResponse.json({
-        success: true,
-        order,
-        bot_response: {
-          reply: statusReply
-        }
-      })
-    }
-
-    if (event === 'human_handover') {
-      const handoverText = data?.text || 'طلب تحويل لموظف بشري'
-      logIncomingMessage({
-        channel: botChannel,
-        customerPhone,
-        customerName,
-        text: handoverText,
-        event,
-        raw: data,
-      })
-
-      // حفظ رسالة العميل في Supabase
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: handoverText,
-        direction: 'inbound',
-        channel: botChannel,
-      })
-
-      const handoverReply = 'تم تحويل محادثتك لأحد ممثلي خدمة العملاء في برق. سيتواصل معك الموظف خلال لحظات.'
-      await saveMessageToSupabase({
-        phoneNumber: customerPhone,
-        text: handoverReply,
-        direction: 'outbound',
-        channel: botChannel,
-      })
-
-      return NextResponse.json({
-        success: true,
-        message: 'تم تصعيد المحادثة إلى لوحة تحكم موظفي العمليات',
-        bot_response: {
-          reply: handoverReply
-        }
-      })
-    }
-
-    // أي حدث غير معروف - نسجّله أيضاً بدل تجاهله بصمت
-    console.warn('[BOT_WEBHOOK][UNKNOWN_EVENT]', event, data)
-
-    return NextResponse.json({
-      success: true,
-      message: 'تم استقبال حدث الويب هوك بنجاح',
-      event
-    })
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'خطأ داخلي في معالجة الويب هوك'
-    console.error('[BOT_WEBHOOK][ERROR]', errorMessage)
+  // رقم الزبون لا بديل افتراضي له: بدونه لا تُعرف المحادثة ولا يُوصل الطلب
+  const customerPhone = normalizeIraqiPhone(str(data.customer_phone) || str(data.from))
+  if (!customerPhone) {
     return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
+      { success: false, error: 'رقم هاتف عراقي صالح مطلوب في data.customer_phone' },
+      { status: 422 }
     )
   }
+
+  log.info('BOT_WEBHOOK_IN', {
+    event,
+    channel,
+    customer_phone: maskPhone(customerPhone),
+    text: maskText(str(data.text) || str(data.message)),
+  })
+
+  // -----------------------------------------------------------------
+  // رسالة عادية
+  // -----------------------------------------------------------------
+  if (event === 'message_received' || event === 'message_sent') {
+    const text = str(data.text) || str(data.message)
+    if (!text) {
+      return NextResponse.json({ success: false, error: 'نص الرسالة مطلوب' }, { status: 422 })
+    }
+
+    const { message } = await recordMessage({
+      customerPhone,
+      content: text,
+      senderType: event === 'message_received' ? 'customer' : 'bot',
+      platform: channel,
+    })
+
+    if (!message) {
+      return NextResponse.json({ success: false, error: 'تعذّر حفظ الرسالة' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, message: 'تم تسجيل الرسالة' })
+  }
+
+  // -----------------------------------------------------------------
+  // طلب جديد
+  // -----------------------------------------------------------------
+  if (event === 'order_created') {
+    const merchantId = str(data.merchant_id)
+    if (!merchantId) {
+      return NextResponse.json(
+        { success: false, error: 'data.merchant_id مطلوب — الطلب يجب أن يُنسب لتاجر محدّد' },
+        { status: 422 }
+      )
+    }
+
+    const { data: merchant, error: merchantError } = await supabaseServer
+      .from('merchants')
+      .select('id, name, status')
+      .eq('id', merchantId)
+      .maybeSingle()
+
+    if (merchantError) {
+      return NextResponse.json({ success: false, error: 'تعذّر التحقق من التاجر' }, { status: 500 })
+    }
+    if (!merchant) {
+      return NextResponse.json({ success: false, error: 'لا يوجد تاجر بهذا المعرّف' }, { status: 422 })
+    }
+    if (merchant.status !== 'active') {
+      return NextResponse.json({ success: false, error: 'حساب التاجر موقوف' }, { status: 403 })
+    }
+
+    // مفتاح منع التكرار: معرّف الرسالة من القناة إن وُجد، وإلا مفتاح صريح.
+    // لا يُولَّد من الوقت — مفتاح زمني يجعل كل إعادة إرسال طلباً جديداً.
+    const idempotencyKey = str(data.idempotency_key) || str(data.message_id)
+    if (!idempotencyKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'data.idempotency_key (أو data.message_id) مطلوب لمنع قيد الطلب مرتين',
+        },
+        { status: 400 }
+      )
+    }
+
+    const result = await createOrderWithShipment({
+      merchantId: merchant.id,
+      recipientName: str(data.customer_name),
+      recipientPhone: customerPhone,
+      governorate: str(data.governorate),
+      district: str(data.district) || null,
+      fullAddress: str(data.full_address) || str(data.address),
+      nearestLandmark: str(data.nearest_landmark) || null,
+      orderContent: str(data.order_content) || str(data.item_name),
+      codAmountIqd: data.cod_amount_iqd,
+      deliveryFeeIqd: data.delivery_fee_iqd,
+      notes: str(data.notes) || null,
+      idempotencyKey,
+      source: 'bot',
+    })
+
+    if (!result.ok) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
+    }
+
+    const { shipment, duplicate } = result
+    const cod = Number(shipment.cod_amount_iqd) || 0
+    const fee = Number(shipment.delivery_fee_iqd) || 0
+
+    // نبرة خدمة العملاء — بند ٥: التفاصيل الحيوية فقط، والمبلغان منفصلان
+    // لأن الزبون يدفع مجموعهما عند الاستلام ويحق له معرفة تفصيلهما.
+    const reply = `تم تأكيد طلبك ✅\nرقم التتبع: ${shipment.tracking_number}\nثمن الطلب: ${formatArabicCurrency(cod)}\nأجرة التوصيل: ${formatArabicCurrency(fee)}\nالمطلوب عند الاستلام: ${formatArabicCurrency(cod + fee)}\nسنُشعرك عند خروج المندوب للتسليم.`
+
+    if (!duplicate) {
+      await recordMessage({
+        customerPhone,
+        content: reply,
+        senderType: 'bot',
+        platform: channel,
+        merchantId: merchant.id,
+      })
+    }
+
+    return botReply(reply, { duplicate, shipment })
+  }
+
+  // -----------------------------------------------------------------
+  // استعلام عن حالة الطلب
+  // -----------------------------------------------------------------
+  if (event === 'order_status_query') {
+    const trackingNumber = str(data.tracking_number)
+
+    // بلا رقم تتبع: آخر شحنة لهذا الرقم. المطابقة بالهاتف لا بمعرّف يُمرَّر
+    // من الخارج — وإلا استعلم أي شخص عن شحنة أي زبون برقم عشوائي.
+    let query = supabaseServer
+      .from('shipments')
+      .select('tracking_number, status, governorate, cod_amount_iqd, delivery_fee_iqd, created_at')
+      .eq('recipient_phone', customerPhone)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (trackingNumber) query = query.eq('tracking_number', trackingNumber)
+
+    const { data: rows, error } = await query
+    if (error) {
+      log.error('BOT_STATUS_QUERY_FAILED', { reason: error.message })
+      return NextResponse.json({ success: false, error: 'تعذّر جلب حالة الشحنة' }, { status: 500 })
+    }
+
+    const shipment = rows?.[0]
+    if (!shipment) {
+      const notFound = trackingNumber
+        ? `لم نجد شحنة برقم ${trackingNumber} مرتبطة برقمك. تأكّد من الرقم أو راسلنا لنتحقق.`
+        : 'لا توجد شحنة مسجّلة على رقمك حالياً.'
+      await recordMessage({ customerPhone, content: notFound, senderType: 'bot', platform: channel })
+      return NextResponse.json(
+        { success: false, bot_response: { reply: notFound } },
+        { status: 404 }
+      )
+    }
+
+    const label = STATUS_LABELS[shipment.status as ShipmentStatus] ?? shipment.status
+    const total = (Number(shipment.cod_amount_iqd) || 0) + (Number(shipment.delivery_fee_iqd) || 0)
+    const reply = `شحنتك ${shipment.tracking_number}\nالحالة: ${label}\nالمطلوب عند الاستلام: ${formatArabicCurrency(total)}`
+
+    await recordMessage({ customerPhone, content: reply, senderType: 'bot', platform: channel })
+    return botReply(reply, { shipment })
+  }
+
+  // -----------------------------------------------------------------
+  // تحويل لموظف بشري
+  // -----------------------------------------------------------------
+  if (event === 'human_handover') {
+    const text = str(data.text)
+    if (text) {
+      await recordMessage({ customerPhone, content: text, senderType: 'customer', platform: channel })
+    }
+
+    // إيقاف البوت فعلياً — بدونه يظل يردّ فوق الموظف في نفس المحادثة
+    await setBotActiveByPhone({ customerPhone, botActive: false, platform: channel })
+
+    const reply = 'حوّلنا محادثتك إلى أحد موظفي خدمة العملاء، وسيردّ عليك خلال دقائق.'
+    await recordMessage({ customerPhone, content: reply, senderType: 'system', platform: channel })
+
+    return botReply(reply)
+  }
+
+  log.warn('BOT_WEBHOOK_UNKNOWN_EVENT', { event, channel })
+  return NextResponse.json(
+    { success: false, error: `حدث غير معروف: ${toArabicDigits(event || '—')}` },
+    { status: 422 }
+  )
 }
 
 export async function GET() {
-  return NextResponse.json({
-    status: 'online',
-    service: 'Bariq Bot Webhook API',
-    supported_channels: ['whatsapp', 'messenger', 'instagram', 'telegram'],
-    version: '2.0.0'
-  })
+  // فحص حياة فقط — لا يكشف إعدادات ولا يؤكّد وجود سرّ التوقيع
+  return NextResponse.json({ status: 'online', service: 'bariq-bot-webhook' })
 }
