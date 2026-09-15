@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { requireSession } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const { id } = await params
     const body = (await req.json()) as Record<string, unknown>
@@ -135,6 +138,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const { id } = await params
     const { error } = await supabaseServer.from('ad_campaigns').delete().eq('id', id)

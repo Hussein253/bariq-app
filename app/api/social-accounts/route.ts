@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { planLimitFailure } from '@/lib/plan-limits'
+import { requireMerchantScope } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +17,9 @@ const PLATFORMS = ['whatsapp', 'instagram', 'messenger']
 const STATUSES = ['connected', 'needs_reauth', 'disconnected']
 
 export async function GET(request: Request) {
-  const merchantId = new URL(request.url).searchParams.get('merchant_id')
+  const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant_id'))
+  if (!scope.ok) return scope.response
+  const merchantId = scope.merchantId
   if (!merchantId) {
     return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
   }
@@ -46,9 +49,9 @@ export async function POST(request: Request) {
       ai_agent_id?: string | null
     }
 
-    if (!body.merchant_id) {
-      return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
-    }
+    const scope = await requireMerchantScope(body.merchant_id)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     const platform = String(body.platform || '')
     if (!PLATFORMS.includes(platform)) {
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabaseServer
       .from('social_accounts')
       .insert({
-        merchant_id: body.merchant_id,
+        merchant_id: merchantId,
         platform,
         external_id: externalId,
         display_name: body.display_name?.trim() || null,
@@ -112,9 +115,13 @@ export async function PATCH(request: Request) {
       ai_agent_id?: string | null
     }
 
-    if (!body.id || !body.merchant_id) {
+    const scope = await requireMerchantScope(body.merchant_id)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
+
+    if (!body.id) {
       return NextResponse.json(
-        { success: false, error: 'معرّف الحساب والتاجر مطلوبان' },
+        { success: false, error: 'معرّف الحساب مطلوب' },
         { status: 400 }
       )
     }
@@ -145,7 +152,7 @@ export async function PATCH(request: Request) {
       .from('social_accounts')
       .update(patch)
       .eq('id', body.id)
-      .eq('merchant_id', body.merchant_id)
+      .eq('merchant_id', merchantId)
       .select()
       .maybeSingle()
 
@@ -167,11 +174,13 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const params = new URL(request.url).searchParams
   const id = params.get('id')
-  const merchantId = params.get('merchant_id')
+  const scope = await requireMerchantScope(params.get('merchant_id'))
+  if (!scope.ok) return scope.response
+  const merchantId = scope.merchantId
 
   if (!id || !merchantId) {
     return NextResponse.json(
-      { success: false, error: 'معرّف الحساب والتاجر مطلوبان' },
+      { success: false, error: 'معرّف الحساب مطلوب' },
       { status: 400 }
     )
   }

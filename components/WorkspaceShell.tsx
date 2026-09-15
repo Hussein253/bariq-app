@@ -156,12 +156,15 @@ export default function WorkspaceShell({
   merchantName,
   planName,
   merchants,
+  impersonating = false,
   children,
 }: {
   merchantId: string
   merchantName: string
   planName: string | null
   merchants: { id: string; name: string; planName: string | null }[]
+  /** مالك المنصة يفتح مساحة تاجر ليست له — يُعلَن صراحةً لا يُخفى. */
+  impersonating?: boolean
   children: React.ReactNode
 }) {
   const pathname = usePathname()
@@ -259,7 +262,15 @@ export default function WorkspaceShell({
           </div>
         )}
 
-        <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
+        <main className="flex-1 min-w-0 overflow-y-auto">
+          {impersonating && (
+            <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-[11px] font-bold text-amber-900 flex items-center gap-2">
+              <ShieldAlert size={14} className="shrink-0" />
+              تعرض مساحة {merchantName} بصلاحية مالك المنصة — كل فتح مُقيَّد في سجل التدقيق.
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   )

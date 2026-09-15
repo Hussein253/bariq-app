@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { requireMerchantScope } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,7 +101,9 @@ function mapRow(r: Row): CampaignRecord {
 /** GET /api/campaigns?merchant_id=<uuid> */
 export async function GET(request: Request) {
   try {
-    const merchantId = new URL(request.url).searchParams.get('merchant_id')
+    const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant_id'))
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     let query = supabaseServer.from('ad_campaigns').select(SELECT)
     if (merchantId) query = query.eq('merchant_id', merchantId)
@@ -130,7 +133,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'اسم الحملة مطلوب' }, { status: 422 })
     }
 
-    const merchantId = typeof body.merchant_id === 'string' ? body.merchant_id : ''
+    const scope = await requireMerchantScope(typeof body.merchant_id === 'string' ? body.merchant_id : null)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
     if (!merchantId) {
       return NextResponse.json({ success: false, error: 'التاجر مطلوب' }, { status: 422 })
     }

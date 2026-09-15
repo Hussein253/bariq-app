@@ -1,11 +1,14 @@
 import { supabaseServer } from '@/lib/supabase-server'
 import DashboardClient from './DashboardClient'
 import type { Shipment, Merchant, Courier } from '@/lib/shipments'
+import { requireRole } from '@/lib/auth'
 
 // بيانات حقيقية (شحن، تجار، مندوبين) - تُجلب في كل زيارة، لا تخزين مؤقت
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
+  await requireRole(['platform_owner', 'staff'])
+
   const [shipmentsRes, merchantsRes, couriersRes, ordersRes] = await Promise.all([
     supabaseServer.from('shipments').select('*').order('created_at', { ascending: false }),
     supabaseServer.from('merchants').select('*').order('created_at', { ascending: false }),

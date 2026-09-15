@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { loadConversationsOverview } from '@/lib/conversations-server'
+import { requireSession } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic'
  * يُستخدم كنسخة احتياطية لتحديث القائمة عند انقطاع Realtime.
  */
 export async function GET() {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const conversations = await loadConversationsOverview()
     return NextResponse.json({ success: true, conversations })

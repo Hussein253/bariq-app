@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { normalizeIraqiPhone } from '@/lib/phone'
 import type { Shipment } from '@/lib/shipments'
+import { requireSession } from '@/lib/api-session'
 
 /**
  * POST /api/orders/book — حجز طلب جديد من لوحة التحكم
@@ -17,6 +18,8 @@ import type { Shipment } from '@/lib/shipments'
  */
 
 export async function POST(req: NextRequest) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = await req.json().catch(() => ({}))
     const customerName = String(body?.customer_name || '').trim()

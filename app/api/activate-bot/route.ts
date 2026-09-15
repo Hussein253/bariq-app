@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { setBotActiveByPhone } from '@/lib/conversations-server'
+import { requireSession } from '@/lib/api-session'
 
 /**
  * API Route لتفعيل البوت لرقم هاتف معين
@@ -10,6 +11,8 @@ import { setBotActiveByPhone } from '@/lib/conversations-server'
  */
 
 export async function POST(req: NextRequest) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = await req.json()
     const { phone_number } = body

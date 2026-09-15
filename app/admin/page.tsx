@@ -14,6 +14,7 @@ import {
 import { loadPlatformOverview, type MerchantRow, type PlatformOverview } from '@/lib/admin-server'
 import { STATUS_LABELS, STATUS_COLORS, type ShipmentStatus } from '@/lib/shipments'
 import { formatArabicCurrency, formatArabicNumber, toArabicDigits } from '@/lib/formatters'
+import { requireRole } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -332,6 +333,9 @@ function Overview({ data }: { data: PlatformOverview }) {
 }
 
 export default async function AdminPage() {
+  // لوحة مالك المنصة: أرصدة كل التجار والإيرادات والعمولات — لمالكها وحده
+  await requireRole(['platform_owner'])
+
   let data: PlatformOverview | null = null
   let loadError: string | null = null
 

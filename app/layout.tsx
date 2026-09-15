@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans_Arabic, Libre_Barcode_39_Text } from "next/font/google";
 import "./globals.css";
+import SessionBar from "@/components/SessionBar";
 
 const ibmPlexArabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic", "latin"],
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
   description: "منصة إدارة التوصيل، البوتات الذكية، الحملات الإعلانية، وبوابات الدفع الإلكترونية العراقية (زين كاش وكي كارد)",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -38,6 +39,7 @@ export default function RootLayout({
       className={`${ibmPlexArabic.variable} ${barcodeFont.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-[#F8F9FA] text-[#0F172A] antialiased selection:bg-[#253765]/20 selection:text-[#253765]">
+        <SessionBar />
         {children}
       </body>
     </html>

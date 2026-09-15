@@ -1,8 +1,9 @@
 import { AlertCircle } from 'lucide-react'
 import WorkspaceShell from '@/components/WorkspaceShell'
 import AgentsAndAccounts from '@/components/AgentsAndAccounts'
-import { listMerchantsWithPlan, loadMerchantEntitlements } from '@/lib/entitlements'
+import { loadMerchantEntitlements } from '@/lib/entitlements'
 import { supabaseServer } from '@/lib/supabase-server'
+import { loadWorkspaceContext } from '@/lib/workspace-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,15 +14,14 @@ export default async function AgentsPage({
 }) {
   const { merchant: requestedId } = await searchParams
 
-  let merchants: { id: string; name: string; planName: string | null }[] = []
+  const ctx = await loadWorkspaceContext(requestedId)
+  const merchants = ctx.merchants
   let ent = null
   let catalogs: { id: string; name: string }[] = []
   let loadError: string | null = null
 
   try {
-    merchants = await listMerchantsWithPlan()
-    const activeId =
-      requestedId && merchants.some((m) => m.id === requestedId) ? requestedId : merchants[0]?.id
+    const activeId = ctx.merchantId
     if (activeId) {
       ent = await loadMerchantEntitlements(activeId)
       const { data } = await supabaseServer
@@ -73,6 +73,7 @@ export default async function AgentsPage({
       merchantName={ent?.merchant.name ?? 'التاجر'}
       planName={ent?.plan.name_en ?? null}
       merchants={merchants}
+      impersonating={ctx.impersonating}
     >
       {body}
     </WorkspaceShell>

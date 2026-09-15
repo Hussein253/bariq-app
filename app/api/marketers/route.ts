@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { requireSession } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,8 @@ export interface MarketerRecord {
 const ACTIVE_CAMPAIGN = ['active', 'under_review']
 
 export async function GET() {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const [marketersRes, assignmentsRes, campaignsRes] = await Promise.all([
       supabaseServer
@@ -93,6 +96,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = (await request.json()) as {
       name?: string
@@ -183,6 +188,8 @@ export async function POST(request: Request) {
 
 /** PATCH /api/marketers — تحديث مروّج أو إيقافه. */
 export async function PATCH(request: Request) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = (await request.json()) as {
       id?: string

@@ -12,7 +12,12 @@ import {
   Send,
   UserRound,
 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import type {
+  RealtimePostgresInsertPayload,
+  RealtimePostgresUpdatePayload,
+  REALTIME_SUBSCRIBE_STATES,
+} from '@supabase/supabase-js'
+import { getBrowserSupabase } from '@/lib/supabase/client'
 import { toArabicDigits } from '@/lib/formatters'
 import {
   type Conversation,
@@ -28,6 +33,9 @@ import {
   senderLabel,
   waLink,
 } from '@/lib/conversations'
+// عميل مربوط بجلسة المستخدم: اشتراك Realtime صار مُصادَقاً، فتحكمه سياسة
+// conversations_select_scoped (ترحيل ٠١٢) ويرى التاجر محادثاته وحده.
+const supabase = getBrowserSupabase()
 
 type BotFilter = 'all' | 'bot' | 'human'
 export type ChannelPlatform = 'whatsapp' | 'instagram' | 'messenger'
@@ -237,12 +245,13 @@ export default function LiveConversations({ initialConversations, loadError, pla
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages' },
-          (payload) => applyIncomingMessage(payload.new as Message)
+          (payload: RealtimePostgresInsertPayload<Message>) =>
+            applyIncomingMessage(payload.new as Message)
         )
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'conversations' },
-          (payload) => {
+          (payload: RealtimePostgresUpdatePayload<Conversation>) => {
             const row = payload.new as Conversation
             setConversations((prev) =>
               prev.map((c) =>
@@ -253,7 +262,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
             )
           }
         )
-        .subscribe((status) => {
+        .subscribe((status: `${REALTIME_SUBSCRIBE_STATES}`) => {
           if (!mounted) return
           if (status === 'SUBSCRIBED') {
             setConnected(true)

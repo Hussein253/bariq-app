@@ -1,0 +1,2356 @@
+'use client'
+
+/**
+ * لوحة تحكم منصة "برق" — النسخة الإدارية الفاخرة بالأوف وايت وتوحيد الأرقام العربية
+ * -------------------------------------------------------------------------------
+ * المسار: app/operations/page.tsx
+ * 
+ * الميزات:
+ * 1. توحيد كافة الأرقام والمبالغ والنسب والتواريخ وأرقام الهواتف إلى الأرقام العربية (٠، ١، ٢، ٣، ٤، ٥، ٦، ٧، ٨، ٩).
+ * 2. قسم "الإدارة" الشامل مع إدارة حسابات واشتراكات التجار وحسابات المروجين.
+ * 3. نظام تخصيص الصلاحيات (التاجر يرى فقط طلباته ومحادثاته وحملاته الخاصة).
+ * 4. تكامل بوابات الدفع الإلكترونية العراقية (Zain Cash و Qi Card).
+ * 5. واجهة أوف وايت فاخرة (#F8F9FA) مع أزرار أزرق ملكي (#253765).
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import {
+  Printer,
+  Search,
+  Store,
+  MessageCircle,
+  Plus,
+  X,
+  CheckCircle2,
+  RefreshCw,
+  ShieldCheck,
+  Key,
+  Copy,
+  Check,
+  Package,
+  Sparkles,
+  ArrowUpRight,
+  TrendingUp,
+  Truck,
+  Megaphone,
+  Sliders,
+  Play,
+  Pause,
+  DollarSign,
+  Lock,
+  ShieldAlert,
+  Award
+} from 'lucide-react'
+import {
+  toArabicDigits,
+  formatArabicNumber,
+  formatArabicCurrency,
+  formatArabicPercent,
+  formatArabicPhone,
+  formatArabicDate
+} from '@/lib/formatters'
+import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
+import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
+import NewOrderBooking from '@/components/NewOrderBooking'
+
+// ---------- أنواع البيانات ----------
+
+/**
+ * التاجر كما يصل من /api/merchants — جدول merchants الحقيقي مُثرى بباقته
+ * الفعّالة وعدد شحناته. الحقول التي لم يُدخلها التاجر بعد تصل null ولا
+ * تُستبدل بقيم افتراضية: رقم مُخترع في عمولة أو رصيد قرار مالي خاطئ.
+ */
+export interface Merchant {
+  id: string
+  name: string
+  owner_name: string | null
+  phone: string | null
+  city: string | null
+  /** اسم الباقة الفعّالة (Spark…Storm)، أو null إن لم يشترك بعد. */
+  plan: string | null
+  /** حالة الاشتراك بالعربية، أو null إن لم يوجد اشتراك فعّال. */
+  subscription_status: string | null
+  api_connected: boolean
+  monthly_fee: number | null
+  commission_rate: number | null
+  api_key: string | null
+  webhook_url: string | null
+  orders_count: number
+  balance: number
+}
+
+/** حالة الاشتراك في قاعدة البيانات → التسمية المعروضة. */
+const SUBSCRIPTION_LABELS: Record<string, string> = {
+  trialing: 'تجريبي',
+  active: 'نشط',
+  past_due: 'متأخر السداد',
+  canceled: 'ملغى',
+}
+
+/** المروّج كما يصل من /api/marketers — جدول public.marketers الحقيقي. */
+export interface Marketer {
+  id: string
+  name: string
+  agency_name: string | null
+  email: string | null
+  phone: string | null
+  /** الحالة بالعربية بعد الترجمة من active/suspended. */
+  status: string
+  /** التجار المسندون — من جدول marketer_merchants لا مصفوفة أسماء. */
+  assigned_merchants: { id: string; name: string }[]
+  active_campaigns_count: number
+  total_ad_budget_managed: number
+  commission_rate: number | null
+  created_at: string
+}
+
+export type AdPlatform = 'instagram' | 'facebook' | 'tiktok' | 'snapchat' | 'google'
+
+/** حالات الحملة في قاعدة البيانات → التسمية المعروضة. */
+export const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
+  active: 'نشطة',
+  completed: 'مكتملة',
+  under_review: 'قيد المراجعة',
+  paused: 'متوقفة',
+}
+
+const MARKETER_STATUS_LABELS: Record<string, string> = {
+  active: 'نشط',
+  suspended: 'متوقف',
+}
+
+/** الحملة كما تصل من /api/campaigns — جدول public.ad_campaigns الحقيقي. */
+export interface AdCampaign {
+  id: string
+  name: string
+  merchant_id: string
+  merchant_name: string | null
+  marketer_id: string | null
+  marketer_name: string | null
+  platform: AdPlatform
+  /** الحالة بالعربية بعد الترجمة. */
+  status: string
+  budget_total: number
+  budget_spent: number
+  daily_budget: number
+  attributed_revenue: number
+  reach: number
+  impressions: number
+  clicks: number
+  conversions: number
+  /** عمود محسوب في قاعدة البيانات = الإيراد ÷ الإنفاق. null حين لا إنفاق. */
+  roas: number | null
+  start_date: string | null
+  end_date: string | null
+  target_audience: string | null
+  ad_headline: string | null
+  marketer_notes: string | null
+}
+
+type MainNavView = 'orders' | 'booking' | 'whatsapp' | 'instagram' | 'messenger' | 'admin' | 'campaigns'
+type AdminSubTab = 'merchants' | 'marketers' | 'permissions'
+type UserRole = 'super_admin' | 'merchant'
+type TimeRange = 'today' | 'week' | 'month' | 'all'
+
+// ---------- البيانات الأولية المحملة ----------
+
+
+// ---------- مكونات الشارات ----------
+
+function StatusBadge({ status }: { status: string }) {
+  let style = 'bg-slate-100 text-slate-700 border-slate-200'
+
+  if (['تم التسليم', 'تم الدفع', 'نشط', 'متصل', 'نشطة', 'يرد تلقائيًا'].includes(status)) {
+    style = 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  } else if (['ملغي', 'متوقف', 'متوقفة', 'فشل الدفع', 'تم التصعيد', 'غير مربوط'].includes(status)) {
+    style = 'bg-rose-50 text-rose-700 border-rose-200'
+  } else if (['بالطريق', 'متقدمة', 'احترافية', 'قيد المراجعة'].includes(status)) {
+    style = 'bg-sky-50 text-sky-700 border-sky-200'
+  } else if (['جديد', 'قيد المعالجة', 'بانتظار رد'].includes(status)) {
+    style = 'bg-amber-50 text-amber-800 border-amber-200'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      {status}
+    </span>
+  )
+}
+
+function PlatformBadge({ platform }: { platform: AdPlatform }) {
+  const styles: Record<AdPlatform, { name: string; bg: string; text: string; border: string }> = {
+    instagram: { name: 'Instagram Ads', bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200' },
+    tiktok: { name: 'TikTok Ads', bg: 'bg-slate-900', text: 'text-white', border: 'border-slate-800' },
+    facebook: { name: 'Meta / Facebook', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+    snapchat: { name: 'Snapchat Ads', bg: 'bg-yellow-50', text: 'text-yellow-800', border: 'border-yellow-300' },
+    google: { name: 'Google Ads', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' }
+  }
+
+  const p = styles[platform] || { name: platform, bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${p.bg} ${p.text} ${p.border}`}>
+      {p.name}
+    </span>
+  )
+}
+
+// حالات الشحنة "النشطة" (لم تصل بعد لحالة نهائية) — تُستخدم في بطاقة
+// "الشحنات النشطة" وفي مرشّح جدول الطلبات.
+const ACTIVE_SHIPMENT_STATUSES = new Set<ShipmentStatus>([
+  'ORDER_RECEIVED', 'PICKED_UP_SAME_DAY', 'IN_TRANSIT_HUB', 'OUT_FOR_DELIVERY', 'POSTPONED'
+])
+const DELIVERED_SHIPMENT_STATUSES = new Set<ShipmentStatus>(['DELIVERED', 'SETTLED_FINANCIALLY'])
+
+type OrderStageKey = 'ملغي' | 'بانتظار الشحن' | 'قيد الشحن' | 'تم التسليم'
+
+/** يشتق مرحلة الطلب من current_state (orders) وحالة الشحنة المرتبطة (shipments) إن وُجدت. */
+function deriveOrderStage(order: ConfirmedOrder): { key: OrderStageKey; label: string } {
+  if (order.current_state === 'cancelled') return { key: 'ملغي', label: 'ملغي' }
+  if (!order.shipment) return { key: 'بانتظار الشحن', label: 'بانتظار الإرسال للشحن' }
+  const status = order.shipment.status as ShipmentStatus
+  if (DELIVERED_SHIPMENT_STATUSES.has(status)) return { key: 'تم التسليم', label: STATUS_LABELS[status] ?? status }
+  return { key: 'قيد الشحن', label: STATUS_LABELS[status] ?? status }
+}
+
+function OrderStageBadge({ order }: { order: ConfirmedOrder }) {
+  const stage = deriveOrderStage(order)
+  const style =
+    stage.key === 'ملغي'
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : stage.key === 'تم التسليم'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : stage.key === 'قيد الشحن'
+      ? 'bg-sky-50 text-sky-700 border-sky-200'
+      : 'bg-amber-50 text-amber-800 border-amber-200'
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      {stage.label}
+    </span>
+  )
+}
+
+// ---------- المكون الرئيسي للوحة العمليات والإدارة بالأرقام العربية ----------
+
+export default function OperationsClient() {
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('super_admin')
+  const [activeMerchantName, setActiveMerchantName] = useState<string>('متجر دجلة')
+
+  // التبويب الرئيسي
+  const [view, setView] = useState<MainNavView>('orders')
+  const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>('merchants')
+  const [timeRange, setTimeRange] = useState<TimeRange>('today')
+
+  // البيانات
+  const [orders, setOrders] = useState<ConfirmedOrder[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
+  const [ordersError, setOrdersError] = useState<string | null>(null)
+  const [dispatchingOrderId, setDispatchingOrderId] = useState<number | null>(null)
+  const [merchants, setMerchants] = useState<Merchant[]>([])
+  const [merchantsLoading, setMerchantsLoading] = useState(true)
+  const [merchantsError, setMerchantsError] = useState<string | null>(null)
+  const [marketers, setMarketers] = useState<Marketer[]>([])
+  const [campaigns, setCampaigns] = useState<AdCampaign[]>([])
+  const [promoLoading, setPromoLoading] = useState(true)
+  const [promoError, setPromoError] = useState<string | null>(null)
+
+  // التصفية والبحث
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('الكل')
+  // تصفية الحملات حسب المنصة: القيمة تُقرأ في الفلترة أدناه، لكن لا يوجد
+  // عنصر واجهة يغيّرها بعد — فهي عملياً معطَّلة على "الكل". يُضاف المُبدِّل
+  // عند بناء قسم الحملات الكامل.
+  const [platformFilter] = useState<string>('الكل')
+
+  // النوافذ المنبثقة
+  const [selectedOrder, setSelectedOrder] = useState<ConfirmedOrder | null>(null)
+  const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null)
+  const [selectedCampaign, setSelectedCampaign] = useState<AdCampaign | null>(null)
+  const [newOrderModal, setNewOrderModal] = useState(false)
+  const [newMerchantModal, setNewMerchantModal] = useState(false)
+  const [newMarketerModal, setNewMarketerModal] = useState(false)
+  const [newCampaignModal, setNewCampaignModal] = useState(false)
+
+  // التنبيهات
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null)
+  const [copiedKey, setCopiedKey] = useState(false)
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  // تحميل الطلبات الحية من public.orders عبر Supabase (لا بيانات وهمية)
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true)
+    try {
+      const res = await fetch('/api/orders/dashboard', { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل الطلبات')
+      setOrders(json.orders as ConfirmedOrder[])
+      setOrdersError(null)
+    } catch (err: unknown) {
+      setOrdersError(err instanceof Error ? err.message : 'تعذر تحميل الطلبات')
+    } finally {
+      setOrdersLoading(false)
+    }
+  }, [])
+
+  // الاستدعاء داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
+  // setState متزامن هناك يُطلق دورات تصيير متتالية.
+  useEffect(() => {
+    void (async () => {
+      await loadOrders()
+    })()
+  }, [loadOrders])
+
+  // التجار الحقيقيون من public.merchants مع باقتهم الفعّالة (لا بيانات وهمية)
+  const loadMerchants = useCallback(async () => {
+    setMerchantsLoading(true)
+    try {
+      const res = await fetch('/api/merchants', { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل التجار')
+
+      const rows = json.merchants as {
+        id: string
+        name: string
+        owner_name: string | null
+        phone: string | null
+        city: string | null
+        status: string
+        balance_iqd: number
+        commission_rate: number | null
+        api_key: string | null
+        webhook_url: string | null
+        api_connected: boolean
+        plan_name: string | null
+        subscription_status: string | null
+        monthly_fee_iqd: number | null
+        orders_count: number
+      }[]
+
+      setMerchants(
+        rows.map((m) => ({
+          id: m.id,
+          name: m.name,
+          owner_name: m.owner_name,
+          phone: m.phone,
+          city: m.city,
+          plan: m.plan_name,
+          subscription_status: m.subscription_status
+            ? SUBSCRIPTION_LABELS[m.subscription_status] ?? m.subscription_status
+            : null,
+          api_connected: m.api_connected,
+          monthly_fee: m.monthly_fee_iqd,
+          commission_rate: m.commission_rate,
+          api_key: m.api_key,
+          webhook_url: m.webhook_url,
+          orders_count: m.orders_count,
+          balance: m.balance_iqd,
+        }))
+      )
+      setMerchantsError(null)
+    } catch (err: unknown) {
+      setMerchantsError(err instanceof Error ? err.message : 'تعذر تحميل التجار')
+    } finally {
+      setMerchantsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      await loadMerchants()
+    })()
+  }, [loadMerchants])
+
+  // المروّجون والحملات من Supabase (لا بيانات وهمية)
+  const loadPromotion = useCallback(async () => {
+    setPromoLoading(true)
+    try {
+      const [mRes, cRes] = await Promise.all([
+        fetch('/api/marketers', { cache: 'no-store' }),
+        fetch('/api/campaigns', { cache: 'no-store' }),
+      ])
+      const [mJson, cJson] = await Promise.all([mRes.json(), cRes.json()])
+
+      if (!mRes.ok || !mJson.success) throw new Error(mJson.error || 'تعذر تحميل المروّجين')
+      if (!cRes.ok || !cJson.success) throw new Error(cJson.error || 'تعذر تحميل الحملات')
+
+      setMarketers(
+        (mJson.marketers as (Omit<Marketer, 'status'> & { status: string })[]).map((m) => ({
+          ...m,
+          status: MARKETER_STATUS_LABELS[m.status] ?? m.status,
+        }))
+      )
+
+      setCampaigns(
+        (
+          cJson.campaigns as {
+            id: string
+            name: string
+            merchant_id: string
+            merchant_name: string | null
+            marketer_id: string | null
+            marketer_name: string | null
+            platform: AdPlatform
+            status: string
+            budget_total_iqd: number
+            budget_spent_iqd: number
+            daily_budget_iqd: number
+            attributed_revenue_iqd: number
+            reach: number
+            impressions: number
+            clicks: number
+            conversions: number
+            roas: number | null
+            start_date: string | null
+            end_date: string | null
+            target_audience: string | null
+            ad_headline: string | null
+            marketer_notes: string | null
+          }[]
+        ).map((c) => ({
+          id: c.id,
+          name: c.name,
+          merchant_id: c.merchant_id,
+          merchant_name: c.merchant_name,
+          marketer_id: c.marketer_id,
+          marketer_name: c.marketer_name,
+          platform: c.platform,
+          status: CAMPAIGN_STATUS_LABELS[c.status] ?? c.status,
+          budget_total: c.budget_total_iqd,
+          budget_spent: c.budget_spent_iqd,
+          daily_budget: c.daily_budget_iqd,
+          attributed_revenue: c.attributed_revenue_iqd,
+          reach: c.reach,
+          impressions: c.impressions,
+          clicks: c.clicks,
+          conversions: c.conversions,
+          roas: c.roas,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          target_audience: c.target_audience,
+          ad_headline: c.ad_headline,
+          marketer_notes: c.marketer_notes,
+        }))
+      )
+      setPromoError(null)
+    } catch (err: unknown) {
+      setPromoError(err instanceof Error ? err.message : 'تعذر تحميل بيانات الترويج')
+    } finally {
+      setPromoLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      await loadPromotion()
+    })()
+  }, [loadPromotion])
+
+  // عدد المحادثات الحية الحقيقي لكل قناة — من Supabase عبر /api/conversations
+  // (لا بيانات وهمية: اللوحة الجانبية هنا رابط مختصر فقط، والعرض الكامل في /operations/chats)
+  const [liveChatCounts, setLiveChatCounts] = useState<{
+    whatsapp: number
+    instagram: number
+    messenger: number
+    total: number
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/conversations', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled || !json?.success) return
+        const list = (json.conversations || []) as { platform?: string }[]
+        const byPlatform = (p: string) =>
+          list.filter((c) => (c.platform || 'whatsapp').toLowerCase() === p).length
+        setLiveChatCounts({
+          whatsapp: byPlatform('whatsapp'),
+          instagram: byPlatform('instagram'),
+          messenger: byPlatform('messenger'),
+          total: list.length,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // ملاحظة: عمود merchant_id لم يُضَف بعد لجدول orders الحقيقي (انظر تعليق
+  // /api/orders/[id]/dispatch)، فلا يمكن تصفية الطلبات الحقيقية حسب التاجر
+  // حالياً — تُعرض جميعها بغض النظر عن الدور المختار في محاكي الصلاحيات.
+  const userScopedOrders = orders
+
+  const userScopedCampaigns = useMemo(() => {
+    if (currentUserRole === 'merchant') {
+      return campaigns.filter((c) => c.merchant_name === activeMerchantName)
+    }
+    return campaigns
+  }, [campaigns, currentUserRole, activeMerchantName])
+
+  // الإحصائيات الحية — محسوبة بالكامل من public.orders + shipments المرتبطة
+  const stats = useMemo(() => {
+    const nonCancelled = userScopedOrders.filter((o) => o.current_state !== 'cancelled')
+    const totalSales = nonCancelled.reduce((sum, o) => sum + (o.grand_total_iqd ?? o.items_total_iqd ?? 0), 0)
+    const cancelledCount = userScopedOrders.length - nonCancelled.length
+    const pendingDispatchCount = nonCancelled.filter((o) => !o.shipment).length
+
+    const shipmentStatuses = userScopedOrders
+      .map((o) => o.shipment?.status)
+      .filter((s): s is ShipmentStatus => Boolean(s))
+    const activeShipments = shipmentStatuses.filter((s) => ACTIVE_SHIPMENT_STATUSES.has(s)).length
+    const deliveredCount = shipmentStatuses.filter((s) => DELIVERED_SHIPMENT_STATUSES.has(s)).length
+    const successRate = shipmentStatuses.length > 0 ? ((deliveredCount / shipmentStatuses.length) * 100).toFixed(1) : '0.0'
+
+    const totalAdBudget = userScopedCampaigns.reduce((sum, c) => sum + c.budget_total, 0)
+    const totalAdSpent = userScopedCampaigns.reduce((sum, c) => sum + c.budget_spent, 0)
+    const totalReach = userScopedCampaigns.reduce((sum, c) => sum + c.reach, 0)
+    const totalAdOrders = userScopedCampaigns.reduce((sum, c) => sum + c.conversions, 0)
+    // المتوسط على الحملات التي أنفقت فعلاً فقط: حملة بلا إنفاق ليس عائدها
+    // صفراً بل غير معرّف، وإدراجها تسحب المتوسط لأسفل وتضلّل قرار الميزانية.
+    // ولا يوجد رقم افتراضي حين لا حملات — null تُعرض شرطة لا عائداً مُخترعاً.
+    const scoredCampaigns = userScopedCampaigns.filter((c) => c.roas !== null)
+    const avgRoas =
+      scoredCampaigns.length > 0
+        ? (
+            scoredCampaigns.reduce((sum, c) => sum + (c.roas as number), 0) /
+            scoredCampaigns.length
+          ).toFixed(1)
+        : null
+
+    return {
+      totalSales,
+      cancelledCount,
+      pendingDispatchCount,
+      activeShipments,
+      deliveredCount,
+      successRate,
+      totalOrders: userScopedOrders.length,
+      totalAdBudget,
+      totalAdSpent,
+      totalReach,
+      totalAdOrders,
+      avgRoas
+    }
+  }, [userScopedOrders, userScopedCampaigns])
+
+  // تصفية الطلبات المعروضة
+  const filteredOrders = useMemo(() => {
+    return userScopedOrders.filter((o) => {
+      const q = (search || '').trim().toLowerCase()
+      const matchesSearch =
+        !q ||
+        orderDisplayName(o).toLowerCase().includes(q) ||
+        String(o.order_id).includes(q) ||
+        orderDisplayPhone(o).includes(q) ||
+        (o.order_content ?? '').toLowerCase().includes(q)
+
+      const matchesStatus = statusFilter === 'الكل' || deriveOrderStage(o).key === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [userScopedOrders, search, statusFilter])
+
+  // تصفية الحملات المعروضة
+  const filteredCampaigns = useMemo(() => {
+    return userScopedCampaigns.filter((c) => {
+      const q = (search || '').trim().toLowerCase()
+      const matchesSearch =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        (c.merchant_name || '').toLowerCase().includes(q)
+      const matchesPlatform = platformFilter === 'الكل' || c.platform === platformFilter
+      return matchesSearch && matchesPlatform
+    })
+  }, [userScopedCampaigns, search, platformFilter])
+
+  // إرسال طلب مؤكَّد للشحن (ينشئ صف shipments فعلياً عبر Supabase)
+  const handleDispatch = async (orderId: number) => {
+    setDispatchingOrderId(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/dispatch`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر إرسال الطلب للشحن')
+
+      const shipmentRef = { id: json.shipment.id, tracking_number: json.shipment.tracking_number, status: json.shipment.status }
+      setOrders((prev) => prev.map((o) => (o.order_id === orderId ? { ...o, shipment: shipmentRef } : o)))
+      setSelectedOrder((prev) => (prev && prev.order_id === orderId ? { ...prev, shipment: shipmentRef } : prev))
+      showToast(`تم إرسال الطلب #${toArabicDigits(orderId)} للشحن — رقم التتبع ${json.shipment.tracking_number}`, 'success')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'تعذر إرسال الطلب للشحن', 'error')
+    } finally {
+      setDispatchingOrderId(null)
+    }
+  }
+
+  // طباعة البوليصة الحرارية بالأرقام العربية من بيانات الطلب الحقيقية
+  const handlePrintLabel = (order: ConfirmedOrder) => {
+    const w = window.open('', '_blank', 'width=450,height=650')
+    if (!w) {
+      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'error')
+      return
+    }
+    const stage = deriveOrderStage(order)
+    w.document.write(`
+      <html lang="ar" dir="rtl">
+        <head>
+          <title>بوليصة شحن ${toArabicDigits(order.order_id)}</title>
+          <style>
+            body { font-family: Tahoma, sans-serif; padding: 15px; color: #111; }
+            .ticket { border: 2px solid #222; border-radius: 8px; padding: 15px; max-width: 360px; margin: auto; }
+            .brand { font-size: 22px; font-weight: bold; color: #253765; }
+            .row { display: flex; justify-content: space-between; margin: 6px 0; border-bottom: 1px dashed #ccc; padding-bottom: 4px; font-size: 13px; }
+            .total { font-size: 16px; font-weight: bold; margin-top: 10px; color: #059669; }
+          </style>
+        </head>
+        <body onload="window.print()">
+          <div class="ticket">
+            <div class="brand">⚡ بـرق للشحن الفوري</div>
+            <p>رقم الطلب: ${toArabicDigits(order.order_id)}${order.shipment ? ` | التتبع: ${order.shipment.tracking_number}` : ''}</p>
+            <div class="row"><span>الزبون:</span><span>${orderDisplayName(order)} (${formatArabicPhone(orderDisplayPhone(order))})</span></div>
+            <div class="row"><span>العنوان:</span><span>${[order.governorate, order.district].filter(Boolean).join(' - ')} - ${toArabicDigits(order.address || '')}</span></div>
+            ${
+              order.order_content
+                ? `<div class="row" style="background:#f4f4f4; padding:4px; font-weight:bold;">
+                    <span>محتوى الطلب:</span>
+                    <span>${toArabicDigits(order.order_content)}</span>
+                  </div>`
+                : ''
+            }
+            <div class="row"><span>حالة الطلب:</span><span>${stage.label}</span></div>
+            <div class="total">الإجمالي: ${formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}</div>
+          </div>
+        </body>
+      </html>
+    `)
+    w.document.close()
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F8F9FA] text-[#0F172A] flex flex-col font-sans selection:bg-[#253765]/20 selection:text-[#253765]">
+      {/* التنبيهات العائمة */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 left-6 z-50 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-xl backdrop-blur-md animate-fadeIn ${
+            toast.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : toast.type === 'error'
+              ? 'border-rose-200 bg-rose-50 text-rose-800'
+              : 'border-blue-200 bg-blue-50 text-blue-900'
+          }`}
+        >
+          {toast.type === 'success' ? <CheckCircle2 size={18} /> : <Sparkles size={18} />}
+          <span className="text-xs font-semibold">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="text-slate-400 hover:text-slate-700 mr-2">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ===== شريط تحديد الصلاحيات (Role Persona Switcher) ===== */}
+      <div className="bg-[#253765] text-white px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-[#1D2B50] shadow-sm">
+        <div className="flex items-center gap-2">
+          <ShieldAlert size={15} className="text-amber-300" />
+          <span className="font-bold">نظام محاكاة الصلاحيات المتقدمة:</span>
+          <span className="text-slate-200 hidden md:inline">اختر نوع الحساب لمعاينة الصلاحيات وطريقة العرض المخصصة:</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-[#1D2B50] p-0.5 rounded-lg border border-white/15">
+            <button
+              onClick={() => {
+                setCurrentUserRole('super_admin')
+                showToast('تم التبديل إلى: وضع مدير المنصة (صلاحيات كاملة)', 'info')
+              }}
+              className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 ${
+                currentUserRole === 'super_admin' ? 'bg-white text-[#253765] shadow-xs' : 'text-slate-200 hover:text-white'
+              }`}
+            >
+              <Award size={13} />
+              <span>مدير المنصة (Super Admin)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setCurrentUserRole('merchant')
+                if (view === 'admin') setView('orders')
+                showToast(`تم تسجيل الدخول كـ: تاجر (${activeMerchantName})`, 'info')
+              }}
+              className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 ${
+                currentUserRole === 'merchant' ? 'bg-amber-400 text-slate-900 shadow-xs' : 'text-slate-200 hover:text-white'
+              }`}
+            >
+              <Store size={13} />
+              <span>حساب تاجر / صاحب بيج</span>
+            </button>
+          </div>
+
+          {currentUserRole === 'merchant' && (
+            <select
+              value={activeMerchantName}
+              onChange={(e) => setActiveMerchantName(e.target.value)}
+              className="bg-[#1D2B50] border border-white/20 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-bold outline-none"
+            >
+              {merchants.map((m) => (
+                <option key={m.id} value={m.name} className="bg-slate-900 text-white">
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1">
+        {/* ===== الشريط الجانبي الفاخر (Sidebar) ===== */}
+        <aside className="hidden lg:flex w-64 flex-col justify-between border-l border-[#E2E8F0] bg-[#FFFFFF] p-5 shrink-0 shadow-sm">
+          <div>
+            {/* الشعار */}
+            <div className="flex items-center gap-3 mb-7 px-2">
+              <div className="w-10 h-10 rounded-xl bg-[#253765] flex items-center justify-center text-white font-black text-xl shadow-md">
+                ⚡
+              </div>
+              <div>
+                <p className="font-bold text-base text-[#253765] tracking-tight">بـرق</p>
+                <p className="text-[11px] text-[#64748B]">
+                  {currentUserRole === 'merchant' ? `لوحة ${activeMerchantName}` : 'لوحة الإدارة والعمليات'}
+                </p>
+              </div>
+            </div>
+
+            {/* أزرار التنقل الرئيسية */}
+            <nav className="space-y-1.5">
+              {/* 1. الطلبات والشحنات */}
+              <button
+                onClick={() => setView('orders')}
+                className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
+                  view === 'orders'
+                    ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20'
+                    : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Package size={17} />
+                  <span>{currentUserRole === 'merchant' ? 'طلبات متجري' : 'الطلبات والشحنات'}</span>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'orders' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                  {toArabicDigits(userScopedOrders.length)}
+                </span>
+              </button>
+
+              {/* 2. الإدارة */}
+              {currentUserRole === 'super_admin' ? (
+                <button
+                  onClick={() => setView('admin')}
+                  className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
+                    view === 'admin'
+                      ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20'
+                      : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck size={17} />
+                    <span>الإدارة</span>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'admin' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                    {toArabicDigits(merchants.length + marketers.length)}
+                  </span>
+                </button>
+              ) : (
+                <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-[11px] text-slate-500 flex items-center gap-2">
+                  <Lock size={14} className="text-slate-400" />
+                  <span>الإدارة مقيدة لمدير المنصة فقط</span>
+                </div>
+              )}
+
+              {/* 3. الحملات الإعلانية */}
+              <button
+                onClick={() => setView('campaigns')}
+                className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
+                  view === 'campaigns'
+                    ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20'
+                    : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Megaphone size={17} />
+                  <span>{currentUserRole === 'merchant' ? 'حملاتي الإعلانية' : 'الحملات والترويج الإعلاني'}</span>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'campaigns' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                  {toArabicDigits(userScopedCampaigns.length)}
+                </span>
+              </button>
+
+              {/* 4. لوحات محادثات التطبيقات الثلاثة المستقلة (عزل تام دون تداخل) */}
+              <div className="pt-2 pb-1">
+                <p className="text-[10px] font-bold text-[#64748B] px-3 mb-1.5 uppercase tracking-wider">
+                  محادثات المنصات المستقلة
+                </p>
+                <div className="space-y-1">
+                  {/* لوحة واتساب — رابط مباشر لتبويب واتساب الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=whatsapp"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-[#25D366]/10 hover:text-[#15803d]"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
+                      <span>محادثات واتساب</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
+                    </span>
+                  </Link>
+
+                  {/* لوحة إنستغرام — رابط مباشر لتبويب إنستغرام الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=instagram"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-pink-50 hover:text-pink-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
+                      <span>محادثات إنستغرام</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
+                    </span>
+                  </Link>
+
+                  {/* لوحة ماسنجر — رابط مباشر لتبويب ماسنجر الحقيقي في /operations/chats */}
+                  <Link
+                    href="/operations/chats?platform=messenger"
+                    className="w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
+                      <span>محادثات ماسنجر</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
+                    </span>
+                  </Link>
+                </div>
+              </div>
+
+              {/* 5. المحادثات الحية الشاملة (محادثات متعددة القنوات) */}
+              <Link
+                href="/operations/chats"
+                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-[#25D366]/10 to-pink-50 text-[#1DA851] hover:from-[#25D366]/20 hover:to-pink-100 border border-[#25D366]/20"
+              >
+                <div className="flex items-center gap-2.5">
+                  <MessageCircle size={16} />
+                  <span>المحادثات المباشرة (جميع القنوات)</span>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-black">
+                  جديد ⚡
+                </span>
+              </Link>
+
+              {/* 6. لوحة تتبع الشحنات الحقيقية (بمعزل عن الحجز) */}
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all bg-[#253765]/5 text-[#253765] hover:bg-[#253765]/10 border border-[#253765]/15"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Truck size={16} />
+                  <span>تتبع الشحنات الميداني</span>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white">
+                  Tracking
+                </span>
+              </Link>
+            </nav>
+
+            {/* بوابات الدفع المدعومة */}
+            <div className="mt-8 pt-6 border-t border-[#E2E8F0]">
+              <p className="text-[10px] font-bold text-[#64748B] mb-3 uppercase tracking-wider">
+                بوابات الدفع الإلكتروني
+              </p>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-600" />
+                    <span className="font-semibold text-slate-800">Zain Cash Iraq</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-600 font-bold">نشط</span>
+                </div>
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-rose-600" />
+                    <span className="font-semibold text-slate-800">Qi Card & Master</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-600 font-bold">نشط</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-[#E2E8F0] text-[11px] text-[#64748B] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{currentUserRole === 'merchant' ? `متصل: ${activeMerchantName}` : 'النظام متصل بالإدارة'}</span>
+            </div>
+            <span className="text-[#253765] font-bold">الإصدار {toArabicDigits('2.6')}</span>
+          </div>
+        </aside>
+
+        {/* ===== مساحة المحتوى الرئيسية ===== */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/*
+            شريط تنقّل الهاتف — الشريط الجانبي أعلاه مخفي دون lg، فبدونه
+            تختفي كل وسائل التنقّل على الهاتف ويعلق المستخدم في تبويب واحد.
+          */}
+          <nav className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E2E8F0] overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 px-3 py-2 w-max">
+              {([
+                { key: 'orders', label: 'الطلبات' },
+                ...(currentUserRole === 'super_admin'
+                  ? ([{ key: 'admin', label: 'الإدارة' }] as { key: MainNavView; label: string }[])
+                  : []),
+                { key: 'campaigns', label: 'الحملات' },
+              ] as { key: MainNavView; label: string }[]).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setView(item.key)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition ${
+                    view === item.key ? 'bg-[#253765] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <span className="w-px h-5 bg-[#E2E8F0] mx-1 shrink-0" />
+              {[
+                { href: '/operations/chats?platform=whatsapp', label: 'واتساب' },
+                { href: '/operations/chats?platform=instagram', label: 'إنستغرام' },
+                { href: '/operations/chats?platform=messenger', label: 'ماسنجر' },
+                { href: '/workspace', label: 'مساحتي' },
+                { href: '/dashboard', label: 'الشحنات' },
+                { href: '/admin', label: 'لوحة المالك' },
+              ].map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-[#253765] bg-[#253765]/5 hover:bg-[#253765]/10 whitespace-nowrap transition"
+                >
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </nav>
+
+        <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full overflow-y-auto">
+          {/* الترويسة العليا */}
+          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
+                  {view === 'orders'
+                    ? currentUserRole === 'merchant' ? `متابعة شحنات وطلبات ${activeMerchantName}` : 'إدارة الطلبات والشحن الذكي'
+                    : view === 'admin'
+                    ? 'الإدارة العامة — التحكم بالتجار والمروجين والصلاحيات'
+                    : currentUserRole === 'merchant' ? `لوحة متابعة إعلانات ${activeMerchantName}` : 'منظومة الترويج والحملات الإعلانية الممولة'}
+                </h1>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#253765] text-white shadow-sm">
+                  {view === 'orders'
+                    ? `${toArabicDigits(filteredOrders.length)} شحنة`
+                    : view === 'admin'
+                    ? `${toArabicDigits(merchants.length)} متجر • ${toArabicDigits(marketers.length)} مروج`
+                    : `${toArabicDigits(filteredCampaigns.length)} حملة`}
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-[#64748B] mt-1">
+                {currentUserRole === 'merchant'
+                  ? `أنت في وضع التاجر (${activeMerchantName}): تظهر فقط الشحنات والمحادثات والحملات الخاصة بمتجرك`
+                  : 'أنت في وضع مدير المنصة (Super Admin): صلاحيات كاملة لإدارة التجار، المروجين، والباقات، والربط البرمجي'}
+              </p>
+            </div>
+
+            {/* الأزرار العلوية */}
+            <div className="flex items-center gap-3">
+              {view === 'orders' && (
+                <button
+                  onClick={() => setNewOrderModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>إضافة طلب جديد</span>
+                </button>
+              )}
+              {view === 'admin' && currentUserRole === 'super_admin' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setNewMerchantModal(true)}
+                    className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition"
+                  >
+                    <Plus size={15} />
+                    <span>تسجيل تاجر</span>
+                  </button>
+                  <button
+                    onClick={() => setNewMarketerModal(true)}
+                    className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition"
+                  >
+                    <Plus size={15} />
+                    <span>إضافة مروج</span>
+                  </button>
+                </div>
+              )}
+              {view === 'campaigns' && (
+                <button
+                  onClick={() => setNewCampaignModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>إنشاء حملة إعلانية</span>
+                </button>
+              )}
+            </div>
+          </header>
+
+          {/* ===== لوحة الإحصائيات العلوية بالأرقام العربية ===== */}
+          <div className="mb-7 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-[#253765] flex items-center gap-1.5">
+                <TrendingUp size={15} />
+                <span>مؤشرات الأداء المالي، اللوجستي، والتسويقي {currentUserRole === 'merchant' && `(خاصة بـ ${activeMerchantName})`}</span>
+              </p>
+              <div className="flex items-center bg-white p-1 rounded-xl border border-[#E2E8F0] text-[11px] shadow-sm">
+                {(['today', 'week', 'month', 'all'] as TimeRange[]).map((tr) => (
+                  <button
+                    key={tr}
+                    onClick={() => setTimeRange(tr)}
+                    className={`px-3 py-1 rounded-lg font-bold transition ${
+                      timeRange === tr
+                        ? 'bg-[#253765] text-white'
+                        : 'text-[#64748B] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    {tr === 'today' ? 'اليوم' : tr === 'week' ? 'هذا الأسبوع' : tr === 'month' ? 'هذا الشهر' : 'الكل'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* بطاقات الإحصاءات — مبنية بالكامل على استعلامات حية من public.orders/shipments */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-[#253765]" />
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-[#64748B] font-semibold">إجمالي المبيعات (طلبات غير ملغاة)</p>
+                  <DollarSign size={15} className="text-[#253765]" />
+                </div>
+                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
+                  {ordersLoading ? '…' : formatArabicCurrency(stats.totalSales)}
+                </p>
+                <p className="mt-2 text-[11px] text-[#64748B]">
+                  {toArabicDigits(stats.totalOrders)} طلب إجمالاً
+                  {stats.cancelledCount > 0 && (
+                    <> · <strong className="text-rose-600">{toArabicDigits(stats.cancelledCount)} ملغي</strong></>
+                  )}
+                </p>
+              </div>
+
+              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-sky-600" />
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-[#64748B] font-semibold">الشحنات النشطة والتوصيل</p>
+                  <Truck size={15} className="text-sky-600" />
+                </div>
+                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
+                  {ordersLoading ? '…' : toArabicDigits(stats.activeShipments)}{' '}
+                  <span className="text-xs font-semibold text-sky-700">قيد الشحن</span>
+                </p>
+                <p className="mt-2 text-[11px] text-[#64748B]">
+                  نسبة التسليم الناجح: <strong className="text-emerald-700">{formatArabicPercent(stats.successRate)}</strong>
+                  {stats.pendingDispatchCount > 0 && (
+                    <> · <strong className="text-amber-700">{toArabicDigits(stats.pendingDispatchCount)}</strong> بانتظار الإرسال</>
+                  )}
+                </p>
+              </div>
+
+              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-amber-500" />
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-[#64748B] font-semibold">عائد الإعلانات (ROAS)</p>
+                  <Megaphone size={15} className="text-amber-600" />
+                </div>
+                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
+                  {stats.avgRoas === null ? (
+                    <span className="text-lg text-slate-400">—</span>
+                  ) : (
+                    <>
+                      {toArabicDigits(stats.avgRoas)}x{' '}
+                      <span className="text-xs font-semibold text-emerald-700">معدل العائد</span>
+                    </>
+                  )}
+                </p>
+                <p className="mt-2 text-[11px] text-[#64748B]">
+                  طلبات مولدة: <strong className="text-[#0F172A]">{toArabicDigits(stats.totalAdOrders)} طلب</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* ===== 1. واجهة الطلبات والشحنات (Orders View) ===== */}
+          {/* ========================================================================= */}
+          {view === 'orders' && (
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
+              <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-xs">
+                    {['الكل', 'بانتظار الشحن', 'قيد الشحن', 'تم التسليم', 'ملغي'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setStatusFilter(st)}
+                        className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
+                          statusFilter === st
+                            ? 'bg-[#253765] text-white shadow-sm'
+                            : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 text-xs border border-[#CBD5E1] rounded-xl bg-white px-3 py-2 focus-within:border-[#253765] transition">
+                      <Search size={14} className="text-[#64748B]" />
+                      <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="بحث بالرقم، الزبون، الهاتف، المحتوى..."
+                        className="bg-transparent outline-none placeholder:text-[#94A3B8] text-[#0F172A] w-48 sm:w-56 text-xs"
+                      />
+                    </div>
+                    <button
+                      onClick={() => void loadOrders()}
+                      disabled={ordersLoading}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#E2E8F0] hover:border-[#253765] disabled:opacity-50 text-slate-600 font-bold text-[11px] transition shrink-0"
+                    >
+                      <RefreshCw size={12} className={ordersLoading ? 'animate-spin' : ''} />
+                      تحديث
+                    </button>
+                  </div>
+                </div>
+
+                {ordersError && (
+                  <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
+                    <span>{ordersError}</span>
+                    <button onClick={() => setOrdersError(null)} className="text-amber-600 hover:text-amber-900 shrink-0">
+                      إخفاء
+                    </button>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead>
+                      <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
+                        <th className="p-3.5">الطلب</th>
+                        <th className="p-3.5">الزبون والمحافظة</th>
+                        <th className="p-3.5">المبلغ المطلوب</th>
+                        <th className="p-3.5">حالة الطلب</th>
+                        <th className="p-3.5 text-center">العمليات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E2E8F0]">
+                      {ordersLoading ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-slate-400">
+                            <RefreshCw size={20} className="animate-spin inline-block mb-2" />
+                            <p className="text-xs font-semibold">جارِ تحميل الطلبات...</p>
+                          </td>
+                        </tr>
+                      ) : filteredOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-slate-500">
+                            لا توجد طلبات مسجلة حالياً
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredOrders.map((order) => (
+                          <tr
+                            key={order.order_id}
+                            onClick={() => setSelectedOrder(order)}
+                            className="hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                          >
+                            <td className="p-3.5 whitespace-nowrap">
+                              <span className="font-bold text-[#253765]">#{toArabicDigits(order.order_id)}</span>
+                              <div className="text-[10px] text-[#64748B] mt-0.5">
+                                {toArabicDigits(new Date(order.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }))}
+                              </div>
+                            </td>
+                            <td className="p-3.5">
+                              <p className="font-bold text-[#0F172A] text-[13px]">{orderDisplayName(order)}</p>
+                              <p className="text-[11px] text-[#64748B]">
+                                {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'} • {formatArabicPhone(orderDisplayPhone(order))}
+                              </p>
+                            </td>
+                            <td className="p-3.5 whitespace-nowrap font-bold text-emerald-700 text-sm">
+                              {formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}
+                            </td>
+                            <td className="p-3.5 whitespace-nowrap">
+                              <OrderStageBadge order={order} />
+                            </td>
+                            <td className="p-3.5" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1.5">
+                                {!order.shipment && order.current_state === 'confirmed' && (
+                                  <button
+                                    onClick={() => void handleDispatch(order.order_id)}
+                                    disabled={dispatchingOrderId === order.order_id}
+                                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold transition shadow-sm"
+                                  >
+                                    {dispatchingOrderId === order.order_id ? (
+                                      <RefreshCw size={12} className="animate-spin" />
+                                    ) : (
+                                      <Truck size={12} />
+                                    )}
+                                    <span>إرسال للشحن</span>
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handlePrintLabel(order)}
+                                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                                >
+                                  <Printer size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* قسم المحادثات الجانبي — ملخص حقيقي من Supabase، والعرض الكامل والرد في /operations/chats */}
+              <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm flex flex-col">
+                <div className="p-3.5 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle size={17} className="text-[#253765]" />
+                    <p className="text-sm font-bold text-[#0F172A]">
+                      {currentUserRole === 'merchant' ? `محادثات ${activeMerchantName}` : 'محادثات المنصات الحية'}
+                    </p>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
+                    {liveChatCounts ? toArabicDigits(liveChatCounts.total) : '…'} محادثة
+                  </span>
+                </div>
+
+                <div className="p-3.5 space-y-2">
+                  <Link
+                    href="/operations/chats?platform=whatsapp"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-[#25D366]/40 hover:bg-[#25D366]/5 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
+                      <span>واتساب</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats?platform=instagram"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-pink-300 hover:bg-pink-50 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
+                      <span>إنستغرام</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats?platform=messenger"
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl border border-[#E2E8F0] hover:border-blue-300 hover:bg-blue-50 transition text-xs font-bold text-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
+                      <span>ماسنجر</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/operations/chats"
+                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white text-xs font-bold transition mt-1"
+                  >
+                    <MessageCircle size={13} />
+                    <span>فتح المحادثات المباشرة والرد</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* ===== 2. واجهة الإدارة الشاملة (Administration View) ===== */}
+          {/* ========================================================================= */}
+          {view === 'admin' && currentUserRole === 'super_admin' && (
+            <div className="space-y-6">
+              {/* تبويبات الإدارة الداخلية */}
+              <div className="card-luxury rounded-2xl p-4 bg-white border border-[#E2E8F0] flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAdminSubTab('merchants')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                      adminSubTab === 'merchants'
+                        ? 'bg-[#253765] text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Store size={15} />
+                    <span>إدارة التجار والاشتراكات ({toArabicDigits(merchants.length)})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAdminSubTab('marketers')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                      adminSubTab === 'marketers'
+                        ? 'bg-[#253765] text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Megaphone size={15} />
+                    <span>إدارة المروجين والحملات ({toArabicDigits(marketers.length)})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAdminSubTab('permissions')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                      adminSubTab === 'permissions'
+                        ? 'bg-[#253765] text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Key size={15} />
+                    <span>صلاحيات المنصة والـ API</span>
+                  </button>
+                </div>
+
+                <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full font-bold">
+                  صلاحية مدير النظام الكاملة (Full Platform Access)
+                </span>
+              </div>
+
+              {/* Sub-tab 1: إدارة التجار والاشتراكات */}
+              {adminSubTab === 'merchants' && (
+                <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
+                  <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
+                    <p className="text-sm font-bold text-[#0F172A]">قائمة المتاجر المسجلة والتحكم بالاشتراكات</p>
+                    <button
+                      onClick={() => setNewMerchantModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] text-white font-bold text-xs"
+                    >
+                      <Plus size={14} />
+                      <span>إضافة تاجر جديد</span>
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
+                          <th className="p-3.5">المتجر</th>
+                          <th className="p-3.5">المدينة والمسؤول</th>
+                          <th className="p-3.5">نوع الباقة</th>
+                          <th className="p-3.5">الاشتراك</th>
+                          <th className="p-3.5">نسبة العمولة</th>
+                          <th className="p-3.5">الرصيد المالي</th>
+                          <th className="p-3.5 text-left">إجراءات الإدارة</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E2E8F0]">
+                        {merchantsLoading && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-[#64748B]">
+                              <RefreshCw size={16} className="animate-spin inline-block ml-2" />
+                              جارِ تحميل التجار من قاعدة البيانات...
+                            </td>
+                          </tr>
+                        )}
+                        {!merchantsLoading && merchantsError && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-rose-700 font-semibold">
+                              تعذّر تحميل التجار: {merchantsError}
+                            </td>
+                          </tr>
+                        )}
+                        {!merchantsLoading && !merchantsError && merchants.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="p-10 text-center text-[#64748B]">
+                              لا يوجد تاجر مسجّل بعد — سجّل أول تاجر من الزر أعلاه.
+                            </td>
+                          </tr>
+                        )}
+                        {merchants.map((m) => (
+                          <tr key={m.id} className="hover:bg-[#F8FAFC] transition-colors">
+                            <td className="p-3.5">
+                              <p className="font-bold text-[13px] text-[#0F172A]">{m.name}</p>
+                              <p className="text-[10px] text-[#64748B] font-mono">
+                                {m.id.slice(0, 8)}
+                              </p>
+                            </td>
+                            <td className="p-3.5">
+                              <p className="font-semibold text-slate-800">
+                                {m.city ?? <span className="text-slate-400 font-normal">غير مسجّلة</span>}
+                              </p>
+                              <p className="text-[11px] text-[#64748B]">
+                                {m.owner_name ?? 'المالك غير مسجّل'}
+                                {m.phone ? ` • ${formatArabicPhone(m.phone)}` : ''}
+                              </p>
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                                  m.plan
+                                    ? 'bg-[#253765]/10 text-[#253765]'
+                                    : 'bg-slate-100 text-slate-400'
+                                }`}
+                              >
+                                {m.plan ?? 'بلا باقة'}
+                              </span>
+                            </td>
+                            <td className="p-3.5">
+                              <StatusBadge status={m.subscription_status ?? 'بلا اشتراك'} />
+                            </td>
+                            {/* العمولة تُعرض فارغة إن لم تُتفق — رقم افتراضي هنا التزام مالي مُخترع */}
+                            <td className="p-3.5 font-bold text-[#253765]">
+                              {m.commission_rate === null ? (
+                                <span className="text-slate-400 font-normal">لم تُحدَّد</span>
+                              ) : (
+                                formatArabicPercent(m.commission_rate)
+                              )}
+                            </td>
+                            <td className="p-3.5 font-bold text-emerald-700 text-sm">
+                              {formatArabicCurrency(m.balance)}
+                            </td>
+                            <td className="p-3.5 text-left">
+                              <button
+                                onClick={() => setSelectedMerchant(m)}
+                                className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white shadow-sm transition"
+                              >
+                                <span>التحكم بالاشتراك</span>
+                                <Sliders size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-tab 2: إدارة المروجين والحملات الإعلانية */}
+              {adminSubTab === 'marketers' && (
+                <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
+                  <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-[#0F172A]">سجل المروجين ووكالات التسويق المعتمدة</p>
+                      <p className="text-xs text-slate-500">إدارة حسابات المسوقين وتعيين المتاجر وإشراف الحملات الإعلانية</p>
+                    </div>
+                    <button
+                      onClick={() => setNewMarketerModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] text-white font-bold text-xs"
+                    >
+                      <Plus size={14} />
+                      <span>إضافة حساب مروج</span>
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
+                          <th className="p-3.5">المروج / الوكالة</th>
+                          <th className="p-3.5">الاتصال والبريد</th>
+                          <th className="p-3.5">المتاجر المسندة</th>
+                          <th className="p-3.5">الحملات النشطة</th>
+                          <th className="p-3.5">الميزانيات المدارة</th>
+                          <th className="p-3.5">نسبة العمولة</th>
+                          <th className="p-3.5 text-left">الحالة</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E2E8F0]">
+                        {promoLoading && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-[#64748B]">
+                              <RefreshCw size={16} className="animate-spin inline-block ml-2" />
+                              جارِ تحميل المروّجين من قاعدة البيانات...
+                            </td>
+                          </tr>
+                        )}
+                        {!promoLoading && promoError && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-rose-700 font-semibold">
+                              {promoError}
+                            </td>
+                          </tr>
+                        )}
+                        {!promoLoading && !promoError && marketers.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-[#64748B]">
+                              لا يوجد مروّج مسجّل بعد — سجّل أول مروّج من الزر أعلاه.
+                            </td>
+                          </tr>
+                        )}
+                        {marketers.map((mkt) => (
+                          <tr key={mkt.id} className="hover:bg-[#F8FAFC] transition-colors">
+                            <td className="p-3.5">
+                              <p className="font-bold text-[13px] text-[#0F172A]">{mkt.name}</p>
+                              <p className="text-[11px] text-[#64748B]">{mkt.agency_name}</p>
+                            </td>
+                            <td className="p-3.5 text-slate-700">
+                              <p>{formatArabicPhone(mkt.phone)}</p>
+                              <p className="text-[10px] text-slate-400">{mkt.email}</p>
+                            </td>
+                            <td className="p-3.5">
+                              <div className="flex flex-wrap gap-1">
+                                {mkt.assigned_merchants.length === 0 && (
+                                  <span className="text-[10px] text-slate-400">لا تجار مسندون</span>
+                                )}
+                                {mkt.assigned_merchants.map((m) => (
+                                  <span key={m.id} className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-[10px] font-bold">
+                                    {m.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="p-3.5 font-bold text-slate-800">
+                              {toArabicDigits(mkt.active_campaigns_count)} حملات
+                            </td>
+                            <td className="p-3.5 font-bold text-emerald-700">
+                              {formatArabicCurrency(mkt.total_ad_budget_managed)}
+                            </td>
+                            <td className="p-3.5 font-bold text-[#253765]">
+                              {formatArabicPercent(mkt.commission_rate)}
+                            </td>
+                            <td className="p-3.5 text-left">
+                              <StatusBadge status={mkt.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-tab 3: الصلاحيات والربط البرمجي */}
+              {adminSubTab === 'permissions' && (
+                <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] p-6 shadow-sm space-y-4 text-xs">
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                    <div className="w-10 h-10 rounded-xl bg-[#253765] text-white flex items-center justify-center">
+                      <Key size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-[#0F172A]">إعدادات الـ Webhooks والربط المركزي للمنصة</h3>
+                      <p className="text-slate-500">التحكم بالمفاتيح البرمجية الرئيسية ومسارات الربط مع بوابات التوصيل والدفع</p>
+                    </div>
+                  </div>
+
+                  {/*
+                    ⚠️ أُزيلت من هنا مؤشّرات "● متصل ويعمل بنسبة ٩٩.٩٪" و"● متصل
+                    مع أنظمة المناديب": لا يوجد في المنصة أي قياس اتصال أو زمن
+                    تشغيل يغذّيها — كانت نصاً ثابتاً يوحي بمراقبة غير قائمة.
+                    رقم جاهزية مُختلق في لوحة تشغيل أسوأ من غياب الرقم، لأنه
+                    يمنع موظف العمليات من الشك حين يتعطّل المسار فعلاً.
+                    يعود المؤشّر يوم تُبنى مراقبة حقيقية تقرأ آخر حدث ناجح.
+                  */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <p className="font-bold text-slate-800">مسار Webhook البوتات</p>
+                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
+                        POST /api/webhooks/bot
+                      </p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        يتطلّب ترويسة توقيع{' '}
+                        <span className="font-mono">x-bariq-signature</span> محسوبة
+                        HMAC-SHA256 على الجسم الخام بالسرّ{' '}
+                        <span className="font-mono">BARIQ_BOT_WEBHOOK_SECRET</span>. الطلب
+                        غير الموقَّع يُرفض.
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <p className="font-bold text-slate-800">مسار مزامنة التوصيل</p>
+                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
+                        POST /api/delivery/sync
+                      </p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        نفس آلية التوقيع بالسرّ{' '}
+                        <span className="font-mono">BARIQ_DELIVERY_SYNC_SECRET</span>. يحرّك
+                        حالة الشحنة خطوة واحدة وفق التسلسل المُلزَم.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* ===== 3. واجهة الحملات الإعلانية (Campaigns View) ===== */}
+          {/* ========================================================================= */}
+          {view === 'campaigns' && (
+            <div className="space-y-6">
+              <div className="card-luxury rounded-2xl p-4 bg-white border border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#253765]/10 flex items-center justify-center text-[#253765]">
+                    <Megaphone size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-[#0F172A]">
+                      {currentUserRole === 'merchant'
+                        ? `لوحة متابعة إعلانات ${activeMerchantName}`
+                        : 'إدارة ومتابعة الحملات الإعلانية لكافة المتاجر'}
+                    </h2>
+                    <p className="text-xs text-[#64748B]">
+                      {currentUserRole === 'merchant'
+                        ? 'مراقبة العائد المالي (ROAS)، الوصول، والميزانية المصروفة على حملات متجرك'
+                        : 'إطلاق وتعديل الحملات وتحديث الميزانيات وكتابة التوجيهات للعملاء'}
+                    </p>
+                  </div>
+                </div>
+
+                {currentUserRole === 'super_admin' && (
+                  <button
+                    onClick={() => setNewCampaignModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs shadow-sm hover:bg-[#1D2B50] transition"
+                  >
+                    <Plus size={15} />
+                    <span>إنشاء حملة جديدة</span>
+                  </button>
+                )}
+              </div>
+
+              {/* بطاقات الحملات الإعلانية */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {promoLoading ? (
+                  <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
+                    <RefreshCw size={18} className="animate-spin inline-block ml-2" />
+                    جارِ تحميل الحملات من قاعدة البيانات...
+                  </div>
+                ) : promoError ? (
+                  <div className="col-span-2 p-12 bg-white rounded-2xl border border-rose-200 text-center text-rose-700 font-semibold">
+                    {promoError}
+                  </div>
+                ) : filteredCampaigns.length === 0 ? (
+                  <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
+                    لا توجد حملات إعلانية مسجلة حالياً
+                  </div>
+                ) : (
+                  filteredCampaigns.map((camp) => {
+                    // ميزانية صفر تجعل القسمة NaN — والشريط يظهر فارغاً لا مكسوراً
+                    const spendPercent =
+                      camp.budget_total > 0
+                        ? Math.min(100, Math.round((camp.budget_spent / camp.budget_total) * 100))
+                        : 0
+                    return (
+                      <div
+                        key={camp.id}
+                        className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] p-5 shadow-sm space-y-4 hover:border-[#253765]/40 transition"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <PlatformBadge platform={camp.platform} />
+                              <StatusBadge status={camp.status} />
+                            </div>
+                            <h3 className="text-sm font-bold text-[#0F172A]">{camp.name}</h3>
+                            <p className="text-xs text-[#64748B]">
+                              التاجر: <strong className="text-slate-800">{camp.merchant_name}</strong> • المروج: {camp.marketer_name}
+                            </p>
+                          </div>
+
+                          {currentUserRole === 'super_admin' && (
+                            <button
+                              onClick={async () => {
+                                // الحفظ في قاعدة البيانات لا في حالة المتصفح:
+                                // إيقاف حملة يعني إيقاف إنفاق فعلي، ولا يصحّ
+                                // أن يعود المبلغ يُصرف بمجرد تحديث الصفحة.
+                                const nextDb = camp.status === 'نشطة' ? 'paused' : 'active'
+                                try {
+                                  const res = await fetch(`/api/campaigns/${camp.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ status: nextDb }),
+                                  })
+                                  const json = await res.json()
+                                  if (!res.ok || !json.success) throw new Error(json.error)
+                                  await loadPromotion()
+                                  showToast(`تم ${nextDb === 'active' ? 'تفعيل' : 'إيقاف'} الحملة`, 'success')
+                                } catch (err: unknown) {
+                                  showToast(err instanceof Error ? err.message : 'تعذّر التحديث', 'error')
+                                }
+                              }}
+                              className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 ${
+                                camp.status === 'نشطة'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}
+                            >
+                              {camp.status === 'نشطة' ? <Pause size={13} /> : <Play size={13} />}
+                              <span>{camp.status === 'نشطة' ? 'إيقاف' : 'تشغيل'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* مؤشرات الأداء بالأرقام العربية */}
+                        <div className="grid grid-cols-4 gap-2 bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] text-center text-xs">
+                          <div>
+                            <p className="text-[10px] text-[#64748B]">الوصول</p>
+                            <p className="font-bold text-[#0F172A] mt-0.5">{formatArabicNumber(camp.reach)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-[#64748B]">النقرات</p>
+                            <p className="font-bold text-[#0F172A] mt-0.5">{formatArabicNumber(camp.clicks)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-[#64748B]">الطلبات</p>
+                            <p className="font-bold text-emerald-700 mt-0.5">{toArabicDigits(camp.conversions)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-[#64748B]">العائد (ROAS)</p>
+                            <p className="font-black text-[#253765] mt-0.5 font-mono">
+                              {camp.roas === null ? <span className="text-slate-400">—</span> : `${toArabicDigits(camp.roas)}x`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* شريط الميزانية */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs font-semibold">
+                            <span className="text-[#64748B]">
+                              المصروف: <strong className="text-slate-900">{formatArabicCurrency(camp.budget_spent)}</strong>
+                            </span>
+                            <span className="text-[#253765]">
+                              الميزانية: {formatArabicCurrency(camp.budget_total)} ({formatArabicPercent(spendPercent)})
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-[#253765] h-full rounded-full transition-all duration-500"
+                              style={{ width: `${spendPercent}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* تقرير المروج */}
+                        {camp.marketer_notes && (
+                          <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl text-xs text-blue-900 space-y-1">
+                            <p className="font-bold flex items-center gap-1.5 text-[#253765]">
+                              <Sparkles size={13} />
+                              <span>تقرير وتوصية خبير التسويق:</span>
+                            </p>
+                            <p className="leading-relaxed text-[11px]">{toArabicDigits(camp.marketer_notes)}</p>
+                          </div>
+                        )}
+
+                        <div className="pt-2 flex items-center justify-between text-xs">
+                          <span className="text-[11px] text-[#64748B]">الفترة: {formatArabicDate(camp.start_date)} إلى {formatArabicDate(camp.end_date)}</span>
+                          <button
+                            onClick={() => setSelectedCampaign(camp)}
+                            className="font-bold text-[#253765] hover:underline inline-flex items-center gap-1"
+                          >
+                            <span>عرض التقرير</span>
+                            <ArrowUpRight size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </main>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* ===== نافذة التحكم باشتراك وحساب التاجر (Merchant Administration Modal) ===== */}
+      {/* ========================================================================= */}
+      {selectedMerchant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#253765] text-white flex items-center justify-center">
+                  <Store size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-[#0F172A]">{selectedMerchant.name}</h2>
+                    <StatusBadge status={selectedMerchant.subscription_status ?? 'بلا اشتراك'} />
+                  </div>
+                  <p className="text-xs text-[#64748B]">
+                    المعرف: {toArabicDigits(selectedMerchant.id)} •{' '}
+                    {selectedMerchant.city ? `مدينة ${selectedMerchant.city}` : 'المدينة غير مسجّلة'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedMerchant(null)} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <p className="text-[10px] text-[#64748B]">الرصيد المتاح</p>
+                  <p className="text-lg font-black text-emerald-700 font-mono mt-1">
+                    {formatArabicCurrency(selectedMerchant.balance)}
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <p className="text-[10px] text-[#64748B]">إجمالي الشحنات</p>
+                  <p className="text-lg font-black text-slate-800 font-mono mt-1">
+                    {toArabicDigits(selectedMerchant.orders_count)}
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <p className="text-[10px] text-[#64748B]">الرسوم الشهرية</p>
+                  <p className="text-lg font-black text-[#253765] font-mono mt-1">
+                    {formatArabicCurrency(selectedMerchant.monthly_fee)}
+                  </p>
+                </div>
+              </div>
+
+              {/* تعديل الباقة والاشتراك */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-[#253765] border-b border-slate-200 pb-1.5">
+                  إعدادات الاشتراك والباقة (صلاحيات الإدارة)
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[#64748B] block mb-1 font-bold">باقة المتجر</label>
+                    <select
+                      value={selectedMerchant.plan ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value || null })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
+                    >
+                      <option value="أساسية">أساسية</option>
+                      <option value="متقدمة">متقدمة</option>
+                      <option value="احترافية">احترافية</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[#64748B] block mb-1 font-bold">حالة الاشتراك</label>
+                    <select
+                      value={selectedMerchant.subscription_status ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value || null })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
+                    >
+                      <option value="نشط">نشط</option>
+                      <option value="تجريبي">تجريبي</option>
+                      <option value="متوقف">متوقف</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[#64748B] block mb-1 font-bold">الرسوم الشهرية (د.ع)</label>
+                    <input
+                      type="number"
+                      value={selectedMerchant.monthly_fee ?? ''}
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, monthly_fee: e.target.value === '' ? null : Number(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[#64748B] block mb-1 font-bold">نسبة عمولة التوصيل (%)</label>
+                    <input
+                      type="number"
+                      value={selectedMerchant.commission_rate ?? ''}
+                      placeholder="لم تُحدَّد"
+                      onChange={(e) => setSelectedMerchant({ ...selectedMerchant, commission_rate: Number(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* الربط البرمجي ومفاتيح الـ API */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold text-[#253765]">مفتاح الوصول البرمجي (API Key):</h3>
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                  <Key size={14} className="text-[#253765] shrink-0" />
+                  <span className="font-mono text-[11px] text-slate-800 flex-1 truncate">{selectedMerchant.api_key}</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedMerchant.api_key ?? '')
+                      setCopiedKey(true)
+                      setTimeout(() => setCopiedKey(false), 2000)
+                      showToast('تم نسخ مفتاح الـ API', 'info')
+                    }}
+                    className="text-slate-500 hover:text-slate-900"
+                  >
+                    {copiedKey ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <button onClick={() => setSelectedMerchant(null)} className="text-xs font-bold text-slate-500">
+                إلغاء
+              </button>
+              <button
+                onClick={() => {
+                  setMerchants((prev) => prev.map((m) => (m.id === selectedMerchant.id ? selectedMerchant : m)))
+                  setSelectedMerchant(null)
+                  showToast(`تم حفظ تعديلات حساب ${selectedMerchant.name} بنجاح`, 'success')
+                }}
+                className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs"
+              >
+                حفظ التغييرات الإدارية
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ===== نافذة إضافة مروج جديد ===== */}
+      {/* ========================================================================= */}
+      {newMarketerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-[#0F172A]">تسجيل مروج / وكالة إعلانات جديدة</h2>
+              <button onClick={() => setNewMarketerModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X size={17} />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const fd = new FormData(e.currentTarget)
+                const name = (fd.get('name') as string)?.trim()
+                const rate = fd.get('commission_rate')
+                const assigned = fd.get('assigned_merchant') as string
+
+                try {
+                  const res = await fetch('/api/marketers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      agency_name: fd.get('agency_name'),
+                      email: fd.get('email'),
+                      phone: fd.get('phone'),
+                      // العمولة تبقى فارغة إن لم تُدخل — لا نسبة افتراضية
+                      commission_rate: rate ? Number(rate) : null,
+                      merchant_ids: assigned ? [assigned] : [],
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+
+                  await loadPromotion()
+                  setNewMarketerModal(false)
+                  showToast(
+                    json.warning || `تم تسجيل المروّج "${name}" في قاعدة البيانات`,
+                    json.warning ? 'info' : 'success'
+                  )
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
+                }
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="text-[#64748B] block mb-1 font-bold">اسم المروج / المسوق *</label>
+                <input required name="name" placeholder="مثال: يوسف الكرخي" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">اسم الوكالة أو الفريق</label>
+                  <input name="agency_name" placeholder="وكالة ديجيتال" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">رقم الهاتف *</label>
+                  <input required name="phone" placeholder="077XXXXXXXX" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">إسناد المتجر الأولي</label>
+                  {/* القيمة معرّف التاجر لا اسمه: الإسناد مفتاح أجنبي حقيقي */}
+                  <select name="assigned_merchant" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                    <option value="">بلا إسناد</option>
+                    {merchants.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">نسبة عمولة الإعلانات (%)</label>
+                  <input required type="number" name="commission_rate" defaultValue="10" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+              </div>
+              <div className="pt-3 border-t border-slate-100 flex justify-between">
+                <button type="button" onClick={() => setNewMarketerModal(false)} className="text-slate-500 font-bold">إلغاء</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">تسجيل المروج</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ===== باقي النوافذ ===== */}
+      {/* ========================================================================= */}
+
+      {/* تفاصيل الطلب */}
+      {selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-[#0F172A]">تفاصيل الطلب #{toArabicDigits(selectedOrder.order_id)}</h2>
+                  <OrderStageBadge order={selectedOrder} />
+                </div>
+                {selectedOrder.shipment && (
+                  <p className="text-xs text-[#64748B] mt-0.5">رقم التتبع: {selectedOrder.shipment.tracking_number}</p>
+                )}
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex justify-between"><span className="text-[#64748B]">الزبون:</span><span className="font-bold">{orderDisplayName(selectedOrder)}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">الهاتف:</span><span>{formatArabicPhone(orderDisplayPhone(selectedOrder))}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">العنوان:</span><span>{[selectedOrder.governorate, selectedOrder.district].filter(Boolean).join(' - ')} - {toArabicDigits(selectedOrder.address || '')}</span></div>
+                {selectedOrder.order_content && (
+                  <div className="flex justify-between"><span className="text-[#64748B]">محتوى الطلب:</span><span>{selectedOrder.order_content}</span></div>
+                )}
+                <div className="flex justify-between pt-2 border-t border-slate-200 font-bold">
+                  <span>المبلغ المطلوب:</span>
+                  <span className="text-emerald-700 text-sm">{formatArabicCurrency(selectedOrder.grand_total_iqd ?? selectedOrder.items_total_iqd ?? 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePrintLabel(selectedOrder)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs"
+                >
+                  <Printer size={14} />
+                  <span>طباعة البوليصة</span>
+                </button>
+                {!selectedOrder.shipment && selectedOrder.current_state === 'confirmed' && (
+                  <button
+                    onClick={() => void handleDispatch(selectedOrder.order_id)}
+                    disabled={dispatchingOrderId === selectedOrder.order_id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-xs transition"
+                  >
+                    {dispatchingOrderId === selectedOrder.order_id ? (
+                      <RefreshCw size={14} className="animate-spin" />
+                    ) : (
+                      <Truck size={14} />
+                    )}
+                    <span>إرسال للشحن</span>
+                  </button>
+                )}
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="px-5 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs">
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* تفاصيل الحملة الإعلانية */}
+      {selectedCampaign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <PlatformBadge platform={selectedCampaign.platform} />
+                  <StatusBadge status={selectedCampaign.status} />
+                </div>
+                <h2 className="text-base font-bold text-[#0F172A]">{selectedCampaign.name}</h2>
+              </div>
+              <button onClick={() => setSelectedCampaign(null)} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                <div>
+                  <p className="text-[10px] text-slate-500">الوصول الكلي</p>
+                  <p className="font-bold text-slate-800 text-sm mt-0.5">{formatArabicNumber(selectedCampaign.reach)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">الطلبات المولدة</p>
+                  <p className="font-bold text-emerald-700 text-sm mt-0.5">{toArabicDigits(selectedCampaign.conversions)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">معدل العائد (ROAS)</p>
+                  <p className="font-black text-[#253765] text-sm mt-0.5 font-mono">
+                    {selectedCampaign.roas === null ? (
+                      <span className="text-slate-400 text-xs font-normal">لا إنفاق بعد</span>
+                    ) : (
+                      `${toArabicDigits(selectedCampaign.roas)}x`
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[#64748B] block font-bold mb-1">الجمهور المستهدف:</span>
+                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{toArabicDigits(selectedCampaign.target_audience)}</p>
+              </div>
+
+              <div>
+                <span className="text-[#64748B] block font-bold mb-1">النص الإعلاني (Headline):</span>
+                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{toArabicDigits(selectedCampaign.ad_headline)}</p>
+              </div>
+
+              {selectedCampaign.marketer_notes && (
+                <div>
+                  <span className="text-[#64748B] block font-bold mb-1">ملاحظات وتوصية المروج:</span>
+                  <p className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 leading-relaxed">{toArabicDigits(selectedCampaign.marketer_notes)}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button onClick={() => setSelectedCampaign(null)} className="px-5 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs">
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* نافذة تسجيل تاجر جديد */}
+      {newMerchantModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-[#0F172A]">تسجيل تاجر جديد في الإدارة</h2>
+              <button onClick={() => setNewMerchantModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X size={17} />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const fd = new FormData(e.currentTarget)
+                const name = (fd.get('name') as string)?.trim()
+
+                try {
+                  const res = await fetch('/api/merchants', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      owner_name: fd.get('owner_name'),
+                      phone: fd.get('phone'),
+                      city: fd.get('city'),
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+
+                  // إعادة الجلب بدل الإضافة محلياً: الباقة وعدد الشحنات
+                  // يحسبهما الخادم، ولا يصحّ تخمينهما في المتصفح
+                  await loadMerchants()
+                  setNewMerchantModal(false)
+                  showToast(`تم تسجيل المتجر "${name}" في قاعدة البيانات`, 'success')
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
+                }
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="text-[#64748B] block mb-1 font-bold">اسم المتجر *</label>
+                <input required name="name" placeholder="مثال: بوتيك أور" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">اسم المالك</label>
+                  <input name="owner_name" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">رقم الهاتف</label>
+                  <input name="phone" placeholder="077XXXXXXXX" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+              </div>
+              <div className="pt-3 border-t border-slate-100 flex justify-between">
+                <button type="button" onClick={() => setNewMerchantModal(false)} className="text-slate-500 font-bold">إلغاء</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">تسجيل الحساب</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* نافذة إضافة طلب جديد — حجز حقيقي عبر /api/orders/book (Supabase) */}
+      {newOrderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="w-full max-w-lg my-8">
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+              <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#0F172A]">إضافة طلب شحن جديد</h2>
+                <button onClick={() => setNewOrderModal(false)} className="text-slate-400 hover:text-slate-700">
+                  <X size={17} />
+                </button>
+              </div>
+              <div className="[&>div]:rounded-none [&>div]:border-0 [&>div]:shadow-none">
+                <NewOrderBooking
+                  onBooked={() => {
+                    void loadOrders()
+                    showToast('تم حجز الطلب وإنشاء الشحنة بنجاح', 'success')
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* نافذة إنشاء حملة جديدة */}
+      {newCampaignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-[#0F172A]">إطلاق حملة ترويج إعلانية جديدة</h2>
+              <button onClick={() => setNewCampaignModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X size={17} />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const fd = new FormData(e.currentTarget)
+                const name = (fd.get('name') as string)?.trim()
+
+                // التاجر يُحدَّد بمعرّفه: في وضع التاجر هو نفسه، وفي وضع
+                // المدير يُختار من القائمة. لا معرّف افتراضي مُخترع.
+                const merchantId =
+                  currentUserRole === 'merchant'
+                    ? merchants.find((m) => m.name === activeMerchantName)?.id
+                    : (fd.get('merchant_id') as string)
+
+                if (!merchantId) {
+                  showToast('اختر التاجر أولاً', 'error')
+                  return
+                }
+
+                try {
+                  const res = await fetch('/api/campaigns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      merchant_id: merchantId,
+                      platform: (fd.get('platform') as string) || 'instagram',
+                      status: 'under_review',
+                      // الميزانيات تصل كما أُدخلت — بلا مبالغ افتراضية
+                      budget_total_iqd: Number(fd.get('budget_total') || 0),
+                      daily_budget_iqd: Number(fd.get('daily_budget') || 0),
+                      start_date: fd.get('start_date') || null,
+                      end_date: fd.get('end_date') || null,
+                      target_audience: fd.get('target_audience'),
+                      ad_headline: fd.get('ad_headline'),
+                    }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر الإنشاء')
+
+                  await loadPromotion()
+                  setNewCampaignModal(false)
+                  showToast(`أُنشئت الحملة "${name}" وهي قيد المراجعة`, 'success')
+                } catch (err: unknown) {
+                  showToast(err instanceof Error ? err.message : 'تعذّر الإنشاء', 'error')
+                }
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="text-[#64748B] block mb-1 font-bold">اسم الحملة الإعلانية *</label>
+                <input required name="name" placeholder="مثال: حملة عروض نهاية الأسبوع" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">المنصة الإعلانية *</label>
+                  <select name="platform" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                    <option value="instagram">Instagram Ads</option>
+                    <option value="tiktok">TikTok Ads</option>
+                    <option value="facebook">Meta / Facebook</option>
+                    <option value="snapchat">Snapchat Ads</option>
+                    <option value="google">Google Ads</option>
+                  </select>
+                </div>
+                {currentUserRole === 'super_admin' && (
+                  <div>
+                    <label className="text-[#64748B] block mb-1 font-bold">المتجر / العميل *</label>
+                    <select required name="merchant_id" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
+                      <option value="">اختر التاجر…</option>
+                      {merchants.map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">الميزانية الإجمالية (د.ع) *</label>
+                  <input required type="number" name="budget_total" defaultValue="300000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+                <div>
+                  <label className="text-[#64748B] block mb-1 font-bold">الميزانية اليومية (د.ع)</label>
+                  <input required type="number" name="daily_budget" defaultValue="20000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[#64748B] block mb-1 font-bold">الجمهور المستهدف</label>
+                <input name="target_audience" placeholder="مثال: فئة الشباب 18-35 سنة في بغداد والمحافظات" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-between">
+                <button type="button" onClick={() => setNewCampaignModal(false)} className="text-slate-500 font-bold">إلغاء</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">إطلاق الحملة</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

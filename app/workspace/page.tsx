@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import WorkspaceShell from '@/components/WorkspaceShell'
 import {
-  listMerchantsWithPlan,
   loadMerchantEntitlements,
   usageRatio,
   isOverLimit,
@@ -26,6 +25,7 @@ import {
 } from '@/lib/entitlements'
 import { ANALYTICS_LABELS, SUPPORT_LABELS } from '@/lib/plans'
 import { formatArabicNumber, toArabicDigits } from '@/lib/formatters'
+import { loadWorkspaceContext } from '@/lib/workspace-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -268,17 +268,14 @@ export default async function WorkspacePage({
   searchParams: Promise<{ merchant?: string }>
 }) {
   const { merchant: requestedId } = await searchParams
+  const ctx = await loadWorkspaceContext(requestedId)
 
-  let merchants: { id: string; name: string; planName: string | null }[] = []
+  const merchants = ctx.merchants
   let ent: MerchantEntitlements | null = null
   let loadError: string | null = null
 
   try {
-    merchants = await listMerchantsWithPlan()
-    const activeId = requestedId && merchants.some((m) => m.id === requestedId)
-      ? requestedId
-      : merchants[0]?.id
-    if (activeId) ent = await loadMerchantEntitlements(activeId)
+    if (ctx.merchantId) ent = await loadMerchantEntitlements(ctx.merchantId)
   } catch (err: unknown) {
     loadError = err instanceof Error ? err.message : 'تعذّر تحميل بيانات الاشتراك'
     console.error('[WORKSPACE][LOAD_ERROR]', loadError)
@@ -292,6 +289,7 @@ export default async function WorkspacePage({
       merchantName={ent?.merchant.name ?? 'التاجر'}
       planName={ent?.plan.name_en ?? null}
       merchants={merchants}
+      impersonating={ctx.impersonating}
     >
       <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-6xl">
         <div className="mb-7">

@@ -3,11 +3,14 @@ import { MessageCircle, ArrowRight } from 'lucide-react'
 import LiveConversations from '@/components/LiveConversations'
 import { loadConversationsOverview } from '@/lib/conversations-server'
 import type { ConversationOverview } from '@/lib/conversations'
+import { requireRole } from '@/lib/auth'
 
 // بيانات حقيقية من Supabase — تُجلب في كل زيارة، بلا تخزين مؤقت
 export const dynamic = 'force-dynamic'
 
 export default async function WhatsAppPage() {
+  await requireRole(['platform_owner', 'staff'])
+
   let conversations: ConversationOverview[] = []
   let loadError: string | null = null
 
