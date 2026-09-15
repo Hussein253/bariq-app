@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { requireSession } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,8 @@ export interface MerchantRecord {
 const LIVE_SUB = ['trialing', 'active', 'past_due']
 
 export async function GET() {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const [merchantsRes, subsRes, shipmentsRes] = await Promise.all([
       supabaseServer
@@ -123,6 +126,8 @@ export async function GET() {
  * مفتاح الـ API يُولَّد على الخادم بعشوائية تشفيرية، لا في المتصفح.
  */
 export async function POST(request: Request) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = (await request.json()) as {
       name?: string
@@ -188,6 +193,8 @@ export async function POST(request: Request) {
 
 /** PATCH /api/merchants — تحديث بيانات تاجر قائم. */
 export async function PATCH(request: Request) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const body = (await request.json()) as {
       id?: string

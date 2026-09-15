@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { validateProduct, type Product, type ProductDraft } from '@/lib/catalog'
 import { loadMerchantEntitlements } from '@/lib/entitlements'
+import { requireMerchantScope } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,9 @@ export const dynamic = 'force-dynamic'
 /** GET /api/catalog?merchant=<uuid> */
 export async function GET(request: Request) {
   try {
-    const merchantId = new URL(request.url).searchParams.get('merchant')
+    const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant'))
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
     if (!merchantId) {
       return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
     }
@@ -46,7 +49,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { merchantId?: string } & Partial<ProductDraft>
-    const { merchantId, ...draft } = body
+    const { merchantId: requestedMerchantId, ...draft } = body
+    const scope = await requireMerchantScope(requestedMerchantId)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     if (!merchantId) {
       return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
@@ -117,7 +123,10 @@ export async function PATCH(request: Request) {
       stock?: number
       status?: string
     }
-    const { id, merchantId } = body
+    const { id } = body
+    const scope = await requireMerchantScope(body.merchantId)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     if (!id || !merchantId) {
       return NextResponse.json(
@@ -193,7 +202,9 @@ export async function DELETE(request: Request) {
   try {
     const params = new URL(request.url).searchParams
     const id = params.get('id')
-    const merchantId = params.get('merchant')
+    const scope = await requireMerchantScope(params.get('merchant'))
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     if (!id || !merchantId) {
       return NextResponse.json(

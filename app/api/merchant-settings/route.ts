@@ -5,6 +5,7 @@ import {
   type DeliverySettings,
   type MerchantProfile,
 } from '@/lib/merchant-settings'
+import { requireMerchantScope } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +17,9 @@ export const dynamic = 'force-dynamic'
 /** GET /api/merchant-settings?merchant=<uuid> */
 export async function GET(request: Request) {
   try {
-    const merchantId = new URL(request.url).searchParams.get('merchant')
+    const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant'))
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
     if (!merchantId) {
       return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
     }
@@ -54,11 +57,14 @@ export async function GET(request: Request) {
  */
 export async function PUT(request: Request) {
   try {
-    const { merchantId, section, data } = (await request.json()) as {
+    const { merchantId: requestedMerchantId, section, data } = (await request.json()) as {
       merchantId?: string
       section?: 'profile' | 'delivery'
       data?: Record<string, unknown>
     }
+    const scope = await requireMerchantScope(requestedMerchantId)
+    if (!scope.ok) return scope.response
+    const merchantId = scope.merchantId
 
     if (!merchantId || !data) {
       return NextResponse.json({ success: false, error: 'بيانات ناقصة' }, { status: 400 })

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { requireSession } from '@/lib/api-session'
 
 /**
  * تحديث شحنة محددة (حالة، مندوب، تسوية مالية، ملاحظات)
@@ -13,6 +14,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const { id } = await params
     const body = await req.json()

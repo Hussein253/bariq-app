@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { mapOrderRow, type ConfirmedOrder } from '@/lib/orders'
+import { requireSession } from '@/lib/api-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +15,8 @@ export const dynamic = 'force-dynamic'
  * الكاملة في بطاقة الطلب.
  */
 export async function GET() {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   try {
     const { data, error } = await supabaseServer
       .from('orders')

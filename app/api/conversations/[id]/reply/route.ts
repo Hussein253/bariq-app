@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
 import type { Conversation } from '@/lib/conversations'
+import { requireSession } from '@/lib/api-session'
 
 /**
  * POST /api/conversations/:id/reply — رد الموظف على محادثة واحدة (أي قناة)
@@ -18,6 +19,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireSession(['platform_owner', 'staff'])
+  if (!guard.ok) return guard.response
   const { id } = await params
 
   try {
