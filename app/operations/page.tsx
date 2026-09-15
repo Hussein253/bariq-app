@@ -23,40 +23,23 @@ import {
   Plus,
   X,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
-  MapPin,
-  Clock,
   ShieldCheck,
   Key,
   Copy,
   Check,
   Package,
   Sparkles,
-  Eye,
   ArrowUpRight,
-  Link2,
-  QrCode,
   TrendingUp,
   Truck,
-  Bot,
   Megaphone,
-  BarChart3,
   Sliders,
   Play,
   Pause,
-  ExternalLink,
-  Target,
-  Users,
   DollarSign,
-  Layers,
-  ChevronDown,
-  UserCheck,
   Lock,
-  Unlock,
   ShieldAlert,
-  Edit,
-  Trash2,
   Award
 } from 'lucide-react'
 import {
@@ -278,7 +261,10 @@ export default function OperationsPage() {
   // التصفية والبحث
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('الكل')
-  const [platformFilter, setPlatformFilter] = useState<string>('الكل')
+  // تصفية الحملات حسب المنصة: القيمة تُقرأ في الفلترة أدناه، لكن لا يوجد
+  // عنصر واجهة يغيّرها بعد — فهي عملياً معطَّلة على "الكل". يُضاف المُبدِّل
+  // عند بناء قسم الحملات الكامل.
+  const [platformFilter] = useState<string>('الكل')
 
   // النوافذ المنبثقة
   const [selectedOrder, setSelectedOrder] = useState<ConfirmedOrder | null>(null)
@@ -1579,21 +1565,39 @@ export default function OperationsPage() {
                     </div>
                   </div>
 
+                  {/*
+                    ⚠️ أُزيلت من هنا مؤشّرات "● متصل ويعمل بنسبة ٩٩.٩٪" و"● متصل
+                    مع أنظمة المناديب": لا يوجد في المنصة أي قياس اتصال أو زمن
+                    تشغيل يغذّيها — كانت نصاً ثابتاً يوحي بمراقبة غير قائمة.
+                    رقم جاهزية مُختلق في لوحة تشغيل أسوأ من غياب الرقم، لأنه
+                    يمنع موظف العمليات من الشك حين يتعطّل المسار فعلاً.
+                    يعود المؤشّر يوم تُبنى مراقبة حقيقية تقرأ آخر حدث ناجح.
+                  */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                      <p className="font-bold text-slate-800">مسار Webhook البوتات (WhatsApp & Messenger)</p>
-                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200">
-                        https://api.bariq.app/api/webhooks/bot
+                      <p className="font-bold text-slate-800">مسار Webhook البوتات</p>
+                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
+                        POST /api/webhooks/bot
                       </p>
-                      <span className="text-[10px] text-emerald-700 font-bold">● متصل ويعمل بنسبة {toArabicDigits('99.9')}%</span>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        يتطلّب ترويسة توقيع{' '}
+                        <span className="font-mono">x-bariq-signature</span> محسوبة
+                        HMAC-SHA256 على الجسم الخام بالسرّ{' '}
+                        <span className="font-mono">BARIQ_BOT_WEBHOOK_SECRET</span>. الطلب
+                        غير الموقَّع يُرفض.
+                      </p>
                     </div>
 
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                      <p className="font-bold text-slate-800">مسار مزامنة التوصيل والشحن اللوجستي</p>
-                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200">
-                        https://api.bariq.app/api/delivery/sync
+                      <p className="font-bold text-slate-800">مسار مزامنة التوصيل</p>
+                      <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
+                        POST /api/delivery/sync
                       </p>
-                      <span className="text-[10px] text-emerald-700 font-bold">● متصل مع أنظمة المناديب</span>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        نفس آلية التوقيع بالسرّ{' '}
+                        <span className="font-mono">BARIQ_DELIVERY_SYNC_SECRET</span>. يحرّك
+                        حالة الشحنة خطوة واحدة وفق التسلسل المُلزَم.
+                      </p>
                     </div>
                   </div>
                 </div>
