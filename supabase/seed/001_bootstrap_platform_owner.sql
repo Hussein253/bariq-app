@@ -17,13 +17,13 @@
 -- ----------------------------------------------------------------------------
 -- 1) مالك المنصة
 -- ----------------------------------------------------------------------------
--- بدّل البريد إلى بريد المالك الفعلي. الحساب يجب أن يكون موجوداً في
+-- بريد المالك الفعلي لهذا النشر. الحساب يجب أن يكون موجوداً في
 -- auth.users مسبقاً (يُنشأ من Dashboard → Authentication → Add user).
 
 insert into public.profiles (user_id, role, merchant_id, store_name)
 select u.id, 'platform_owner', null, 'برق'
 from auth.users u
-where u.email = 'CHANGE_ME@example.com'
+where u.email = 'hus4561990@gmail.com'
 on conflict (user_id) do update
   set role = 'platform_owner',
       merchant_id = null,
