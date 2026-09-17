@@ -351,11 +351,11 @@ export default async function AdminPage() {
       <header className="bg-[#253765] text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-5">
           <Link
-            href="/"
+            href="/platform"
             className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-300 hover:text-white transition mb-2"
           >
             <ArrowLeft size={13} />
-            الصفحة الرئيسية
+            صفحة المنصة التعريفية
           </Link>
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div>
@@ -366,6 +366,7 @@ export default async function AdminPage() {
             </div>
             <nav className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
               {[
+                { href: '/admin/users', label: 'الحسابات' },
                 { href: '/operations', label: 'العمليات' },
                 { href: '/operations/chats', label: 'خدمة العملاء' },
                 { href: '/dashboard', label: 'الشحنات' },

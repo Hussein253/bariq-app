@@ -12,15 +12,24 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic'
 
+/** رسائل الروابط الواردة. نصّها من هنا لا من الرابط — وإلا حقن أحدهم نصاً
+ *  يقول للزائر شيئاً باسم برق. */
+const LINK_ERRORS: Record<string, string> = {
+  no_profile: 'حسابك غير مربوط بصلاحية بعد — راجع مالك المنصة',
+  expired_link: 'انتهت صلاحية الرابط أو استُعمل من قبل. اطلب رابطاً جديداً.',
+  missing_code: 'الرابط ناقص. اطلب رابطاً جديداً لتغيير كلمة المرور.',
+}
+
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>
+  searchParams: Promise<{ next?: string; error?: string }>
 }) {
-  const { next } = await searchParams
+  const { next, error } = await searchParams
   // التحقق يتكرّر في الإجراء نفسه: ما يصل من الرابط لا يُوثَق لأنه مُرِّر
   // عبر المتصفح ويمكن تعديله بين عرض الصفحة وإرسال النموذج.
   const safeNext = safeInternalPath(next)
+  const linkError = error ? LINK_ERRORS[error] ?? null : null
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4 py-10 bg-[#F8F9FA]" dir="rtl">
@@ -34,16 +43,16 @@ export default async function LoginPage({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <LoginForm next={safeNext} />
+          <LoginForm next={safeNext} initialError={linkError} />
         </div>
 
         <p className="text-[11px] text-slate-500 text-center mt-5 leading-relaxed">
-          الحسابات يُنشئها مالك المنصة. إن لم يكن لديك حساب أو نسيت كلمة المرور،
-          تواصل معه مباشرة.
+          الحسابات يُنشئها مالك المنصة — لا تسجيل ذاتي. إن لم يكن لديك حساب
+          فتواصل معه مباشرة.
         </p>
 
         <p className="text-center mt-4">
-          <Link href="/" className="text-xs text-[#253765] font-bold hover:underline">
+          <Link href="/platform" className="text-xs text-[#253765] font-bold hover:underline">
             العودة لصفحة المنصة
           </Link>
         </p>
