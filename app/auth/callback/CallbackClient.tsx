@@ -79,10 +79,10 @@ export default function CallbackClient({ next }: { next: string }) {
         <AlertCircle size={24} className="mx-auto text-amber-600 mb-2" />
         <p className="font-black text-sm text-[#0F172A]">تعذّر فتح الرابط</p>
         <p className="text-[11px] text-slate-600 leading-relaxed mt-1.5">
-          روابط تغيير كلمة المرور تُستعمل مرة واحدة وتنتهي بعد مدة قصيرة.
+          روابط البريد تُستعمل مرة واحدة وتنتهي بعد مدة قصيرة.
         </p>
         <Link
-          href="/forgot-password"
+          href="/login"
           className="mt-4 w-full inline-flex items-center justify-center bg-[#253765] hover:bg-[#1D2B50] text-white text-sm font-bold rounded-xl px-5 py-2.5 transition-colors"
         >
           اطلب رابطاً جديداً
