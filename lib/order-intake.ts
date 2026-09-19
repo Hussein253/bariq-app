@@ -100,6 +100,7 @@ export async function createOrderWithShipment(
   const { data: order, error: orderError } = await supabaseServer
     .from('orders')
     .insert({
+      merchant_id: input.merchantId,
       phone_number: phone,
       contact_phone: phone,
       name,

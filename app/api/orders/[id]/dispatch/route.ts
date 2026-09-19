@@ -17,6 +17,11 @@ import { requireSession } from '@/lib/api-session'
  * مطابقة الحقول المالية: cod_amount_iqd و delivery_fee_iqd تُؤخذان مباشرة
  * من orders.items_total_iqd و orders.delivery_fee_iqd (الطلبات المؤكدة عبر
  * البوت تخزّنهما منفصلين فعلاً، خلافاً لنموذج الحجز اليدوي) — بند 4-4.
+ *
+ * التاجر: orders.merchant_id (الترحيل ٠١٦) — يُقرأ من الطلب نفسه مباشرة.
+ * قبل هذا الترحيل لم يكن للطلب تاجر مسجَّل فكان هذا المسار يسحب أول تاجر
+ * في الجدول عشوائياً؛ بتاجر واحد لا فرق يظهر، وبأكثر من تاجر كانت الشحنة
+ * تُنسب لتاجر قد لا يملك الطلب فعلاً.
  */
 
 export async function POST(
@@ -32,10 +37,10 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'معرّف الطلب غير صالح' }, { status: 400 })
     }
 
-    // 1) جلب الطلب
+    // 1) جلب الطلب — مع اسم تاجره عبر العلاقة الآن أن merchant_id موجود عليه
     const { data: order, error: orderError } = await supabaseServer
       .from('orders')
-      .select('*')
+      .select('*, merchants(name)')
       .eq('order_id', orderId)
       .maybeSingle()
 
@@ -85,27 +90,15 @@ export async function POST(
       return NextResponse.json({ success: false, error: errors.join(' · ') }, { status: 422 })
     }
 
-    // 4) التاجر الافتراضي (orders لا يحمل merchant_id بعد — نفس نهج /api/orders/book)
-    const { data: merchant, error: merchantError } = await supabaseServer
-      .from('merchants')
-      .select('id, name')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-
-    if (merchantError || !merchant) {
-      return NextResponse.json(
-        { success: false, error: 'لا يوجد تاجر مُهيّأ في جدول merchants — أضف تاجراً واحداً على الأقل قبل الإرسال للشحن' },
-        { status: 500 }
-      )
-    }
+    // 4) التاجر — من الطلب نفسه (orders.merchant_id إلزامي منذ الترحيل ٠١٦)
+    const merchantName = (order.merchants as { name: string } | null)?.name ?? null
 
     // 5) إنشاء الشحنة
     const { data: shipment, error: shipmentError } = await supabaseServer
       .from('shipments')
       .insert({
         order_id: order.order_id,
-        merchant_id: merchant.id,
+        merchant_id: order.merchant_id,
         recipient_name: recipientName,
         recipient_phone: recipientPhone,
         governorate,
@@ -135,7 +128,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: 'تم إرسال الطلب للشحن بنجاح',
-      shipment: { ...(shipment as Shipment), merchant_name: merchant.name },
+      shipment: { ...(shipment as Shipment), merchant_name: merchantName ?? undefined },
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'خطأ داخلي في إرسال الطلب للشحن'

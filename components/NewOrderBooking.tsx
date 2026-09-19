@@ -13,7 +13,16 @@ import { PrintStickerButton } from '@/components/ShipmentSticker'
  * يُدرج عبر POST /api/orders/book (خادم بمفتاح service_role) لا من المتصفح:
  * صلاحيات anon على orders و shipments مسحوبة بالترحيلات 005–007.
  * رقم التتبع BRQ-XXXXXX تولّده قاعدة البيانات، لا الواجهة.
+ *
+ * اختيار التاجر إلزامي (الترحيل ٠١٦: orders.merchant_id لا قيمة افتراضية
+ * له). هذا النموذج يُستعمل من /operations حيث الموظف يحجز نيابةً عن أي
+ * تاجر — لذا التاجر حقل يُختار صراحةً، لا يُشتق من جلسة المستخدم.
  */
+
+export interface MerchantOption {
+  id: string
+  name: string
+}
 
 const GOVERNORATES = [
   'بغداد', 'البصرة', 'نينوى', 'أربيل', 'السليمانية', 'دهوك', 'كركوك',
@@ -29,6 +38,7 @@ interface BookedResult {
 }
 
 const EMPTY_FORM = {
+  merchant_id: '',
   customer_name: '',
   phone_number: '',
   governorate: 'بغداد',
@@ -48,7 +58,13 @@ const EMPTY_FORM = {
   notes: '',
 }
 
-export default function NewOrderBooking({ onBooked }: { onBooked?: (result: BookedResult) => void } = {}) {
+export default function NewOrderBooking({
+  merchants,
+  onBooked,
+}: {
+  merchants: MerchantOption[]
+  onBooked?: (result: BookedResult) => void
+}) {
   const router = useRouter()
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [submitting, setSubmitting] = useState(false)
@@ -58,8 +74,19 @@ export default function NewOrderBooking({ onBooked }: { onBooked?: (result: Book
   const set = (key: keyof typeof EMPTY_FORM, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
+  // قائمة التجار تصل عادة بعد تركيب هذه النافذة (طلب شبكة منفصل في الأب)،
+  // فتخزين اختيار التاجر في useState وحده يجمّد الفراغ لو رُكِّبت النافذة
+  // قبل وصول القائمة. القيمة الفعلية تُشتق هنا في كل عرض بدل تخزينها، فلا
+  // سباق ممكن: تاجر واحد يُختار تلقائياً فور توفّره أياً كان توقيت الوصول،
+  // واختيار المستخدم اليدوي (form.merchant_id) له الأولوية دائماً.
+  const effectiveMerchantId = form.merchant_id || (merchants.length === 1 ? merchants[0].id : '')
+
   const handleSubmit = async () => {
     if (submitting) return
+    if (!effectiveMerchantId) {
+      setError('اختر التاجر الذي يخصّه هذا الطلب')
+      return
+    }
     setSubmitting(true)
     setError(null)
 
@@ -84,6 +111,7 @@ export default function NewOrderBooking({ onBooked }: { onBooked?: (result: Book
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          merchant_id: effectiveMerchantId,
           order_content: finalOrderContent,
           cod_amount_iqd: Number(form.cod_amount_iqd || 0),
           delivery_fee_iqd: Number(form.delivery_fee_iqd || 0),
@@ -185,6 +213,19 @@ export default function NewOrderBooking({ onBooked }: { onBooked?: (result: Book
             <span>{error}</span>
           </div>
         )}
+
+        <Field label="التاجر" required hint="الطلب يُنسب لصافي هذا التاجر وعمولته">
+          <select
+            value={effectiveMerchantId}
+            onChange={(e) => set('merchant_id', e.target.value)}
+            className={inputClass}
+          >
+            <option value="">اختر التاجر…</option>
+            {merchants.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="اسم الزبون" required>

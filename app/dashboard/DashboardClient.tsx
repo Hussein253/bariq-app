@@ -616,7 +616,7 @@ export default function DashboardClient({
           {/* ===== تبويب حجز طلب جديد ===== */}
           {tab === 'booking' && (
             <div className="max-w-2xl">
-              <NewOrderBooking />
+              <NewOrderBooking merchants={initialMerchants.map((m) => ({ id: m.id, name: m.name }))} />
             </div>
           )}
 
