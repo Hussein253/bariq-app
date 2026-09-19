@@ -143,7 +143,7 @@ function Workspace({ ent }: { ent: MerchantEntitlements }) {
           </div>
 
           <Link
-            href="/#pricing"
+            href="/platform#pricing"
             className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white text-[#253765] font-bold text-xs shadow-md transition active:scale-95 shrink-0"
           >
             <span>ترقية الباقة</span>
@@ -324,7 +324,7 @@ export default async function WorkspacePage({
               اختر باقة لتفعيل الموظف الذكي والجسر اللوجستي.
             </p>
             <Link
-              href="/#pricing"
+              href="/platform#pricing"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs transition"
             >
               <span>استعراض الباقات</span>
