@@ -28,14 +28,17 @@ export default function CallbackClient({ next }: { next: string }) {
   useEffect(() => {
     let cancelled = false
     const hash = new URLSearchParams(window.location.hash.slice(1))
+    const query = new URLSearchParams(window.location.search)
 
     const fail = () => {
       if (!cancelled) setFailed(true)
     }
 
     async function run() {
-      // رابط منتهٍ أو مُستعمَل: #error=...&error_code=otp_expired
-      if (hash.has('error')) return fail()
+      // رابط منتهٍ أو مُستعمَل. يُفحص الموضعان معاً: Supabase يضع الخطأ في
+      // الاستعلام **و** الشظية، والاكتفاء بالشظية يترك الصفحة تدور ثم تفشل
+      // برسالة أعمّ بدل الرسالة الصحيحة فوراً.
+      if (hash.has('error') || query.has('error')) return fail()
 
       const supabase = getBrowserSupabase()
 
