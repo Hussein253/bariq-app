@@ -29,7 +29,22 @@ import { getSessionProfile, homeForRole } from '@/lib/auth'
  */
 export const dynamic = 'force-dynamic'
 
-export default async function RootPage() {
+export default async function RootPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; error_code?: string }>
+}) {
+  // رابط بريد فاشل يعود إلى **الجذر** لا إلى /auth/callback: Supabase يردّ
+  // على تحقّق فاشل بتحويل إلى Site URL حاملاً الخطأ في الاستعلام والشظية
+  // معاً (‏?error=access_denied&error_code=otp_expired#…). وهذا الجذر كان
+  // يتجاهل الاستعلام تماماً فيبتلع السبب ويرسل صاحبه إلى /login بلا كلمة —
+  // يعيد الطلب، يفشل من جديد، ولا يعرف لماذا. الرسالة نصّها من عندنا لا من
+  // الرابط (LINK_ERRORS في صفحة الدخول)، فلا يُحقن نصّ باسم برق.
+  const { error, error_code } = await searchParams
+  if (error || error_code) {
+    redirect('/login?error=expired_link')
+  }
+
   const supabase = await createSessionClient()
   const {
     data: { user },

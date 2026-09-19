@@ -27,10 +27,9 @@ export async function completeOnboardingAction(
     redirect('/login')
   }
 
+  // الاسم اختياري: تركه فارغاً يُنشئ اسماً افتراضياً يغيّره صاحبه لاحقاً من
+  // إعدادات متجره. رفض الإنشاء لأجله يوقف التسجيل عند حقل تجميلي.
   const storeName = String(formData.get('store_name') || '').trim()
-  if (!storeName) {
-    return { error: 'اسم المتجر مطلوب' }
-  }
 
   const result = await provisionSelfServeMerchant(user.id, user.email ?? null, storeName)
 

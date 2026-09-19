@@ -1,13 +1,18 @@
 import { supabaseServer } from '@/lib/supabase-server'
 import { isAppRole, type AppRole } from '@/lib/roles'
+import { isPlatformOwnerEmail } from '@/lib/platform-owner'
 import { log } from '@/lib/log'
 
 /**
- * تزويد ذاتي للتاجر — التسجيل الحقيقي الوحيد في المنصة
- * =======================================================
+ * تزويد ذاتي — التسجيل الحقيقي الوحيد في المنصة
+ * ================================================
  * حساب بلا صفّ في profiles لم يعد يعني "ارفضه" بإطلاق. جلسة صالحة (أثبتها
- * رابط بريد المستخدم فعلاً بالضغط عليه) وبلا صفّ تعني الآن "تاجر جديد
- * يُكمل إعداد متجره" — هذا هو التسجيل الذاتي نفسه، لا خطوة منفصلة عنه.
+ * رابط بريد المستخدم فعلاً بالضغط عليه) وبلا صفّ تعني الآن حساباً جديداً
+ * يُمنح دوره الآن — هذا هو التسجيل الذاتي نفسه، لا خطوة منفصلة عنه.
+ *
+ * الدور يُحسم بالبريد وحده (lib/platform-owner):
+ *   • بريد المالك → platform_owner بلا تاجر ولا اشتراك ولا اسم متجر يُطلب
+ *   • أي بريد آخر → merchant على باقة Spark المجانية
  *
  * ⚠️ لماذا ثلاثة إدراجات لا واحد: enforce_plan_limit (مُحفِّز على كل جدول
  * محكوم بباقة) يرفض أي إدراج لتاجر بلا صفّ في subscriptions بخطأ
@@ -63,6 +68,45 @@ async function fetchExistingProfile(
   }
 }
 
+/**
+ * اسم المتجر الافتراضي حين يترك المشترك الحقل فارغاً.
+ *
+ * ⚠️ ليس تخميناً لبيانات: الاسم حقل عرض يظهر في ردود البوت وعلى الملصقات،
+ * ويغيّره صاحبه متى شاء من إعدادات متجره. وقف التسجيل على ملئه يعني حاجزاً
+ * أمام من يريد فقط الدخول ليطّلع ويختار اشتراكه لاحقاً — وهو ما نُزيله هنا.
+ * أما المعرّفات والمبالغ فلا تُشتق ولا تُخمَّن (بند ٢-أ في CLAUDE.md).
+ */
+function fallbackStoreName(email: string | null): string {
+  const local = email?.split('@')[0]?.trim()
+  return local ? `متجر ${local}` : 'متجري'
+}
+
+/** صفّ صلاحية مالك المنصة: بلا تاجر وبلا اشتراك — ليس مشتركاً. */
+async function provisionPlatformOwner(
+  userId: string,
+  email: string | null
+): Promise<OnboardResult> {
+  const { error } = await supabaseServer
+    .from('profiles')
+    .insert({ user_id: userId, role: 'platform_owner', merchant_id: null, store_name: 'برق' })
+
+  if (error) {
+    // نفس سباق التبويبين أدناه: profiles_user_id_key يرفض الصفّ الثاني.
+    const raced = await fetchExistingProfile(userId, email)
+    if (raced) return raced
+
+    log.error('ONBOARD_OWNER_INSERT_FAILED', { user_id: userId, reason: error.message })
+    return { ok: false, status: 500, error: 'تعذّر إتمام إنشاء حساب المالك' }
+  }
+
+  log.info('PLATFORM_OWNER_SELF_ONBOARDED', { user_id: userId })
+
+  return {
+    ok: true,
+    profile: { userId, email, role: 'platform_owner', merchantId: null, storeName: 'برق' },
+  }
+}
+
 export async function provisionSelfServeMerchant(
   userId: string,
   email: string | null,
@@ -75,10 +119,10 @@ export async function provisionSelfServeMerchant(
   const existing = await fetchExistingProfile(userId, email)
   if (existing) return existing
 
-  const trimmedName = storeName.trim()
-  if (!trimmedName) {
-    return { ok: false, status: 422, error: 'اسم المتجر مطلوب' }
-  }
+  // المالك يسبق كل شيء: لا تاجر يُنشأ له ولا اشتراك ولا اسم متجر يُطلب منه.
+  if (isPlatformOwnerEmail(email)) return provisionPlatformOwner(userId, email)
+
+  const trimmedName = storeName.trim() || fallbackStoreName(email)
 
   // الباقة تُشتق بالكود لا بمعرّف ثابت في الكود: قاعدة بيئة أخرى قد تحمل
   // نفس الباقة بمعرّف مختلف، والبحث بالكود يفشل بوضوح إن حُذفت أو أُعيدت

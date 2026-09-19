@@ -3,8 +3,10 @@
 منصة "شركة المندوب للتوصيل السريع" التي تربط قنوات المراسلة (واتساب، إنستغرام، ماسنجر)
 بنظام إدارة الطلبات والشحن، من أول رسالة للزبون حتى التسوية المالية مع التاجر.
 
-> **قبل أول تشغيل:** شغّل [`supabase/seed/001_bootstrap_platform_owner.sql`](supabase/seed/001_bootstrap_platform_owner.sql)
-> لمنح حسابك دور مالك المنصة — بدونه لا يستطيع أحد الدخول.
+> **الدخول:** بريد واحد وزر واحد — لا كلمة مرور ولا خطوة تهيئة قبل أول تشغيل.
+> بريد مالك المنصة (يُضبط بـ `PLATFORM_OWNER_EMAILS`) يدخل أدمِناً إلى `/admin`،
+> وكل بريد آخر يدخل مشتركاً على باقة Spark المجانية. التفاصيل في
+> [`lib/platform-owner.ts`](lib/platform-owner.ts).
 > وحالة الأمان الكاملة في [`docs/security-open-items.md`](docs/security-open-items.md).
 
 > قواعد التطوير الملزمة في [`CLAUDE.md`](CLAUDE.md) — اقرأها قبل أي تعديل.
@@ -70,8 +72,14 @@ npm run build       # next build
 | `staff` | `/operations` و `/operations/chats` و `/dashboard` |
 | `merchant` | `/workspace` — تاجره وحده |
 
-الحسابات يُنشئها مالك المنصة: لا يوجد تسجيل ذاتي. حساب في `auth.users` بلا
-صف في `profiles` لا يُمنح أي صلاحية وتُنهى جلسته فور الدخول.
+الدور يُحسم بالبريد لحظة أول دخول، لا بإنشاء يدوي: بريد في
+`PLATFORM_OWNER_EMAILS` ← `platform_owner`، وأي بريد آخر ← `merchant`
+بتاجر واشتراك Spark يُنشآن معه. دور `staff` وحده يُمنح يدوياً من
+[`supabase/seed/001_bootstrap_platform_owner.sql`](supabase/seed/001_bootstrap_platform_owner.sql)
+أو من `/admin/users`.
+
+جلسة صالحة بلا صفّ في `profiles` تعني حساباً جديداً يُوجَّه إلى `/onboarding`
+فيُمنح دوره هناك — لا تُنهى جلسته.
 
 **`middleware.ts` يمنع غير الداخل**، و`requireRole` في الصفحة تفحص الدور.
 الفحصان مفصولان عمداً: فحص الدور يحتاج قراءة من القاعدة، ووضعه على حافة

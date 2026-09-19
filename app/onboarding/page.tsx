@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { Rocket } from 'lucide-react'
 import { createSessionClient } from '@/lib/supabase/session'
 import { getSessionProfile, homeForRole } from '@/lib/auth'
+import { isPlatformOwnerEmail } from '@/lib/platform-owner'
+import { provisionSelfServeMerchant } from '@/lib/merchant-onboarding'
 import OnboardingForm from './OnboardingForm'
 
 export const metadata: Metadata = {
@@ -13,11 +15,16 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 /**
- * إتمام التسجيل الذاتي — الخطوة الوحيدة بين رابط البريد ومساحة التاجر
+ * إتمام التسجيل الذاتي — الخطوة الوحيدة بين رابط البريد ومساحة المشترك
  * =====================================================================
  * الوصول هنا يعني أن صاحب هذا البريد أثبت ملكيته بالضغط على الرابط
- * (/auth/callback أنشأ الجلسة)، ولم يُمنح دوراً بعد. اسم المتجر هو الحقل
- * الوحيد الناقص لإنشاء تاجر حقيقي — لا يُخمَّن ولا يُشتق من البريد.
+ * (/auth/callback أنشأ الجلسة)، ولم يُمنح دوراً بعد.
+ *
+ * مالك المنصة لا يرى هذه الصفحة إطلاقاً: صفّه يُنشأ هنا فوراً ويُحوَّل إلى
+ * /admin — لا متجر له ولا اسم متجر يُسأل عنه.
+ *
+ * والمشترك يرى حقلاً واحداً اختيارياً (اسم متجره)، لأن أي حقل إلزامي إضافي
+ * هنا حاجز أمام من يريد الدخول أولاً ثم اختيار اشتراكه.
  */
 export default async function OnboardingPage() {
   const supabase = await createSessionClient()
@@ -31,6 +38,25 @@ export default async function OnboardingPage() {
   // رابط الدخول السريع بدل كلمة المرور، أو لمن أُنشئ له دور بعد إرسال الرابط.
   const profile = await getSessionProfile()
   if (profile) redirect(homeForRole(profile.role))
+
+  // مالك المنصة: لا شيء يُسأل عنه — يُنشأ صفّه ويُفتح له /admin مباشرة.
+  // الفشل هنا لا يُخفى بصفحة نموذج لا تخصّه: تُعرض رسالته صراحةً.
+  if (isPlatformOwnerEmail(user.email)) {
+    const result = await provisionSelfServeMerchant(user.id, user.email ?? null, '')
+    if (result.ok) redirect(homeForRole(result.profile.role))
+
+    return (
+      <main
+        className="min-h-screen flex items-center justify-center px-4 py-10 bg-[#F8F9FA]"
+        dir="rtl"
+      >
+        <div className="w-full max-w-sm bg-white border border-[#E2E8F0] rounded-2xl p-5 text-center">
+          <p className="font-black text-sm text-[#0F172A]">تعذّر تجهيز حساب المالك</p>
+          <p className="text-[11px] text-slate-600 leading-relaxed mt-1.5">{result.error}</p>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main
