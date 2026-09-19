@@ -24,6 +24,78 @@ export interface LoginState {
 const ATTEMPT_LIMIT = 5
 const ATTEMPT_WINDOW_MS = 5 * 60_000
 
+// ⚠️ ملف 'use server' لا يصدّر إلا دوالّ غير متزامنة — الحالة الأولية في
+// مكوّن العميل، والنوع وحده يُصدَّر من هنا لأنه يُمحى عند الترجمة.
+export interface MagicLinkState {
+  sent: boolean
+  error: string | null
+}
+
+/** ثلاث محاولات كل ربع ساعة — نفس حدّ /forgot-password، لنفس السبب: إرسال البريد مورد محدود. */
+const MAGIC_LINK_LIMIT = 3
+const MAGIC_LINK_WINDOW_MS = 15 * 60_000
+
+/**
+ * التسجيل والدخول معاً — رابط واحد بلا كلمة مرور
+ * =================================================
+ * shouldCreateUser: true يعني أن أي بريد غير مسجَّل يُنشأ له حساب في
+ * auth.users فوراً — هذا هو "التسجيل الذاتي" نفسه، لا خطوة منفصلة قبله.
+ * البريد المسجَّل أصلاً (تاجر عائد، أو حتى حساب بكلمة مرور) يحصل على نفس
+ * الرابط ليدخل به بدل كتابة كلمة المرور.
+ *
+ * الرد "أُرسلت" ثابت دائماً — نفس مبدأ /forgot-password: لا فرق ظاهر بين
+ * "أُنشئ حساب جديد" و"بريد موجود أصلاً" و"فشل الإرسال"، وإلا صارت الصفحة
+ * أداة تعداد حسابات.
+ */
+export async function requestMagicLinkAction(
+  _prev: MagicLinkState,
+  formData: FormData
+): Promise<MagicLinkState> {
+  const email = String(formData.get('email') || '').trim().toLowerCase()
+  const next = safeInternalPath(formData.get('next'))
+
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { sent: false, error: 'اكتب بريداً إلكترونياً صالحاً' }
+  }
+
+  const headerList = await headers()
+  const ip =
+    headerList.get('x-forwarded-for')?.split(',')[0].trim() ||
+    headerList.get('x-real-ip')?.trim() ||
+    'unknown'
+
+  const limit = rateLimit(`magiclink:${ip}`, MAGIC_LINK_LIMIT, MAGIC_LINK_WINDOW_MS)
+  if (!limit.allowed) {
+    return {
+      sent: false,
+      error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
+    }
+  }
+
+  const origin =
+    headerList.get('origin') ||
+    `${headerList.get('x-forwarded-proto') ?? 'https'}://${headerList.get('host')}`
+
+  // حساب جديد يُكمل اسم متجره في /onboarding. حساب له صفّ صلاحية بالفعل
+  // يمرّ بـ /onboarding أيضاً لكنها تُحوّله فوراً لواجهته — لا تكرار إدخال.
+  const redirectPath = next ? `/auth/callback?next=${encodeURIComponent(next)}` : '/auth/callback?next=/onboarding'
+
+  const supabase = await createSessionClient()
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${origin}${redirectPath}`,
+    },
+  })
+
+  if (error) {
+    log.warn('MAGIC_LINK_REQUEST_FAILED', { reason: error.message })
+  }
+
+  return { sent: true, error: null }
+}
+
 export async function signIn(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get('email') || '').trim()
   const password = String(formData.get('password') || '')

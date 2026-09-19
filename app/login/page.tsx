@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Zap } from 'lucide-react'
-import LoginForm from './LoginForm'
+import LoginPanels from './LoginPanels'
 import { safeInternalPath } from '@/lib/safe-redirect'
 
 export const metadata: Metadata = {
@@ -43,12 +43,12 @@ export default async function LoginPage({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <LoginForm next={safeNext} initialError={linkError} />
+          <LoginPanels next={safeNext} initialError={linkError} />
         </div>
 
         <p className="text-[11px] text-slate-500 text-center mt-5 leading-relaxed">
-          الحسابات يُنشئها مالك المنصة — لا تسجيل ذاتي. إن لم يكن لديك حساب
-          فتواصل معه مباشرة.
+          أول بريد يُرسَل إليه رابط الدخول يفتح له متجراً جديداً تلقائياً —
+          بلا نموذج تسجيل منفصل ولا بيانات مصرفية.
         </p>
 
         <p className="text-center mt-4">
