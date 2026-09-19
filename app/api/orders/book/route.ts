@@ -15,6 +15,12 @@ import { requireSession } from '@/lib/api-session'
  * له قيمة افتراضية في قاعدة البيانات تعتمد تسلسل shipments_tracking_seq:
  *   'BRQ-' || lpad(nextval('shipments_tracking_seq')::text, 6, '0')
  * توليده هنا كان سيسبب تصادماً عند حجزين متزامنين.
+ *
+ * التاجر: merchant_id يصل إلزامياً في جسم الطلب ويُتحقَّق منه (الترحيل ٠١٦
+ * جعله عموداً إلزامياً على orders). الحاجز هنا staff/platform_owner يحجزون
+ * نيابةً عن أي تاجر — بخلاف /workspace حيث هوية التاجر تأتي من الجلسة عبر
+ * requireMerchantScope. قبل هذا التعديل كان المسار يسحب أول تاجر في الجدول
+ * عشوائياً، فأي تاجر ثانٍ كان يعني حجز طلبات تاجر أول باسم تاجر آخر بصمت.
  */
 
 export async function POST(req: NextRequest) {
@@ -31,9 +37,11 @@ export async function POST(req: NextRequest) {
     const notes = String(body?.notes || '').trim() || null
     const codAmount = Number(body?.cod_amount_iqd ?? 0)
     const deliveryFee = Number(body?.delivery_fee_iqd ?? 0)
+    const merchantId = String(body?.merchant_id || '').trim()
 
     // ---------- التحقق ----------
     const errors: string[] = []
+    if (!merchantId) errors.push('التاجر مطلوب — اختر التاجر الذي يخصّه هذا الطلب')
     if (!customerName) errors.push('اسم الزبون مطلوب')
     if (!governorate) errors.push('المحافظة مطلوبة')
     if (!orderContent) errors.push('محتوى الطلب مطلوب')
@@ -49,25 +57,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: errors.join(' · ') }, { status: 400 })
     }
 
-    // ---------- التاجر ----------
+    // ---------- التاجر — يُتحقَّق من هويته، لا يُخمَّن ----------
     const { data: merchant, error: merchantError } = await supabaseServer
       .from('merchants')
-      .select('id, name')
-      .order('created_at', { ascending: true })
-      .limit(1)
+      .select('id, name, status')
+      .eq('id', merchantId)
       .maybeSingle()
 
-    if (merchantError || !merchant) {
-      return NextResponse.json(
-        { success: false, error: 'لا يوجد تاجر مُهيّأ في جدول merchants — أضف تاجراً واحداً على الأقل قبل الحجز' },
-        { status: 500 }
-      )
+    if (merchantError) {
+      return NextResponse.json({ success: false, error: 'تعذّر التحقق من التاجر' }, { status: 500 })
+    }
+    if (!merchant) {
+      return NextResponse.json({ success: false, error: 'لا يوجد تاجر بهذا المعرّف' }, { status: 422 })
+    }
+    if (merchant.status !== 'active') {
+      return NextResponse.json({ success: false, error: 'حساب التاجر موقوف' }, { status: 403 })
     }
 
     // ---------- 1) إنشاء الطلب ----------
     const { data: order, error: orderError } = await supabaseServer
       .from('orders')
       .insert({
+        merchant_id: merchant.id,
         phone_number: phone,
         contact_phone: phone,
         name: customerName,

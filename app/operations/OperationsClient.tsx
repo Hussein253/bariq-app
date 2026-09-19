@@ -2229,6 +2229,7 @@ export default function OperationsClient() {
               </div>
               <div className="[&>div]:rounded-none [&>div]:border-0 [&>div]:shadow-none">
                 <NewOrderBooking
+                  merchants={merchants.map((m) => ({ id: m.id, name: m.name }))}
                   onBooked={() => {
                     void loadOrders()
                     showToast('تم حجز الطلب وإنشاء الشحنة بنجاح', 'success')
