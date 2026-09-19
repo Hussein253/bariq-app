@@ -1,7 +1,8 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
+import Link from 'next/link'
 import { AlertCircle, LogIn } from 'lucide-react'
 import { signIn, type LoginState } from './actions'
 
@@ -26,8 +27,23 @@ function SubmitButton() {
   )
 }
 
-export default function LoginForm({ next }: { next: string | null }) {
+export default function LoginForm({
+  next,
+  initialError,
+}: {
+  next: string | null
+  initialError?: string | null
+}) {
   const [state, formAction] = useActionState(signIn, INITIAL)
+  // يُتتبَّع ليُمرَّر إلى صفحة الاستعادة، فلا يُعيد المستخدم كتابته هناك
+  const [email, setEmail] = useState('')
+
+  // خطأ الإجراء يحلّ محلّ خطأ الرابط: الأحدث هو الأدلّ على ما يحدث الآن
+  const shownError = state.error ?? initialError ?? null
+
+  const forgotHref = email.trim()
+    ? `/forgot-password?email=${encodeURIComponent(email.trim())}`
+    : '/forgot-password'
 
   return (
     <form action={formAction} className="space-y-4">
@@ -44,6 +60,8 @@ export default function LoginForm({ next }: { next: string | null }) {
           required
           autoComplete="email"
           dir="ltr"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 text-left outline-none focus:border-[#253765] transition-colors"
         />
       </div>
@@ -63,13 +81,22 @@ export default function LoginForm({ next }: { next: string | null }) {
         />
       </div>
 
-      {state.error && (
+      <div className="flex justify-start">
+        <Link
+          href={forgotHref}
+          className="text-[11px] font-bold text-[#253765] hover:underline"
+        >
+          نسيت كلمة المرور؟
+        </Link>
+      </div>
+
+      {shownError && (
         <p
           role="alert"
           className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-800"
         >
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          {state.error}
+          {shownError}
         </p>
       )}
 

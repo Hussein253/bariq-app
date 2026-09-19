@@ -20,7 +20,7 @@ import { createServerClient } from '@supabase/ssr'
 /** جذور تتطلّب جلسة. كل ما تحتها محميّ. */
 const PROTECTED_PREFIXES = ['/admin', '/operations', '/workspace', '/dashboard']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // الاستجابة تُبنى أولاً لأن Supabase قد يجدّد التوكن ويكتب كوكيز عليها
   let response = NextResponse.next({ request })
 
