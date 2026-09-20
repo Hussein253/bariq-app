@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
+import { createEmailLinkClient } from '@/lib/supabase/email-link'
 import { getSessionProfile, homeForRole } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
@@ -80,7 +81,10 @@ export async function requestMagicLinkAction(
   // يمرّ بـ /onboarding أيضاً لكنها تُحوّله فوراً لواجهته — لا تكرار إدخال.
   const redirectPath = next ? `/auth/callback?next=${encodeURIComponent(next)}` : '/auth/callback?next=/onboarding'
 
-  const supabase = await createSessionClient()
+  // عميل الإرسال لا عميل الجلسة: الثاني يفرض PKCE فيُرجِع الرابط بـ ?code=
+  // بدل الشظية، و/auth/callback تبني الجلسة من الشظية. انظر التعليل الكامل
+  // في lib/supabase/email-link.ts.
+  const supabase = createEmailLinkClient()
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
@@ -131,11 +135,13 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   const profile = await getSessionProfile()
 
   if (!profile) {
-    // حساب في auth.users بلا صف في profiles: الدخول نجح لكن لا صلاحية له.
-    // تُنهى الجلسة فوراً بدل تركه يتجوّل بلا دور.
-    await supabase.auth.signOut()
-    log.warn('LOGIN_REJECTED_NO_PROFILE', {})
-    return { error: 'حسابك غير مربوط بصلاحية بعد — راجع مالك المنصة' }
+    // حساب في auth.users بلا صفّ في profiles. كان يُطرد هنا بإنهاء جلسته،
+    // وهو طريق مسدود اليوم بلا سبب: /onboarding تمنحه دوره فوراً — مالكاً
+    // إن كان بريده بريد المالك، ومشتركاً فيما عدا ذلك. نفس ما يفعله الجذر
+    // بجلسة رابط البريد، فلا معنى لأن يختلف الطريقان.
+    log.info('LOGIN_PENDING_PROVISION', {})
+    revalidatePath('/', 'layout')
+    redirect('/onboarding')
   }
 
   log.info('LOGIN_SUCCEEDED', { user_id: profile.userId, role: profile.role })

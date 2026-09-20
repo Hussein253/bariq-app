@@ -6,6 +6,41 @@
 -- طُبِّق على المشروع بتاريخ 2026-09-04.
 -- =====================================================================
 
+-- ---------------------------------------------------------------------
+-- 0) إنشاء الجدولين — أُضيف لاحقاً لإصلاح ثغرة في سلسلة الترحيلات
+-- ---------------------------------------------------------------------
+-- ⚠️ كان هذا الترحيل يفهرس ويؤمّن جدولين **لا يُنشئهما أي ترحيل**: نشآ في
+-- القاعدة الحية خارج المستودع (حقبة n8n) قبل أن تُكتب هذه السلسلة. فكانت
+-- السلسلة غير قابلة للتطبيق على قاعدة جديدة إطلاقاً — تسقط هنا بـ
+-- «relation "public.conversations" does not exist». اكتُشف عند تجهيز قاعدة
+-- بيئة المعاينة.
+--
+-- التعريف أدناه مستخرَج من القاعدة الحية (information_schema + pg_constraint)
+-- لا مُخمَّناً — بند ٢-أ في CLAUDE.md. و `if not exists` تجعل إعادة تشغيل
+-- الملف على القاعدة الحية بلا أثر.
+--
+-- موضعه هنا لا في ملف أسبق: المفتاح الأجنبي يحتاج public.merchants الذي
+-- يُنشئه الترحيل ٠٠٢.
+
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  merchant_id uuid references public.merchants(id) on delete cascade,
+  customer_phone varchar(50) not null,
+  platform varchar(50) not null default 'whatsapp',
+  bot_active boolean not null default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid references public.conversations(id) on delete cascade,
+  sender_type varchar(20) not null,
+  message_type varchar(20) not null default 'text',
+  content text not null,
+  created_at timestamptz default now()
+);
+
 -- 1) قيد فريد لكل (رقم الزبون + المنصة) لتمكين upsert من الـ webhook
 create unique index if not exists conversations_phone_platform_key
   on public.conversations (customer_phone, platform);

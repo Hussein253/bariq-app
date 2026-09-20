@@ -71,7 +71,7 @@ function buildNav(merchantId: string): Section[] {
     {
       title: 'الحساب',
       items: [
-        { label: 'الاشتراك', href: '/#pricing', icon: CreditCard },
+        { label: 'الاشتراك', href: '/platform#pricing', icon: CreditCard },
         { label: 'الإعدادات', icon: Settings, soon: true },
       ],
     },
