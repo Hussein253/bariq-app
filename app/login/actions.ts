@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
-import { getSessionProfile, homeForRole } from '@/lib/auth'
+import { getSessionProfile } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
 import { safeInternalPath } from '@/lib/safe-redirect'
@@ -160,7 +160,11 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   log.info('LOGIN_SUCCEEDED', { user_id: profile.userId, role: profile.role })
 
   revalidatePath('/', 'layout')
-  redirect(next ?? homeForRole(profile.role))
+
+  // الوجهة الافتراضية هي التعريفية لا واجهة الدور: التاجر يرى باقته وحدوده
+  // وخيارات الترقية أولاً بدل أن يقفز فوقها. ومساحته بضغطة من شريط الجلسة.
+  // و next يسبقها دائماً — من ضُغط له رابط صفحة بعينها يصلها لا التعريفية.
+  redirect(next ?? '/platform')
 }
 
 export async function signOut(): Promise<void> {
