@@ -308,15 +308,33 @@ export default async function WorkspacePage({
           </div>
         )}
 
-        {!loadError && merchants.length === 0 && (
+        {/* ⚠️ الشرط على ctx.merchantId لا على merchants.length: القائمة الثانية
+            هي خيارات مُبدِّل التاجر، ويُرجعها loadWorkspaceContext **فارغة
+            للتاجر عمداً** كي لا تتسرّب أسماء بقية التجار. فاستعمالها اختباراً
+            للفراغ كان يقلب الرسالتين معاً على كل تاجر: يرى «لا يوجد تاجر
+            مسجّل» فوق مساحته العاملة وباقته النشطة، ولا يرى «لا اشتراك فعّال»
+            أبداً حين ينقطع اشتراكه فعلاً. */}
+        {!loadError && !ctx.merchantId && (
           <div className="p-8 rounded-2xl bg-white border border-[#E2E8F0] text-center">
-            <Users size={28} className="mx-auto text-slate-300 mb-3" />
-            <p className="text-sm font-bold text-[#0F172A]">لا يوجد تاجر مسجّل بعد</p>
-            <p className="text-xs text-[#64748B] mt-1">أضِف تاجراً من لوحة الإدارة ليظهر هنا.</p>
+            {ctx.profile.role === 'platform_owner' ? (
+              <>
+                <Users size={28} className="mx-auto text-slate-300 mb-3" />
+                <p className="text-sm font-bold text-[#0F172A]">لا يوجد تاجر مسجّل بعد</p>
+                <p className="text-xs text-[#64748B] mt-1">أضِف تاجراً من لوحة الإدارة ليظهر هنا.</p>
+              </>
+            ) : (
+              // التاجر لا يملك وصولاً إلى لوحة الإدارة، فإرشاده إليها طريق
+              // مسدود. وهذه حالة شاذة أصلاً — /onboarding يربط كل حساب بمتجره.
+              <>
+                <AlertCircle size={28} className="mx-auto text-amber-500 mb-3" />
+                <p className="text-sm font-bold text-[#0F172A]">حسابك غير مربوط بمتجر بعد</p>
+                <p className="text-xs text-[#64748B] mt-1">راجع مالك المنصة لربط حسابك بمتجرك.</p>
+              </>
+            )}
           </div>
         )}
 
-        {!loadError && merchants.length > 0 && !ent && (
+        {!loadError && ctx.merchantId && !ent && (
           <div className="p-8 rounded-2xl bg-white border border-amber-200 bg-amber-50/40 text-center">
             <AlertCircle size={28} className="mx-auto text-amber-500 mb-3" />
             <p className="text-sm font-bold text-[#0F172A]">لا يوجد اشتراك فعّال لهذا التاجر</p>
