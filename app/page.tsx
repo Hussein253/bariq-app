@@ -1,16 +1,24 @@
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
-import { getSessionProfile, homeForRole } from '@/lib/auth'
+import { getSessionProfile } from '@/lib/auth'
 
 /**
  * الجذر — موزِّع لا صفحة
  * =======================
- * برق أداة تشغيل لا موقع تسويقي: من يفتح الرابط يريد الدخول، لا قراءة تعريف
- * بالمنصة ثم البحث عن زر الدخول. فالجذر يوزّع:
+ * من يفتح الرابط بلا جلسة يريد الدخول، لا قراءة تعريف ثم البحث عن زر دخول.
+ * فالجذر يوزّع:
  *
  *   • بلا جلسة        → /login
  *   • جلسة بلا دور    → /onboarding — تسجيل ذاتي كتاجر، لا رفض
- *   • جلسة بدور       → واجهته حسب دوره
+ *   • جلسة بدور       → /platform — الواجهة التعريفية
+ *
+ * ⚠️ الحالة الأخيرة كانت تذهب إلى واجهة الدور مباشرة (homeForRole). صارت
+ * تمرّ بالتعريفية عمداً: التاجر يرى باقته وحدودها وخيارات الترقية في كل
+ * زيارة بدل أن يقفز فوقها ولا يراها إلا إن بحث عنها. ومساحته على بعد ضغطة
+ * واحدة من شريط الجلسة أعلى الصفحة (components/SessionBar).
+ *
+ * ولا يسري هذا على من جاء بوجهة مقصودة: /login?next=… يحترم وجهته بعد
+ * الدخول، فمن ضُغط له رابط صفحة بعينها يصلها لا التعريفية.
  *
  * ⚠️ الحالة الوسطى تغيّر معناها جذرياً هنا. قبل التسجيل الذاتي كانت تعني
  * حصراً حساباً شاذاً (بلا صفّ صلاحية رغم أن كل مسارات الإنشاء تُنشئه معه
@@ -55,5 +63,5 @@ export default async function RootPage({
   const profile = await getSessionProfile()
   if (!profile) redirect('/onboarding')
 
-  redirect(homeForRole(profile.role))
+  redirect('/platform')
 }
