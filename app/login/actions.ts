@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
+import { createEmailLinkClient } from '@/lib/supabase/email-link'
 import { getSessionProfile, homeForRole } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
@@ -80,7 +81,10 @@ export async function requestMagicLinkAction(
   // يمرّ بـ /onboarding أيضاً لكنها تُحوّله فوراً لواجهته — لا تكرار إدخال.
   const redirectPath = next ? `/auth/callback?next=${encodeURIComponent(next)}` : '/auth/callback?next=/onboarding'
 
-  const supabase = await createSessionClient()
+  // عميل الإرسال لا عميل الجلسة: الثاني يفرض PKCE فيُرجِع الرابط بـ ?code=
+  // بدل الشظية، و/auth/callback تبني الجلسة من الشظية. انظر التعليل الكامل
+  // في lib/supabase/email-link.ts.
+  const supabase = createEmailLinkClient()
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {

@@ -1,7 +1,7 @@
 'use server'
 
 import { headers } from 'next/headers'
-import { createSessionClient } from '@/lib/supabase/session'
+import { createEmailLinkClient } from '@/lib/supabase/email-link'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
 
@@ -54,7 +54,9 @@ export async function requestResetAction(
     headerList.get('origin') ||
     `${headerList.get('x-forwarded-proto') ?? 'https'}://${headerList.get('host')}`
 
-  const supabase = await createSessionClient()
+  // نفس سبب رابط الدخول: عميل الجلسة يفرض PKCE فيصل الرابط بـ ?code= ويفشل
+  // على أي جهاز غير الذي طلبه. انظر lib/supabase/email-link.ts.
+  const supabase = createEmailLinkClient()
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/callback?next=/reset-password`,
   })

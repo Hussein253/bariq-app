@@ -1,5 +1,12 @@
 # عناوين المصادقة في Supabase — الإعداد الذي بدونه لا يعمل الدخول
 
+> **تحديث ٢٠٢٦-٠٩-٢٠:** إعداد اللوحة الموصوف أدناه **طُبِّق فعلاً** على مشروع
+> الإنتاج، ومع ذلك بقي الدخول معطّلاً — لأن العطل كان عطلين لا عطلاً واحداً.
+> العطل الثاني في الكود لا في اللوحة، وهو موصوف في
+> [عطل ثانٍ: PKCE](#عطل-ثانٍ-pkce-يكسر-الرابط-حتى-بعد-ضبط-العناوين).
+> يبقى ناقصاً في اللوحة بندٌ واحد: `http://localhost:3000/**` غير مُدرَج،
+> فرابط البريد لا يعمل في التطوير المحلي.
+
 ## العطل الذي وثّقه هذا الملف
 
 رابط الدخول يصل إلى البريد، وبالضغط عليه ينتهي المستخدم إلى:
@@ -82,3 +89,60 @@ Supabase Dashboard ← المشروع ← **Authentication** ← **URL Configura
 
 وتقرأ صفحة المعالجة الخطأ من الاستعلام والشظية معاً — Supabase يضعه في
 الموضعين، والاكتفاء بأحدهما يترك الصفحة تدور ثم تفشل برسالة أعمّ.
+
+---
+
+## عطل ثانٍ: PKCE يكسر الرابط حتى بعد ضبط العناوين
+
+ضُبطت `Site URL` و`Redirect URLs` كما أعلاه، وبقي الرابط لا يدخل. الفحص
+المباشر على مشروع الإنتاج يُثبت أن اللوحة صارت سليمة:
+
+```
+GET /auth/v1/verify?token=…&redirect_to=https://bariq-app.vercel.app/auth/callback?next=/onboarding
+→ 303 Location: https://bariq-app.vercel.app/auth/callback?next=/onboarding#…
+```
+
+الوجهة محفوظة بمسارها واستعلامها — أي أنها مُدرَجة في القائمة البيضاء.
+والسبب الباقي في الكود:
+
+| الدليل | القيمة |
+|---|---|
+| `auth.flow_state.code_challenge_method` | `s256` — أي **PKCE** |
+| `auth.flow_state.authentication_method` | `magiclink` |
+| `auth.flow_state.auth_code_issued_at` | مضبوط وقت `/verify` الناجح |
+
+`@supabase/ssr` يفرض `flowType: "pkce"` داخل `createServerClient` **فرضاً**
+— يضعه بعد خيارات المستدعي فيبتلع أي قيمة تُمرَّر:
+
+```js
+// node_modules/@supabase/ssr/dist/main/createServerClient.js
+auth: { ...options?.auth, flowType: "pkce", … }
+```
+
+و`requestMagicLinkAction` كانت تنادي `signInWithOtp` بهذا العميل، فيردّ
+Supabase على الضغطة بـ **`?code=` في الاستعلام** لا بشظية. و
+[`CallbackClient`](../app/auth/callback/CallbackClient.tsx) لا تقرأ إلا
+الشظية — فالرمز يُستهلَك ولا تُبنى جلسة، ثم تُعرض «تعذّر فتح الرابط». وإعادة
+الضغط تعطي `One-time token not found` لأن الرمز يُستعمل مرة واحدة.
+
+وحتى لو استُبدل الرمز في الكود، يبقى PKCE خطأً هنا: مُثبِته (`code_verifier`)
+يُكتب في كوكي **الجهاز الذي طلب الرابط**. ومن يطلبه من حاسوبه ويفتح بريده على
+هاتفه لن يجده. وهذه الحالة الشائعة في روابط البريد لا النادرة.
+
+### العلاج
+
+الإرسال انتقل إلى عميل مستقل بتدفّق `implicit`
+([`lib/supabase/email-link.ts`](../lib/supabase/email-link.ts)) — نداء بلا
+حالة لا يقرأ كوكي ولا يكتبه، فلا حاجة به إلى `createServerClient`. يستعمله
+الآن [رابط الدخول](../app/login/actions.ts) و
+[استعادة كلمة المرور](../app/forgot-password/actions.ts)، فيعود الرابط بـ:
+
+```
+…/auth/callback?next=/onboarding#access_token=…&refresh_token=…&type=magiclink
+```
+
+وهي الصيغة التي تقرأها `CallbackClient` أصلاً — وتعمل من أي جهاز ومن أي
+متصفح. والشظية لا تُرسَل إلى أي خادم، وتُمحى من شريط العنوان فور بناء الجلسة.
+
+وأُضيف في `CallbackClient` فرعٌ يستبدل `?code=` أيضاً، لأجل الروابط التي
+أُرسلت قبل هذا التحويل ولمّا تزل في صناديق البريد.

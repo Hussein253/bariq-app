@@ -34,6 +34,14 @@ export default function CallbackClient({ next }: { next: string }) {
       if (!cancelled) setFailed(true)
     }
 
+    /** الجلسة بُنيت: يُنظَّف شريط العنوان ثم يُسلَّم المستخدم لوجهته.
+     *  التنظيف يشمل الشظية **والاستعلام** معاً — كلاهما يحمل سرّاً (توكن أو
+     *  رمز) يبقى في سجل التصفّح وفي أي رابط يُنسخ من هنا. */
+    const done = () => {
+      window.history.replaceState(null, '', window.location.pathname)
+      router.replace(next)
+    }
+
     async function run() {
       // رابط منتهٍ أو مُستعمَل. يُفحص الموضعان معاً: Supabase يضع الخطأ في
       // الاستعلام **و** الشظية، والاكتفاء بالشظية يترك الصفحة تدور ثم تفشل
@@ -58,12 +66,23 @@ export default function CallbackClient({ next }: { next: string }) {
 
         // الشظية تُمحى من شريط العنوان: بقاؤها يُسرّب التوكن في سجل
         // التصفّح وفي أي رابط يشاركه المستخدم من هذه الصفحة
-        window.history.replaceState(null, '', window.location.pathname)
-        router.replace(next)
-        return
+        return done()
       }
 
-      // بلا شظية: قد تكون الجلسة قائمة سلفاً (فتح الصفحة مرتين)
+      // رابط PKCE قديم لم يزل في صندوق بريد: أُرسل قبل تحويل الإرسال إلى
+      // implicit، فيصل بـ ?code= بدل الشظية. يُستبدل ما دام مُثبِته
+      // (code_verifier) في كوكيز هذا المتصفح — أي ما دام الرابط يُفتح على
+      // الجهاز الذي طلبه. فُتح على جهاز آخر؟ لا مُثبِت ولا حيلة: يفشل هنا
+      // برسالة "اطلب رابطاً جديداً"، والرابط الجديد implicit يعمل من أي جهاز.
+      const code = query.get('code')
+      if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+        if (cancelled) return
+        if (error || !data.session) return fail()
+        return done()
+      }
+
+      // بلا شظية ولا رمز: قد تكون الجلسة قائمة سلفاً (فتح الصفحة مرتين)
       const { data } = await supabase.auth.getSession()
       if (cancelled) return
       if (data.session) router.replace(next)
