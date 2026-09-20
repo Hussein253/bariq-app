@@ -13,6 +13,33 @@ Error: Failed to collect page data for /api/conversations/[id]/bot
   [cause]: متغيّر البيئة NEXT_PUBLIC_SUPABASE_URL غير مضبوط…
 ```
 
+> ### ⚠️ الفخّ الذي أوقع الإنتاج (٢٠٢٦-٠٩-٢٠)
+>
+> السطر أعلاه — «مضبوطة في Environment = Production وحدها» — يصف حال اللحظة
+> التي كُتب فيها هذا الملف، **ولم يعد صحيحاً بعدها**. فعند إصلاح المعاينة
+> **نُقلت** المتغيّرات الثلاثة إلى Preview بدل أن تُضاف إليها، فانقلب العطل
+> رأساً على عقب: صارت المعاينة تُبنى والإنتاج لا يُبنى، بنفس الخطأ حرفياً:
+>
+> ```
+> Error: متغيّر البيئة NEXT_PUBLIC_SUPABASE_URL غير مضبوط
+>   at lib/supabase-server.ts:14 → Failed to collect page data for /_not-found
+> ```
+>
+> ولم يظهر العطل فوراً: قيم `NEXT_PUBLIC_*` تُحقن وقت البناء، فظلّ
+> `bariq-app.vercel.app` يخدم نشرةً أقدم بُنيت والمتغيّرات فيها — موقع يعمل
+> بينما كل نشرة إنتاج جديدة تسقط بصمت. اكتُشف حين رُفع إصلاح رابط الدخول ولم
+> يصل إلى الإنتاج.
+>
+> **القاعدة:** المتغيّرات الثلاثة شرط للبناء في **كلتا** البيئتين، وقيمها
+> مختلفة لأن كل بيئة لها مشروع Supabase خاص. في Vercel، البيئة خانة اختيار لا
+> قيمة واحدة: تعديل صفّ قائم ينقله ولا ينسخه. تأكّد بعد أي تغيير:
+>
+> ```bash
+> npx vercel env ls --scope hussein253
+> ```
+>
+> يجب أن يُرى كل اسم من الثلاثة **مرّتين**: مرة Production ومرة Preview.
+
 **ولماذا قاعدة منفصلة لا مفاتيح الإنتاج:** مفتاح `service_role` يتجاوز RLS.
 وضعه في بيئة المعاينة يعني أن كل فرع قيد المراجعة يحصل على نشرة حيّة تكتب في
 بيانات التجار والشحنات الحقيقية — والشحنات تُعامل معاملة الأنظمة المالية
@@ -28,7 +55,11 @@ Error: Failed to collect page data for /api/conversations/[id]/bot
 | العنوان | `https://bytmivugrmzdiqdxtbrd.supabase.co` |
 | التكلفة | ٠$ شهرياً (الباقة المجانية) |
 
-## المتغيّرات المطلوبة في Vercel → Environment Variables → **Preview**
+## المتغيّرات المطلوبة في Vercel → Environment Variables
+
+ثلاثة أسماء، **بيئتان**، قيمتان مختلفتان. لا يُغني أحدهما عن الآخر.
+
+### Environment = **Preview** (مشروع `bariq-preview`)
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://bytmivugrmzdiqdxtbrd.supabase.co
@@ -36,10 +67,19 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<مفتاح anon من لوحة bariq-preview>
 SUPABASE_SERVICE_ROLE_KEY=<مفتاح service_role من لوحة bariq-preview>
 ```
 
-يُضافان من: Supabase Dashboard → bariq-preview → Project Settings → API Keys.
+تُؤخذ من: Supabase Dashboard → `bariq-preview` → Project Settings → API Keys.
 
-⚠️ لا تُنسخ مفاتيح الإنتاج إلى Preview بحال — ذلك يُبطل الغرض من هذا المشروع
-كله.
+### Environment = **Production** (مشروع الإنتاج `axgydfmhtxaubgxyqqzc`)
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://axgydfmhtxaubgxyqqzc.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<مفتاح anon من لوحة الإنتاج>
+SUPABASE_SERVICE_ROLE_KEY=<مفتاح service_role من لوحة الإنتاج>
+```
+
+⚠️ **لا تُنسخ قيم إحدى البيئتين إلى الأخرى في أي اتجاه.** مفاتيح الإنتاج في
+Preview تُبطل الغرض من هذا المشروع كله (انظر «لماذا وُجدت»)، ومفاتيح المعاينة في
+الإنتاج تُفرِغ الموقع من بياناته كلها — قاعدة المعاينة فارغة عمداً.
 
 الأسرار الأخرى (`BARIQ_BOT_WEBHOOK_SECRET`, `BARIQ_DELIVERY_SYNC_SECRET`,
 `N8N_WEBHOOK_URL`) ليست شرطاً لنجاح البناء: مساراتها تفشل فشلاً مغلقاً بـ ٥٠٣
