@@ -47,7 +47,7 @@ export default async function LoginPage({
         </div>
 
         <p className="text-[11px] text-slate-500 text-center mt-5 leading-relaxed">
-          أول بريد يُرسَل إليه رابط الدخول يفتح له متجراً جديداً تلقائياً —
+          أنشئ حسابك ببريدك وكلمة مرور تحفظها، فيُفتح لك متجر جديد تلقائياً —
           بلا نموذج تسجيل منفصل ولا بيانات مصرفية.
         </p>
 

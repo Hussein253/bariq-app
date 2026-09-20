@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
-import { createEmailLinkClient } from '@/lib/supabase/email-link'
 import { getSessionProfile, homeForRole } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
@@ -11,13 +10,23 @@ import { safeInternalPath } from '@/lib/safe-redirect'
 import { headers } from 'next/headers'
 
 /**
- * إجراءات الدخول والخروج (Server Actions)
- * =========================================
+ * إجراءات الدخول والتسجيل والخروج (Server Actions)
+ * ==================================================
  * كلمة المرور لا تمرّ بأي مسار API خاص بنا ولا تُسجَّل: تصل إلى هذا الإجراء
  * ثم إلى Supabase مباشرة. لا يُطبع البريد كاملاً في السجل أيضاً.
+ *
+ * ⚠️ رابط الدخول بلا كلمة مرور (magic link) أُزيل من هنا عمداً. علّته ليست
+ * في تنفيذه بل في اعتماده على البريد نفسه: خادم Supabase المدمج يسمح
+ * برسالتين في الساعة، فثالث تاجر يسجّل في الساعة لا يصله شيء ويرى رسالة
+ * نجاح. والاستعادة وحدها تبقى على البريد — لأنها بطبيعتها كذلك، ولأنها
+ * نادرة لا تُطلب في كل دخول.
  */
 
 export interface LoginState {
+  error: string | null
+}
+
+export interface SignUpState {
   error: string | null
 }
 
@@ -25,79 +34,90 @@ export interface LoginState {
 const ATTEMPT_LIMIT = 5
 const ATTEMPT_WINDOW_MS = 5 * 60_000
 
-// ⚠️ ملف 'use server' لا يصدّر إلا دوالّ غير متزامنة — الحالة الأولية في
-// مكوّن العميل، والنوع وحده يُصدَّر من هنا لأنه يُمحى عند الترجمة.
-export interface MagicLinkState {
-  sent: boolean
-  error: string | null
-}
+/** نفس حدّ /reset-password: الرفض هنا برسالة مفهومة قبل أن يردّه Supabase بأعجمية. */
+const MIN_PASSWORD_LENGTH = 8
 
-/** ثلاث محاولات كل ربع ساعة — نفس حدّ /forgot-password، لنفس السبب: إرسال البريد مورد محدود. */
-const MAGIC_LINK_LIMIT = 3
-const MAGIC_LINK_WINDOW_MS = 15 * 60_000
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
-/**
- * التسجيل والدخول معاً — رابط واحد بلا كلمة مرور
- * =================================================
- * shouldCreateUser: true يعني أن أي بريد غير مسجَّل يُنشأ له حساب في
- * auth.users فوراً — هذا هو "التسجيل الذاتي" نفسه، لا خطوة منفصلة قبله.
- * البريد المسجَّل أصلاً (تاجر عائد، أو حتى حساب بكلمة مرور) يحصل على نفس
- * الرابط ليدخل به بدل كتابة كلمة المرور.
- *
- * الرد "أُرسلت" ثابت دائماً — نفس مبدأ /forgot-password: لا فرق ظاهر بين
- * "أُنشئ حساب جديد" و"بريد موجود أصلاً" و"فشل الإرسال"، وإلا صارت الصفحة
- * أداة تعداد حسابات.
- */
-export async function requestMagicLinkAction(
-  _prev: MagicLinkState,
-  formData: FormData
-): Promise<MagicLinkState> {
-  const email = String(formData.get('email') || '').trim().toLowerCase()
-  const next = safeInternalPath(formData.get('next'))
-
-  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { sent: false, error: 'اكتب بريداً إلكترونياً صالحاً' }
-  }
-
+/** عنوان الطالب — للحدّ من المحاولات. يُقرأ من ترويسات الوكيل لا من الجسم. */
+async function requestIp(): Promise<string> {
   const headerList = await headers()
-  const ip =
+  return (
     headerList.get('x-forwarded-for')?.split(',')[0].trim() ||
     headerList.get('x-real-ip')?.trim() ||
     'unknown'
+  )
+}
 
-  const limit = rateLimit(`magiclink:${ip}`, MAGIC_LINK_LIMIT, MAGIC_LINK_WINDOW_MS)
+/**
+ * إنشاء حساب بكلمة مرور — التسجيل الذاتي للتجّار
+ * ================================================
+ * شاشة الدخول تعرض هذا النموذج خلف رابط صريح لا بالتبديل التلقائي. والسبب
+ * أن النموذج الموحّد (يُنشئ إن لم يجد الحساب) يحوّل **خطأً مطبعياً واحداً**
+ * في البريد إلى متجر جديد فارغ بدل رسالة «كلمة المرور خاطئة» — فيظنّ تاجرٌ
+ * له شحنات وطلبات أن بياناته ضاعت. والشحنات تُعامل معاملة الأنظمة المالية
+ * (بند ٤ في CLAUDE.md)، فالوضوح هنا مقدَّم على اختصار ضغطة.
+ *
+ * ⚠️ الجلسة تُمنح فوراً فقط إن كان «Confirm email» مُطفأً في لوحة Supabase.
+ * وإن كان مُفعّلاً يرجع signUp بمستخدم بلا جلسة — وتلك حالة تُعالَج صراحةً
+ * أدناه بدل أن تُترك تسقط في فراغ.
+ */
+export async function signUpWithPassword(
+  _prev: SignUpState,
+  formData: FormData
+): Promise<SignUpState> {
+  const email = String(formData.get('email') || '').trim().toLowerCase()
+  const password = String(formData.get('password') || '')
+  const confirm = String(formData.get('confirm') || '')
+
+  if (!email || !EMAIL_PATTERN.test(email)) {
+    return { error: 'اكتب بريداً إلكترونياً صالحاً' }
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return { error: `كلمة المرور يجب أن تكون ${MIN_PASSWORD_LENGTH} محارف على الأقل` }
+  }
+  if (password !== confirm) {
+    return { error: 'الكلمتان غير متطابقتين' }
+  }
+
+  const limit = rateLimit(`signup:${await requestIp()}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS)
   if (!limit.allowed) {
     return {
-      sent: false,
       error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
     }
   }
 
-  const origin =
-    headerList.get('origin') ||
-    `${headerList.get('x-forwarded-proto') ?? 'https'}://${headerList.get('host')}`
-
-  // حساب جديد يُكمل اسم متجره في /onboarding. حساب له صفّ صلاحية بالفعل
-  // يمرّ بـ /onboarding أيضاً لكنها تُحوّله فوراً لواجهته — لا تكرار إدخال.
-  const redirectPath = next ? `/auth/callback?next=${encodeURIComponent(next)}` : '/auth/callback?next=/onboarding'
-
-  // عميل الإرسال لا عميل الجلسة: الثاني يفرض PKCE فيُرجِع الرابط بـ ?code=
-  // بدل الشظية، و/auth/callback تبني الجلسة من الشظية. انظر التعليل الكامل
-  // في lib/supabase/email-link.ts.
-  const supabase = createEmailLinkClient()
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: true,
-      emailRedirectTo: `${origin}${redirectPath}`,
-    },
-  })
+  const supabase = await createSessionClient()
+  const { data, error } = await supabase.auth.signUp({ email, password })
 
   if (error) {
-    log.warn('MAGIC_LINK_REQUEST_FAILED', { reason: error.message })
+    log.warn('SIGNUP_FAILED', { reason: error.message })
+
+    // ⚠️ هنا وحدها نكشف أن البريد مسجَّل. في /login و/forgot-password تُكتم
+    // هذه الحقيقة لأن كتمانها يمنع تعداد الحسابات. أما في نموذج إنشاء حساب
+    // فكتمانها يترك صاحب الحساب أمام فشل لا يفهمه ولا يعرف ماذا يفعل بعده —
+    // وهو يعرف بريده أصلاً. الإفصاح هنا يفيده ولا يعطي مهاجماً ما لا يملكه.
+    if (/already registered|already been registered|user already exists/i.test(error.message)) {
+      return { error: 'لهذا البريد حساب بالفعل — سجّل الدخول، أو اطلب تغيير كلمة المرور إن نسيتها.' }
+    }
+    return { error: 'تعذّر إنشاء الحساب. جرّب كلمة مرور أخرى أو أعد المحاولة بعد قليل.' }
   }
 
-  return { sent: true, error: null }
+  // «Confirm email» مُفعّل في اللوحة: الحساب أُنشئ ولا جلسة له حتى يُؤكَّد
+  // البريد. لا يُترك المستخدم أمام شاشة صامتة — يُقال له ما ينتظره بالضبط.
+  if (!data.session) {
+    log.info('SIGNUP_AWAITING_EMAIL_CONFIRMATION', {})
+    return {
+      error: 'أنشأنا حسابك، وبقي تأكيد بريدك. افتح الرسالة التي وصلتك واضغط الرابط، ثم سجّل الدخول.',
+    }
+  }
+
+  log.info('SIGNUP_SUCCEEDED', { user_id: data.session.user.id })
+  revalidatePath('/', 'layout')
+
+  // /onboarding يمنح الدور حسب البريد ثم يوزّع. ولا يُمرَّر next هنا: حساب
+  // جديد بلا صفّ صلاحية سيُردّ من أي وجهة أخرى إلى هنا على كل حال.
+  redirect('/onboarding')
 }
 
 export async function signIn(_prev: LoginState, formData: FormData): Promise<LoginState> {
@@ -109,13 +129,7 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
     return { error: 'البريد وكلمة المرور مطلوبان' }
   }
 
-  const headerList = await headers()
-  const ip =
-    headerList.get('x-forwarded-for')?.split(',')[0].trim() ||
-    headerList.get('x-real-ip')?.trim() ||
-    'unknown'
-
-  const limit = rateLimit(`login:${ip}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS)
+  const limit = rateLimit(`login:${await requestIp()}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS)
   if (!limit.allowed) {
     return {
       error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
@@ -137,8 +151,7 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   if (!profile) {
     // حساب في auth.users بلا صفّ في profiles. كان يُطرد هنا بإنهاء جلسته،
     // وهو طريق مسدود اليوم بلا سبب: /onboarding تمنحه دوره فوراً — مالكاً
-    // إن كان بريده بريد المالك، ومشتركاً فيما عدا ذلك. نفس ما يفعله الجذر
-    // بجلسة رابط البريد، فلا معنى لأن يختلف الطريقان.
+    // إن كان بريده بريد المالك، ومشتركاً فيما عدا ذلك.
     log.info('LOGIN_PENDING_PROVISION', {})
     revalidatePath('/', 'layout')
     redirect('/onboarding')
