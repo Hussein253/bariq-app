@@ -33,9 +33,24 @@ export interface OnboardedProfile {
   storeName: string | null
 }
 
+/**
+ * رمز سبب الفشل — لا نصّه.
+ * ⚠️ أُضيف لأن النصّ هنا عربي ثابت، والتسجيل صار بثلاث لغات: الرمز يعبر إلى
+ * الواجهة فتختار هي الصياغة من قاموس لغة المستخدم، ويبقى `error` كما هو
+ * للسجلّ ولمسارات الـ API التي لا لغة لها.
+ */
+export type OnboardErrorCode =
+  | 'verify'
+  | 'unexpectedState'
+  | 'ownerProvision'
+  | 'missingFreePlan'
+  | 'merchantCreate'
+  | 'subscription'
+  | 'profile'
+
 export type OnboardResult =
   | { ok: true; profile: OnboardedProfile }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: number; error: string; code: OnboardErrorCode }
 
 async function fetchExistingProfile(
   userId: string,
@@ -49,12 +64,12 @@ async function fetchExistingProfile(
 
   if (error) {
     log.error('ONBOARD_PROFILE_LOOKUP_FAILED', { user_id: userId, reason: error.message })
-    return { ok: false, status: 500, error: 'تعذّر التحقق من حسابك — أعد المحاولة بعد قليل' }
+    return { ok: false, status: 500, error: 'تعذّر التحقق من حسابك — أعد المحاولة بعد قليل', code: 'verify' }
   }
   if (!data) return null
   if (!isAppRole(data.role)) {
     log.error('ONBOARD_INVALID_ROLE', { user_id: userId, role: data.role })
-    return { ok: false, status: 500, error: 'حالة حساب غير متوقَّعة — راجع مالك المنصة' }
+    return { ok: false, status: 500, error: 'حالة حساب غير متوقَّعة — راجع مالك المنصة', code: 'unexpectedState' }
   }
   return {
     ok: true,
@@ -96,7 +111,7 @@ async function provisionPlatformOwner(
     if (raced) return raced
 
     log.error('ONBOARD_OWNER_INSERT_FAILED', { user_id: userId, reason: error.message })
-    return { ok: false, status: 500, error: 'تعذّر إتمام إنشاء حساب المالك' }
+    return { ok: false, status: 500, error: 'تعذّر إتمام إنشاء حساب المالك', code: 'ownerProvision' }
   }
 
   log.info('PLATFORM_OWNER_SELF_ONBOARDED', { user_id: userId })
@@ -136,7 +151,7 @@ export async function provisionSelfServeMerchant(
 
   if (planError || !sparkPlan) {
     log.error('ONBOARD_SPARK_PLAN_MISSING', { reason: planError?.message })
-    return { ok: false, status: 500, error: 'باقة البداية المجانية غير مُهيَّأة — راجع مالك المنصة' }
+    return { ok: false, status: 500, error: 'باقة البداية المجانية غير مُهيَّأة — راجع مالك المنصة', code: 'missingFreePlan' }
   }
 
   // ---------- 1) التاجر ----------
@@ -148,7 +163,7 @@ export async function provisionSelfServeMerchant(
 
   if (merchantError || !merchant) {
     log.error('ONBOARD_MERCHANT_INSERT_FAILED', { user_id: userId, reason: merchantError?.message })
-    return { ok: false, status: 500, error: 'تعذّر إنشاء المتجر' }
+    return { ok: false, status: 500, error: 'تعذّر إنشاء المتجر', code: 'merchantCreate' }
   }
 
   // ---------- 2) الاشتراك — بلا هذا الصفّ enforce_plan_limit يرفض كل شيء ----------
@@ -163,7 +178,7 @@ export async function provisionSelfServeMerchant(
       merchant_id: merchant.id,
       reason: subError.message,
     })
-    return { ok: false, status: 500, error: 'تعذّر تفعيل الاشتراك' }
+    return { ok: false, status: 500, error: 'تعذّر تفعيل الاشتراك', code: 'subscription' }
   }
 
   // ---------- 3) الصلاحية ----------
@@ -182,7 +197,7 @@ export async function provisionSelfServeMerchant(
     if (raced) return raced
 
     log.error('ONBOARD_PROFILE_INSERT_FAILED', { user_id: userId, reason: profileError.message })
-    return { ok: false, status: 500, error: 'تعذّر إتمام إنشاء الحساب' }
+    return { ok: false, status: 500, error: 'تعذّر إتمام إنشاء الحساب', code: 'profile' }
   }
 
   log.info('MERCHANT_SELF_ONBOARDED', { user_id: userId, merchant_id: merchant.id })

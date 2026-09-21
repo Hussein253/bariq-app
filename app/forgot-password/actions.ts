@@ -5,6 +5,9 @@ import { createEmailLinkClient } from '@/lib/supabase/email-link'
 import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
 import { classifyResetError } from '@/lib/auth-errors'
+import { getTranslations } from '@/lib/i18n/server'
+import { fill } from '@/lib/i18n'
+import { localizeDigits } from '@/lib/formatters'
 
 /**
  * طلب رابط استعادة كلمة المرور
@@ -40,9 +43,10 @@ export async function requestResetAction(
   formData: FormData
 ): Promise<ForgotState> {
   const email = String(formData.get('email') || '').trim().toLowerCase()
+  const { locale, t } = await getTranslations()
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { sent: false, error: 'اكتب بريداً إلكترونياً صالحاً' }
+    return { sent: false, error: t.forgot.errors.invalidEmail }
   }
 
   const headerList = await headers()
@@ -55,7 +59,9 @@ export async function requestResetAction(
   if (!limit.allowed) {
     return {
       sent: false,
-      error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
+      error: fill(t.forgot.errors.tooMany, {
+        n: localizeDigits(Math.ceil(limit.retryAfterSeconds / 60), locale),
+      }),
     }
   }
 
@@ -80,10 +86,7 @@ export async function requestResetAction(
       // حدّ الإرسال ليس سرّاً ولا يخصّ حساباً بعينه. كتمانه يُجلس المستخدم
       // ينتظر بريداً لن يصل، وإظهاره يقول له أن ينتظر لا أن يعيد المحاولة.
       case 'rate_limited':
-        return {
-          sent: false,
-          error: 'طُلبت رسائل كثيرة خلال وقت قصير. انتظر قليلاً ثم أعد المحاولة.',
-        }
+        return { sent: false, error: t.forgot.errors.rateLimited }
 
       // نصّ قد يكشف وجود الحساب — يُكتم كما لو أُرسل.
       case 'account_probe':
@@ -92,11 +95,7 @@ export async function requestResetAction(
       // عطل عندنا: مفتاح، أو SMTP، أو خدمة متوقفة. يُقال صراحةً إنه ليس من
       // المستخدم — وإلا راجع بريده وجرّب عناوين أخرى بحثاً عن خطأ ليس عنده.
       case 'service':
-        return {
-          sent: false,
-          error:
-            'تعذّر إرسال الرابط الآن — عطل مؤقّت في خدمة البريد لدينا، لا في بريدك. أعد المحاولة بعد قليل.',
-        }
+        return { sent: false, error: t.forgot.errors.service }
     }
   }
 

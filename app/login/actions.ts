@@ -8,6 +8,9 @@ import { rateLimit } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
 import { safeInternalPath } from '@/lib/safe-redirect'
 import { headers } from 'next/headers'
+import { getTranslations } from '@/lib/i18n/server'
+import { fill } from '@/lib/i18n'
+import { localizeDigits } from '@/lib/formatters'
 
 /**
  * إجراءات الدخول والتسجيل والخروج (Server Actions)
@@ -70,20 +73,30 @@ export async function signUpWithPassword(
   const password = String(formData.get('password') || '')
   const confirm = String(formData.get('confirm') || '')
 
+  // ⚠️ الرسائل تُبنى بلغة الزائر لا بالعربية دائماً: من سجّل بالكردية أو
+  // الإنجليزية ووقف أمام خطأ بالعربية لا يعرف ما المطلوب منه إصلاحه.
+  const { locale, t } = await getTranslations()
+
   if (!email || !EMAIL_PATTERN.test(email)) {
-    return { error: 'اكتب بريداً إلكترونياً صالحاً' }
+    return { error: t.signup.errors.invalidEmail }
   }
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return { error: `كلمة المرور يجب أن تكون ${MIN_PASSWORD_LENGTH} محارف على الأقل` }
+    return {
+      error: fill(t.signup.errors.shortPassword, {
+        n: localizeDigits(MIN_PASSWORD_LENGTH, locale),
+      }),
+    }
   }
   if (password !== confirm) {
-    return { error: 'الكلمتان غير متطابقتين' }
+    return { error: t.signup.errors.mismatch }
   }
 
   const limit = rateLimit(`signup:${await requestIp()}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS)
   if (!limit.allowed) {
     return {
-      error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
+      error: fill(t.signup.errors.tooMany, {
+        n: localizeDigits(Math.ceil(limit.retryAfterSeconds / 60), locale),
+      }),
     }
   }
 
@@ -98,18 +111,16 @@ export async function signUpWithPassword(
     // فكتمانها يترك صاحب الحساب أمام فشل لا يفهمه ولا يعرف ماذا يفعل بعده —
     // وهو يعرف بريده أصلاً. الإفصاح هنا يفيده ولا يعطي مهاجماً ما لا يملكه.
     if (/already registered|already been registered|user already exists/i.test(error.message)) {
-      return { error: 'لهذا البريد حساب بالفعل — سجّل الدخول، أو اطلب تغيير كلمة المرور إن نسيتها.' }
+      return { error: t.signup.errors.emailTaken }
     }
-    return { error: 'تعذّر إنشاء الحساب. جرّب كلمة مرور أخرى أو أعد المحاولة بعد قليل.' }
+    return { error: t.signup.errors.failed }
   }
 
   // «Confirm email» مُفعّل في اللوحة: الحساب أُنشئ ولا جلسة له حتى يُؤكَّد
   // البريد. لا يُترك المستخدم أمام شاشة صامتة — يُقال له ما ينتظره بالضبط.
   if (!data.session) {
     log.info('SIGNUP_AWAITING_EMAIL_CONFIRMATION', {})
-    return {
-      error: 'أنشأنا حسابك، وبقي تأكيد بريدك. افتح الرسالة التي وصلتك واضغط الرابط، ثم سجّل الدخول.',
-    }
+    return { error: t.signup.errors.awaitingConfirmation }
   }
 
   log.info('SIGNUP_SUCCEEDED', { user_id: data.session.user.id })
@@ -124,15 +135,18 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   const email = String(formData.get('email') || '').trim()
   const password = String(formData.get('password') || '')
   const next = safeInternalPath(formData.get('next'))
+  const { locale, t } = await getTranslations()
 
   if (!email || !password) {
-    return { error: 'البريد وكلمة المرور مطلوبان' }
+    return { error: t.login.errors.missingFields }
   }
 
   const limit = rateLimit(`login:${await requestIp()}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS)
   if (!limit.allowed) {
     return {
-      error: `محاولات كثيرة. انتظر ${Math.ceil(limit.retryAfterSeconds / 60)} دقيقة ثم أعد المحاولة.`,
+      error: fill(t.login.errors.tooMany, {
+        n: localizeDigits(Math.ceil(limit.retryAfterSeconds / 60), locale),
+      }),
     }
   }
 
@@ -143,7 +157,7 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
     // رسالة واحدة لكل أسباب الفشل: التمييز بين "بريد غير مسجَّل" و"كلمة مرور
     // خاطئة" يكشف للمهاجم أي الحسابات قائمة فعلاً.
     log.warn('LOGIN_FAILED', { reason: error.message })
-    return { error: 'البريد أو كلمة المرور غير صحيحة' }
+    return { error: t.login.errors.credentials }
   }
 
   const profile = await getSessionProfile()

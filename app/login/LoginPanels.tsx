@@ -3,6 +3,12 @@
 import { useState } from 'react'
 import LoginForm from './LoginForm'
 import SignUpForm from './SignUpForm'
+import type { Dictionary } from '@/lib/i18n'
+
+export interface AuthCopy {
+  login: Dictionary['login']
+  signup: Dictionary['signup']
+}
 
 /**
  * كلمة المرور أولاً، والإنشاء خلف رابط صريح
@@ -19,26 +25,28 @@ import SignUpForm from './SignUpForm'
 export default function LoginPanels({
   next,
   initialError,
+  t,
 }: {
   next: string | null
   initialError?: string | null
+  t: AuthCopy
 }) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
 
   if (mode === 'signup') {
-    return <SignUpForm onSwitchToLogin={() => setMode('login')} />
+    return <SignUpForm onSwitchToLogin={() => setMode('login')} t={t.signup} />
   }
 
   return (
     <div className="space-y-4">
-      <LoginForm next={next} initialError={initialError} />
-      <div className="pt-3 border-t border-slate-100">
+      <LoginForm next={next} initialError={initialError} t={t.login} />
+      <div className="pt-3 border-t border-line">
         <button
           type="button"
           onClick={() => setMode('signup')}
-          className="w-full text-[11px] font-bold text-[#253765] hover:underline transition-colors"
+          className="w-full text-[11px] font-bold text-brand-text hover:underline transition-colors"
         >
-          ليس لديك حساب؟ أنشئ حساباً جديداً
+          {t.login.noAccount}
         </button>
       </div>
     </div>
