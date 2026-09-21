@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { apiMessages } from '@/lib/i18n/api'
 import {
   getSessionProfile,
   resolveActiveMerchant,
@@ -22,24 +23,19 @@ export type SessionGuardResult =
 
 export async function requireSession(allowed: AppRole[]): Promise<SessionGuardResult> {
   const profile = await getSessionProfile()
+  const t = await apiMessages()
 
   if (!profile) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { success: false, error: 'يلزم تسجيل الدخول' },
-        { status: 401 }
-      ),
+      response: NextResponse.json({ success: false, error: t.signInRequired }, { status: 401 }),
     }
   }
 
   if (!allowed.includes(profile.role)) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { success: false, error: 'لا تملك صلاحية على هذا المورد' },
-        { status: 403 }
-      ),
+      response: NextResponse.json({ success: false, error: t.forbidden }, { status: 403 }),
     }
   }
 
@@ -69,10 +65,11 @@ export async function requireMerchantScope(
   if (!active) {
     // مالك المنصة بلا تاجر مُحدَّد ليس خطأ صلاحية بل طلب ناقص؛ وتاجر بلا
     // merchant_id في ملفّه حساب غير مكتمل الربط — كلاهما ٤٠٠ لا ٤٠٣.
+    const t = await apiMessages()
     const error =
       guard.profile.role === 'platform_owner'
-        ? 'حدّد التاجر المطلوب — مالك المنصة لا يملك تاجراً افتراضياً'
-        : 'حسابك غير مربوط بتاجر — راجع مالك المنصة'
+        ? t.merchantRequiredOwner
+        : t.merchantUnlinked
 
     return { ok: false, response: NextResponse.json({ success: false, error }, { status: 400 }) }
   }

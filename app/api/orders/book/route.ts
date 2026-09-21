@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { normalizeIraqiPhone } from '@/lib/phone'
 import type { Shipment } from '@/lib/shipments'
 import { requireSession } from '@/lib/api-session'
+import { apiMessages } from '@/lib/i18n/api'
 
 /**
  * POST /api/orders/book — حجز طلب جديد من لوحة التحكم
@@ -24,6 +25,7 @@ import { requireSession } from '@/lib/api-session'
  */
 
 export async function POST(req: NextRequest) {
+  const t = await apiMessages()
   const guard = await requireSession(['platform_owner', 'staff'])
   if (!guard.ok) return guard.response
   try {
@@ -41,17 +43,17 @@ export async function POST(req: NextRequest) {
 
     // ---------- التحقق ----------
     const errors: string[] = []
-    if (!merchantId) errors.push('التاجر مطلوب — اختر التاجر الذي يخصّه هذا الطلب')
-    if (!customerName) errors.push('اسم الزبون مطلوب')
-    if (!governorate) errors.push('المحافظة مطلوبة')
-    if (!orderContent) errors.push('محتوى الطلب مطلوب')
-    if (!fullAddress) errors.push('العنوان الكامل مطلوب')
+    if (!merchantId) errors.push(t.booking.merchantRequired)
+    if (!customerName) errors.push(t.booking.customerNameRequired)
+    if (!governorate) errors.push(t.booking.governorateRequired)
+    if (!orderContent) errors.push(t.booking.contentRequired)
+    if (!fullAddress) errors.push(t.booking.addressRequired)
 
     const phone = normalizeIraqiPhone(String(body?.phone_number || ''))
-    if (!phone) errors.push('رقم هاتف غير صالح — المطلوب صيغة عراقية 07XXXXXXXXX')
+    if (!phone) errors.push(t.booking.phoneInvalid)
 
-    if (!Number.isFinite(codAmount) || codAmount < 0) errors.push('مبلغ الطلب غير صالح')
-    if (!Number.isFinite(deliveryFee) || deliveryFee < 0) errors.push('أجرة التوصيل غير صالحة')
+    if (!Number.isFinite(codAmount) || codAmount < 0) errors.push(t.booking.codInvalid)
+    if (!Number.isFinite(deliveryFee) || deliveryFee < 0) errors.push(t.booking.feeInvalid)
 
     if (errors.length > 0) {
       return NextResponse.json({ success: false, error: errors.join(' · ') }, { status: 400 })
@@ -65,13 +67,13 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (merchantError) {
-      return NextResponse.json({ success: false, error: 'تعذّر التحقق من التاجر' }, { status: 500 })
+      return NextResponse.json({ success: false, error: t.booking.merchantCheckFailed }, { status: 500 })
     }
     if (!merchant) {
-      return NextResponse.json({ success: false, error: 'لا يوجد تاجر بهذا المعرّف' }, { status: 422 })
+      return NextResponse.json({ success: false, error: t.booking.merchantNotFound }, { status: 422 })
     }
     if (merchant.status !== 'active') {
-      return NextResponse.json({ success: false, error: 'حساب التاجر موقوف' }, { status: 403 })
+      return NextResponse.json({ success: false, error: t.booking.merchantSuspended }, { status: 403 })
     }
 
     // ---------- 1) إنشاء الطلب ----------
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
     if (orderError || !order) {
       console.error('[BOOK_ORDER][ORDER_INSERT_ERROR]', orderError?.message)
       return NextResponse.json(
-        { success: false, error: orderError?.message || 'تعذر إنشاء الطلب' },
+        { success: false, error: orderError?.message || t.booking.orderCreateFailed },
         { status: 500 }
       )
     }
@@ -131,7 +133,7 @@ export async function POST(req: NextRequest) {
       await supabaseServer.from('orders').delete().eq('order_id', order.order_id)
       console.error('[BOOK_ORDER][SHIPMENT_INSERT_ERROR]', shipmentError?.message)
       return NextResponse.json(
-        { success: false, error: shipmentError?.message || 'تعذر إنشاء الشحنة — أُلغي الطلب' },
+        { success: false, error: shipmentError?.message || t.booking.shipmentCreateFailed },
         { status: 500 }
       )
     }
@@ -143,13 +145,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'تم حجز الطلب وإنشاء الشحنة بنجاح',
+      message: t.booking.success,
       order_id: order.order_id,
       order_content: orderContent,
       shipment: { ...(shipment as Shipment), merchant_name: merchant.name },
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'خطأ داخلي في حجز الطلب'
+    const message = error instanceof Error ? error.message : t.booking.internalError
     console.error('[BOOK_ORDER][ERROR]', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }

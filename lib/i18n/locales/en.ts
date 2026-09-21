@@ -9,8 +9,11 @@
  */
 
 import type { Dictionary } from './ar'
+import { enApp } from './en.app'
 
 export const en: Dictionary = {
+  app: enApp,
+
   brand: {
     name: 'Bariq',
     latin: 'BARIQ PLATFORM',

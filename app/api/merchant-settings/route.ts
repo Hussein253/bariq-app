@@ -6,6 +6,7 @@ import {
   type MerchantProfile,
 } from '@/lib/merchant-settings'
 import { requireMerchantScope } from '@/lib/api-session'
+import { apiMessages } from '@/lib/i18n/api'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,12 +17,13 @@ export const dynamic = 'force-dynamic'
 
 /** GET /api/merchant-settings?merchant=<uuid> */
 export async function GET(request: Request) {
+  const t = await apiMessages()
   try {
     const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant'))
     if (!scope.ok) return scope.response
     const merchantId = scope.merchantId
     if (!merchantId) {
-      return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.merchantIdRequired }, { status: 400 })
     }
 
     const [profileRes, deliveryRes] = await Promise.all([
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
       delivery: (deliveryRes.data as DeliverySettings | null) ?? null,
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر تحميل الإعدادات'
+    const message = error instanceof Error ? error.message : t.settings.loadFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
@@ -56,6 +58,7 @@ export async function GET(request: Request) {
  * يحفظ قسماً واحداً في كل نداء: { merchantId, section: 'profile' | 'delivery', data }
  */
 export async function PUT(request: Request) {
+  const t = await apiMessages()
   try {
     const { merchantId: requestedMerchantId, section, data } = (await request.json()) as {
       merchantId?: string
@@ -67,7 +70,7 @@ export async function PUT(request: Request) {
     const merchantId = scope.merchantId
 
     if (!merchantId || !data) {
-      return NextResponse.json({ success: false, error: 'بيانات ناقصة' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.incompleteData }, { status: 400 })
     }
 
     if (section === 'profile') {
@@ -137,9 +140,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true, delivery: saved as DeliverySettings })
     }
 
-    return NextResponse.json({ success: false, error: 'قسم غير معروف' }, { status: 400 })
+    return NextResponse.json({ success: false, error: t.settings.unknownSection }, { status: 400 })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر حفظ الإعدادات'
+    const message = error instanceof Error ? error.message : t.settings.saveFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

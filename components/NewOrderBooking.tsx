@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, PackagePlus, RefreshCw, AlertCircle } from 'lucide-react'
 import type { Shipment } from '@/lib/shipments'
-import { formatArabicCurrency } from '@/lib/formatters'
+import { formatNumberFor, localizeDigits } from '@/lib/formatters'
 import { PrintStickerButton } from '@/components/ShipmentSticker'
+import { fill, type Dictionary } from '@/lib/i18n'
+import type { Locale } from '@/lib/i18n/config'
 
 /**
  * نموذج حجز طلب جديد
@@ -17,6 +19,10 @@ import { PrintStickerButton } from '@/components/ShipmentSticker'
  * اختيار التاجر إلزامي (الترحيل ٠١٦: orders.merchant_id لا قيمة افتراضية
  * له). هذا النموذج يُستعمل من /operations حيث الموظف يحجز نيابةً عن أي
  * تاجر — لذا التاجر حقل يُختار صراحةً، لا يُشتق من جلسة المستخدم.
+ *
+ * ⚠️ ما يُخزَّن ويُطبع يبقى عربياً مهما كانت لغة الواجهة: اسم المحافظة
+ * ومحتوى الطلب يُقرآن على ملصق الشحنة من مندوب عراقي، لا من صاحب الشاشة.
+ * تُترجَم **التسمية المعروضة** وحدها، والقيمة المُرسَلة تبقى كما هي.
  */
 
 export interface MerchantOption {
@@ -24,13 +30,21 @@ export interface MerchantOption {
   name: string
 }
 
+type BookingCopy = Dictionary['app']['booking']
+
+/** القيم المخزَّنة — عربية دائماً. تسمياتها المعروضة في القاموس. */
 const GOVERNORATES = [
   'بغداد', 'البصرة', 'نينوى', 'أربيل', 'السليمانية', 'دهوك', 'كركوك',
   'ديالى', 'الأنبار', 'بابل', 'كربلاء', 'النجف', 'واسط', 'ميسان',
   'ذي قار', 'المثنى', 'القادسية', 'صلاح الدين',
-]
+] as const
 
-const CONTENT_SUGGESTIONS = ['ملابس', 'عطور', 'إلكترونيات', 'مستحضرات تجميل', 'أحذية', 'إكسسوارات']
+const CONTENT_SUGGESTIONS = ['ملابس', 'عطور', 'إلكترونيات', 'مستحضرات تجميل', 'أحذية', 'إكسسوارات'] as const
+
+/** أمثلة تُعرض في التلميحات — أرقامها تتبع لغة العرض. */
+const PHONE_SAMPLE = '07727869571'
+const FEE_BAGHDAD = 3000
+const FEE_OTHER = 5000
 
 interface BookedResult {
   shipment: Shipment
@@ -61,9 +75,16 @@ const EMPTY_FORM = {
 export default function NewOrderBooking({
   merchants,
   onBooked,
+  locale,
+  currency,
+  t,
 }: {
   merchants: MerchantOption[]
   onBooked?: (result: BookedResult) => void
+  locale: Locale
+  currency: string
+  /** ⚠️ خاصية لا استيراد: مكوّن عميل، والقاموس كله لا يعبر إلى المتصفّح. */
+  t: BookingCopy
 }) {
   const router = useRouter()
   const [form, setForm] = useState({ ...EMPTY_FORM })
@@ -73,6 +94,9 @@ export default function NewOrderBooking({
 
   const set = (key: keyof typeof EMPTY_FORM, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+
+  const money = (value: number | null | undefined) =>
+    `${formatNumberFor(locale, Number(value ?? 0))} ${currency}`
 
   // قائمة التجار تصل عادة بعد تركيب هذه النافذة (طلب شبكة منفصل في الأب)،
   // فتخزين اختيار التاجر في useState وحده يجمّد الفراغ لو رُكِّبت النافذة
@@ -84,13 +108,14 @@ export default function NewOrderBooking({
   const handleSubmit = async () => {
     if (submitting) return
     if (!effectiveMerchantId) {
-      setError('اختر التاجر الذي يخصّه هذا الطلب')
+      setError(t.merchantRequired)
       return
     }
     setSubmitting(true)
     setError(null)
 
-    // تجميع مواصفات المنتج الدقيقة حسب طلب الزبون
+    // ⚠️ تجميع مواصفات المنتج بالعربية دائماً: هذا النصّ يُطبع على الملصق
+    // ويقرأه المندوب، فلا يتبع لغة الشاشة التي كُتب منها.
     const specsParts: string[] = []
     if (form.product_type.trim()) specsParts.push(`المنتج: ${form.product_type.trim()}`)
     if (form.quantity.trim() && form.quantity !== '1') specsParts.push(`الكمية: ${form.quantity.trim()} قطعة`)
@@ -118,7 +143,7 @@ export default function NewOrderBooking({
         }),
       })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر حجز الطلب')
+      if (!res.ok || !json.success) throw new Error(json.error || t.failed)
 
       const result: BookedResult = { shipment: json.shipment as Shipment, orderContent: json.order_content }
       setBooked(result)
@@ -126,7 +151,7 @@ export default function NewOrderBooking({
       onBooked?.(result)
       router.refresh() // تحديث قائمة الشحنات في اللوحة
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'تعذر حجز الطلب'
+      const msg = err instanceof Error ? err.message : t.failed
       console.error('[NEW_ORDER][SUBMIT]', msg)
       setError(msg)
     } finally {
@@ -139,36 +164,34 @@ export default function NewOrderBooking({
   // ==================================================================
   if (booked) {
     return (
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-5">
+      <div className="bg-surface rounded-2xl border border-line shadow-sm p-5">
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
-            <CheckCircle2 size={20} className="text-emerald-600" />
+          <div className="w-10 h-10 rounded-xl bg-success-bg border border-success-line flex items-center justify-center shrink-0">
+            <CheckCircle2 size={20} className="text-success-ink" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-black text-[#0F172A]">تم حجز الطلب بنجاح</h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              الشحنة جاهزة — اطبع الستيكر وألصقه على الطرد قبل تسليمه للمندوب.
-            </p>
+            <h3 className="text-sm font-black text-ink">{t.successTitle}</h3>
+            <p className="text-[11px] text-ink-muted mt-0.5">{t.successBody}</p>
           </div>
         </div>
 
-        <div className="rounded-xl border-2 border-[#253765] bg-[#253765]/5 p-4 text-center mb-4">
-          <p className="text-[10px] font-bold text-[#253765] mb-1">رقم التتبع</p>
-          <p className="text-2xl font-black text-[#253765] font-mono tracking-wider" dir="ltr">
+        <div className="rounded-xl border-2 border-brand bg-brand-soft p-4 text-center mb-4">
+          <p className="text-[10px] font-bold text-brand-text mb-1">{t.trackingNumber}</p>
+          <p className="text-2xl font-black text-brand-text font-mono tracking-wider" dir="ltr">
             {booked.shipment.tracking_number}
           </p>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-[11px] mb-4">
-          <Cell label="الزبون" value={booked.shipment.recipient_name} />
-          <Cell label="الهاتف" value={booked.shipment.recipient_phone} ltr />
+          <Cell label={t.cellCustomer} value={booked.shipment.recipient_name} />
+          <Cell label={t.cellPhone} value={booked.shipment.recipient_phone} ltr />
           <Cell
-            label="الوجهة"
+            label={t.cellDestination}
             value={`${booked.shipment.governorate}${booked.shipment.district ? ' — ' + booked.shipment.district : ''}`}
           />
-          <Cell label="محتوى الطلب" value={booked.orderContent} />
-          <Cell label="مبلغ الطلب" value={formatArabicCurrency(booked.shipment.cod_amount_iqd)} />
-          <Cell label="أجرة التوصيل" value={formatArabicCurrency(booked.shipment.delivery_fee_iqd)} />
+          <Cell label={t.cellContent} value={booked.orderContent} />
+          <Cell label={t.cellAmount} value={money(booked.shipment.cod_amount_iqd)} />
+          <Cell label={t.cellFee} value={money(booked.shipment.delivery_fee_iqd)} />
         </div>
 
         <div className="space-y-2">
@@ -176,13 +199,13 @@ export default function NewOrderBooking({
             shipment={booked.shipment}
             merchantName={booked.shipment.merchant_name}
             orderContent={booked.orderContent}
-            label="طباعة ستيكر الشحنة"
+            label={t.printSticker}
           />
           <button
             onClick={() => setBooked(null)}
-            className="w-full px-3 py-2.5 rounded-xl border border-[#E2E8F0] text-xs font-bold text-[#253765] hover:bg-[#F1F5F9] transition"
+            className="w-full px-3 py-2.5 rounded-xl border border-line text-xs font-bold text-brand-text hover:bg-surface-3 transition"
           >
-            حجز طلب آخر
+            {t.bookAnother}
           </button>
         </div>
       </div>
@@ -193,34 +216,32 @@ export default function NewOrderBooking({
   // النموذج
   // ==================================================================
   return (
-    <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-[#253765] text-white flex items-center justify-center shrink-0">
+    <div className="bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-line bg-surface-2 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-brand text-on-brand flex items-center justify-center shrink-0">
           <PackagePlus size={18} />
         </div>
         <div>
-          <h3 className="text-sm font-black text-[#0F172A]">حجز طلب جديد</h3>
-          <p className="text-[10px] text-slate-500">
-            يُنشئ الطلب والشحنة معاً، ويولّد رقم التتبع تلقائياً
-          </p>
+          <h3 className="text-sm font-black text-ink">{t.title}</h3>
+          <p className="text-[10px] text-ink-muted">{t.subtitle}</p>
         </div>
       </div>
 
       <div className="p-5 space-y-4">
         {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-semibold text-rose-800">
+          <div className="flex items-start gap-2 rounded-xl border border-danger-line bg-danger-bg px-3 py-2.5 text-[11px] font-semibold text-danger-ink">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
-        <Field label="التاجر" required hint="الطلب يُنسب لصافي هذا التاجر وعمولته">
+        <Field label={t.merchant} required hint={t.merchantHint}>
           <select
             value={effectiveMerchantId}
             onChange={(e) => set('merchant_id', e.target.value)}
             className={inputClass}
           >
-            <option value="">اختر التاجر…</option>
+            <option value="">{t.chooseMerchant}</option>
             {merchants.map((m) => (
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
@@ -228,16 +249,20 @@ export default function NewOrderBooking({
         </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="اسم الزبون" required>
+          <Field label={t.customerName} required>
             <input
               value={form.customer_name}
               onChange={(e) => set('customer_name', e.target.value)}
-              placeholder="مثال: ياسر محمد"
+              placeholder={t.customerNamePlaceholder}
               className={inputClass}
             />
           </Field>
 
-          <Field label="رقم الهاتف" required hint="صيغة عراقية: ٠٧٧٢٧٨٦٩٥٧١">
+          <Field
+            label={t.phone}
+            required
+            hint={fill(t.phoneHint, { sample: localizeDigits(PHONE_SAMPLE, locale) })}
+          >
             <input
               value={form.phone_number}
               onChange={(e) => set('phone_number', e.target.value)}
@@ -248,126 +273,124 @@ export default function NewOrderBooking({
             />
           </Field>
 
-          <Field label="المحافظة" required>
+          <Field label={t.governorate} required>
             <select
               value={form.governorate}
               onChange={(e) => set('governorate', e.target.value)}
               className={inputClass}
             >
               {GOVERNORATES.map((g) => (
-                <option key={g} value={g}>{g}</option>
+                <option key={g} value={g}>{t.governorates[g]}</option>
               ))}
             </select>
           </Field>
 
-          <Field label="القضاء / المنطقة">
+          <Field label={t.district}>
             <input
               value={form.district}
               onChange={(e) => set('district', e.target.value)}
-              placeholder="مثال: العامرية"
+              placeholder={t.districtPlaceholder}
               className={inputClass}
             />
           </Field>
         </div>
 
-        <Field label="العنوان الكامل" required>
+        <Field label={t.fullAddress} required>
           <input
             value={form.full_address}
             onChange={(e) => set('full_address', e.target.value)}
-            placeholder="الحي، المحلة، الزقاق، رقم الدار"
+            placeholder={t.fullAddressPlaceholder}
             className={inputClass}
           />
         </Field>
 
-        <Field label="أقرب نقطة دالة">
+        <Field label={t.landmark}>
           <input
             value={form.nearest_landmark}
             onChange={(e) => set('nearest_landmark', e.target.value)}
-            placeholder="مثال: قرب المركز الصحي"
+            placeholder={t.landmarkPlaceholder}
             className={inputClass}
           />
         </Field>
 
         {/* ===== مواصفات وتفاصيل المنتج حسب طلب الزبون (للطباعة في الستيكر) ===== */}
-        <div className="rounded-xl border-2 border-[#253765]/20 bg-[#F8FAFC] p-3.5 space-y-3">
-          <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
-            <label className="text-xs font-black text-[#253765] flex items-center gap-1.5">
-              <span>📋 مواصفات المنتج وتفاصيل الستيكر (حسب طلب الزبون)</span>
+        <div className="rounded-xl border-2 border-brand/20 bg-surface-2 p-3.5 space-y-3">
+          <div className="flex items-center justify-between border-b border-line pb-2">
+            <label className="text-xs font-black text-brand-text flex items-center gap-1.5">
+              <span>{t.specsTitle}</span>
             </label>
-            <span className="text-[10px] text-slate-500 font-semibold">تُطبع مباشرة على ستيكر الشحنة</span>
+            <span className="text-[10px] text-ink-muted font-semibold">{t.specsNote}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">اسم أو نوع المنتج</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.productType}</label>
               <input
                 value={form.product_type}
                 onChange={(e) => set('product_type', e.target.value)}
-                placeholder="مثال: فستان سهرة، عطر، ساعة"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.productTypePlaceholder}
+                className={specInputClass}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">عدد القطع</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.quantity}</label>
               <input
                 value={form.quantity}
                 onChange={(e) => set('quantity', e.target.value)}
-                placeholder="مثال: 1 أو 2"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.quantityPlaceholder}
+                className={specInputClass}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">اللون / الألوان</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.colors}</label>
               <input
                 value={form.colors}
                 onChange={(e) => set('colors', e.target.value)}
-                placeholder="مثال: أسود ملكي، ماروني"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.colorsPlaceholder}
+                className={specInputClass}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">القياس / الحجم</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.sizeVolume}</label>
               <input
                 value={form.size_volume}
                 onChange={(e) => set('size_volume', e.target.value)}
-                placeholder="مثال: L / XL أو 42 أو 100ml"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.sizeVolumePlaceholder}
+                className={specInputClass}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">الأبعاد (الطول والعرض)</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.dimensions}</label>
               <input
                 value={form.dimensions}
                 onChange={(e) => set('dimensions', e.target.value)}
-                placeholder="مثال: 120cm × 60cm"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.dimensionsPlaceholder}
+                className={specInputClass}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">السعة / الوزن</label>
+              <label className="block text-[11px] font-bold text-ink mb-1">{t.capacity}</label>
               <input
                 value={form.capacity}
                 onChange={(e) => set('capacity', e.target.value)}
-                placeholder="مثال: 250ml أو 1.5kg"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs outline-none focus:border-[#253765]"
+                placeholder={t.capacityPlaceholder}
+                className={specInputClass}
               />
             </div>
           </div>
         </div>
 
         {/* ===== محتوى الطلب العام ===== */}
-        <div className="rounded-xl border border-[#CBD5E1] bg-white p-3 space-y-2">
-          <label className="block text-xs font-bold text-slate-700">
-            ملخص محتوى الطلب (أو اختر اقتراحاً سريعاً)
-          </label>
+        <div className="rounded-xl border border-line bg-surface p-3 space-y-2">
+          <label className="block text-xs font-bold text-ink">{t.contentTitle}</label>
           <input
             value={form.order_content}
             onChange={(e) => set('order_content', e.target.value)}
-            placeholder="اتركه فارغاً ليتم توليده تلقائياً من المواصفات أعلاه، أو اكتب وصفاً إضافياً"
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-[#253765] transition"
+            placeholder={t.contentPlaceholder}
+            className="w-full px-3 py-2 rounded-lg border border-line bg-surface-2 text-xs text-ink outline-none focus:border-brand transition"
           />
           <div className="flex flex-wrap gap-1.5 pt-1">
             {CONTENT_SUGGESTIONS.map((c) => (
@@ -375,16 +398,16 @@ export default function NewOrderBooking({
                 key={c}
                 type="button"
                 onClick={() => set('order_content', c)}
-                className="px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-700 hover:bg-[#253765] hover:text-white transition"
+                className="px-2.5 py-0.5 rounded-md bg-surface-3 border border-line text-[10px] font-bold text-ink-muted hover:bg-brand hover:text-on-brand transition"
               >
-                {c}
+                {t.contentSuggestions[c]}
               </button>
             ))}
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="مبلغ الطلب (COD)" required hint="المبلغ الذي يستلمه المندوب من الزبون">
+          <Field label={t.codAmount} required hint={t.codHint}>
             <input
               value={form.cod_amount_iqd}
               onChange={(e) => set('cod_amount_iqd', e.target.value.replace(/[^0-9]/g, ''))}
@@ -395,7 +418,13 @@ export default function NewOrderBooking({
             />
           </Field>
 
-          <Field label="أجرة التوصيل" hint="٣٠٠٠ لبغداد · ٥٠٠٠ لباقي المحافظات">
+          <Field
+            label={t.deliveryFee}
+            hint={fill(t.deliveryFeeHint, {
+              baghdad: formatNumberFor(locale, FEE_BAGHDAD),
+              other: formatNumberFor(locale, FEE_OTHER),
+            })}
+          >
             <input
               value={form.delivery_fee_iqd}
               onChange={(e) => set('delivery_fee_iqd', e.target.value.replace(/[^0-9]/g, ''))}
@@ -407,11 +436,11 @@ export default function NewOrderBooking({
           </Field>
         </div>
 
-        <Field label="ملاحظات للمندوب">
+        <Field label={t.notes}>
           <input
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
-            placeholder="مثال: الاتصال قبل الوصول"
+            placeholder={t.notesPlaceholder}
             className={inputClass}
           />
         </Field>
@@ -419,10 +448,10 @@ export default function NewOrderBooking({
         <button
           onClick={handleSubmit}
           disabled={submitting}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#253765] text-white text-sm font-bold hover:bg-[#1D2B50] transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand text-on-brand text-sm font-bold hover:bg-brand-hover transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? <RefreshCw size={16} className="animate-spin" /> : <PackagePlus size={16} />}
-          {submitting ? 'جارِ الحجز...' : 'حجز الطلب وإصدار رقم التتبع'}
+          {submitting ? t.submitting : t.submit}
         </button>
       </div>
     </div>
@@ -431,7 +460,10 @@ export default function NewOrderBooking({
 
 // ---------------------------------------------------------------------
 const inputClass =
-  'w-full px-3 py-2.5 rounded-xl border border-[#E2E8F0] bg-white text-xs text-[#0F172A] outline-none focus:border-[#253765] transition'
+  'w-full px-3 py-2.5 rounded-xl border border-line bg-surface text-xs text-ink outline-none focus:border-brand transition'
+
+const specInputClass =
+  'w-full px-2.5 py-1.5 rounded-lg border border-line-strong bg-surface text-xs text-ink outline-none focus:border-brand'
 
 function Field({
   label,
@@ -446,20 +478,20 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-[11px] font-bold text-[#64748B] mb-1.5">
-        {label} {required && <span className="text-rose-600">*</span>}
+      <label className="block text-[11px] font-bold text-ink-muted mb-1.5">
+        {label} {required && <span className="text-danger-ink">*</span>}
       </label>
       {children}
-      {hint && <p className="text-[10px] text-slate-400 mt-1">{hint}</p>}
+      {hint && <p className="text-[10px] text-ink-faint mt-1">{hint}</p>}
     </div>
   )
 }
 
 function Cell({ label, value, ltr }: { label: string; value: string; ltr?: boolean }) {
   return (
-    <div className="rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] px-2.5 py-2">
-      <p className="text-[9px] text-slate-400 font-bold">{label}</p>
-      <p className={`font-bold text-[#0F172A] truncate ${ltr ? 'font-mono' : ''}`} dir={ltr ? 'ltr' : undefined}>
+    <div className="rounded-lg bg-surface-2 border border-line px-2.5 py-2">
+      <p className="text-[9px] text-ink-faint font-bold">{label}</p>
+      <p className={`font-bold text-ink truncate ${ltr ? 'font-mono' : ''}`} dir={ltr ? 'ltr' : undefined}>
         {value}
       </p>
     </div>

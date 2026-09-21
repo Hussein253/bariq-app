@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { validateProduct, type Product, type ProductDraft } from '@/lib/catalog'
 import { loadMerchantEntitlements } from '@/lib/entitlements'
 import { requireMerchantScope } from '@/lib/api-session'
+import { apiFill, apiMessages } from '@/lib/i18n/api'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,12 +15,13 @@ export const dynamic = 'force-dynamic'
 
 /** GET /api/catalog?merchant=<uuid> */
 export async function GET(request: Request) {
+  const t = await apiMessages()
   try {
     const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant'))
     if (!scope.ok) return scope.response
     const merchantId = scope.merchantId
     if (!merchantId) {
-      return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.merchantIdRequired }, { status: 400 })
     }
 
     const { data, error } = await supabaseServer
@@ -35,7 +37,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ success: true, products: (data || []) as Product[] })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر تحميل قاعدة المعرفة'
+    const message = error instanceof Error ? error.message : t.catalog.loadFailed
     console.error('[CATALOG][ERROR]', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
@@ -47,6 +49,7 @@ export async function GET(request: Request) {
  * الحدّ يُفحص على الخادم لا في الواجهة: زر معطّل في المتصفح ليس تطبيقاً لحدّ.
  */
 export async function POST(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as { merchantId?: string } & Partial<ProductDraft>
     const { merchantId: requestedMerchantId, ...draft } = body
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     const merchantId = scope.merchantId
 
     if (!merchantId) {
-      return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.merchantIdRequired }, { status: 400 })
     }
 
     const errors = validateProduct(draft)
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
     const entitlements = await loadMerchantEntitlements(merchantId)
     if (!entitlements) {
       return NextResponse.json(
-        { success: false, error: 'لا يوجد اشتراك فعّال لهذا التاجر' },
+        { success: false, error: t.catalog.noSubscription },
         { status: 403 }
       )
     }
@@ -76,7 +79,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: `بلغت حدّ باقة ${entitlements.plan.name_en}: ${limit} منتج. الترقية تفتح المزيد.`,
+          error: apiFill(t.catalog.planLimit, { plan: entitlements.plan.name_en, n: limit }),
           limitReached: true,
         },
         { status: 409 }
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, product: data as Product }, { status: 201 })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر إضافة المنتج'
+    const message = error instanceof Error ? error.message : t.catalog.addFailed
     console.error('[CATALOG][POST_ERROR]', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
 
 /** PATCH /api/catalog — تعديل سعر أو مخزون أو حالة منتج قائم. */
 export async function PATCH(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as {
       id?: number
@@ -130,7 +134,7 @@ export async function PATCH(request: Request) {
 
     if (!id || !merchantId) {
       return NextResponse.json(
-        { success: false, error: 'معرّف المنتج والتاجر مطلوبان' },
+        { success: false, error: t.catalog.idsRequired },
         { status: 400 }
       )
     }
@@ -141,7 +145,7 @@ export async function PATCH(request: Request) {
       const price = Number(body.price_iqd)
       if (!Number.isFinite(price) || price < 0) {
         return NextResponse.json(
-          { success: false, error: 'السعر يجب أن يكون رقماً موجباً' },
+          { success: false, error: t.catalog.priceInvalid },
           { status: 422 }
         )
       }
@@ -153,7 +157,7 @@ export async function PATCH(request: Request) {
       const stock = Number(body.stock)
       if (!Number.isInteger(stock) || stock < 0) {
         return NextResponse.json(
-          { success: false, error: 'الكمية يجب أن تكون عدداً صحيحاً غير سالب' },
+          { success: false, error: t.catalog.stockInvalid },
           { status: 422 }
         )
       }
@@ -163,7 +167,7 @@ export async function PATCH(request: Request) {
     if (body.status !== undefined) patch.status = body.status
 
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json({ success: false, error: 'لا يوجد تغيير' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.noChange }, { status: 400 })
     }
 
     // شرط merchant_id يمنع تعديل منتج تاجر آخر بتمرير معرّف منتج لا يخصّه.
@@ -184,14 +188,14 @@ export async function PATCH(request: Request) {
 
     if (!data) {
       return NextResponse.json(
-        { success: false, error: 'لا يوجد منتج بهذا المعرّف لدى هذا التاجر' },
+        { success: false, error: t.catalog.notFound },
         { status: 404 }
       )
     }
 
     return NextResponse.json({ success: true, product: data as Product })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر تحديث المنتج'
+    const message = error instanceof Error ? error.message : t.catalog.updateFailed
     console.error('[CATALOG][PATCH_ERROR]', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
@@ -199,6 +203,7 @@ export async function PATCH(request: Request) {
 
 /** DELETE /api/catalog?id=<n>&merchant=<uuid> */
 export async function DELETE(request: Request) {
+  const t = await apiMessages()
   try {
     const params = new URL(request.url).searchParams
     const id = params.get('id')
@@ -208,7 +213,7 @@ export async function DELETE(request: Request) {
 
     if (!id || !merchantId) {
       return NextResponse.json(
-        { success: false, error: 'معرّف المنتج والتاجر مطلوبان' },
+        { success: false, error: t.catalog.idsRequired },
         { status: 400 }
       )
     }
@@ -226,7 +231,7 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر حذف المنتج'
+    const message = error instanceof Error ? error.message : t.catalog.deleteFailed
     console.error('[CATALOG][DELETE_ERROR]', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }

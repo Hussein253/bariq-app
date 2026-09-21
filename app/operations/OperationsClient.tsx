@@ -53,6 +53,8 @@ import {
 import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
 import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
 import NewOrderBooking from '@/components/NewOrderBooking'
+import type { Dictionary } from '@/lib/i18n'
+import type { Locale } from '@/lib/i18n/config'
 
 // ---------- أنواع البيانات ----------
 
@@ -236,7 +238,20 @@ function OrderStageBadge({ order }: { order: ConfirmedOrder }) {
 
 // ---------- المكون الرئيسي للوحة العمليات والإدارة بالأرقام العربية ----------
 
-export default function OperationsClient() {
+/**
+ * ⚠️ نصوص هذه اللوحة عربية بعد، وهي لفريق تشغيل برق لا للتجار.
+ * ما يعبرها مترجَماً هو نافذة حجز الطلب وحدها (NewOrderBooking) لأن
+ * مكوّنها مشترك مع لوحة الشحنات التي تُرجمت — فتصلها لغتها خاصيةً.
+ */
+export default function OperationsClient({
+  locale,
+  currency,
+  bookingT,
+}: {
+  locale: Locale
+  currency: string
+  bookingT: Dictionary['app']['booking']
+}) {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('super_admin')
   const [activeMerchantName, setActiveMerchantName] = useState<string>('متجر دجلة')
 
@@ -2229,6 +2244,9 @@ export default function OperationsClient() {
               </div>
               <div className="[&>div]:rounded-none [&>div]:border-0 [&>div]:shadow-none">
                 <NewOrderBooking
+                  locale={locale}
+                  currency={currency}
+                  t={bookingT}
                   merchants={merchants.map((m) => ({ id: m.id, name: m.name }))}
                   onBooked={() => {
                     void loadOrders()

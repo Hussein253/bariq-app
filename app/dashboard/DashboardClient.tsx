@@ -35,7 +35,7 @@ import {
   Ban,
   PackagePlus,
 } from 'lucide-react'
-import { formatArabicCurrency, toArabicDigits } from '@/lib/formatters'
+import { formatNumberFor, localizeDigits } from '@/lib/formatters'
 import { PrintStickerButton } from '@/components/ShipmentSticker'
 import NewOrderBooking from '@/components/NewOrderBooking'
 import {
@@ -45,34 +45,40 @@ import {
   type ShipmentStatus,
   type SettlementStatus,
   SHIPMENT_STATUSES,
-  STATUS_LABELS,
   STATUS_TRANSITIONS,
   STATUS_COLORS,
-  SETTLEMENT_LABELS,
   SETTLEMENT_COLORS,
   TIMELINE_STEPS,
   formatDateTime,
 } from '@/lib/shipments'
+import { fill, type Dictionary } from '@/lib/i18n'
+import type { Locale } from '@/lib/i18n/config'
+
+type DashCopy = Dictionary['app']
+
+/** «الكل» كان نصاً عربياً يُقارَن به منطق التصفية — فيتعطّل بمجرد ترجمته.
+ *  صار رمزاً لا لغة له، والنصّ المعروض يأتي من القاموس. */
+const ALL = 'ALL' as const
 
 type Role = 'admin' | 'merchant'
 type Tab = 'shipments' | 'booking' | 'merchants' | 'couriers'
 type Toast = { message: string; type: 'success' | 'info' | 'error' }
 
-function StatusBadge({ status }: { status: ShipmentStatus }) {
+function StatusBadge({ status, t }: { status: ShipmentStatus; t: DashCopy }) {
   const c = STATUS_COLORS[status]
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border whitespace-nowrap ${c.bg} ${c.text} ${c.border}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-      {STATUS_LABELS[status]}
+      {t.shipmentStatus[status]}
     </span>
   )
 }
 
-function SettlementBadge({ status }: { status: SettlementStatus }) {
+function SettlementBadge({ status, t }: { status: SettlementStatus; t: DashCopy }) {
   const c = SETTLEMENT_COLORS[status]
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${c.bg} ${c.text} ${c.border}`}>
-      {SETTLEMENT_LABELS[status]}
+      {t.settlementStatus[status]}
     </span>
   )
 }
@@ -82,21 +88,33 @@ export default function DashboardClient({
   initialMerchants,
   initialCouriers,
   loadError,
+  locale,
+  currency,
+  t,
 }: {
   initialShipments: Shipment[]
   initialMerchants: Merchant[]
   initialCouriers: Courier[]
   loadError: string | null
+  locale: Locale
+  /** رمز العملة — من قاموس الأسعار، فلا يُكتب في مكانين. */
+  currency: string
+  /** ⚠️ خاصية لا استيراد: مكوّن عميل، والقاموس كله لا يعبر إلى المتصفّح. */
+  t: DashCopy
 }) {
   const router = useRouter()
+  const d = t.dashboard
+  const money = (value: number | null | undefined) =>
+    `${formatNumberFor(locale, Number(value ?? 0))} ${currency}`
+
 
   const [role, setRole] = useState<Role>('admin')
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>(initialMerchants[0]?.id || '')
   const [tab, setTab] = useState<Tab>('shipments')
 
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'الكل' | ShipmentStatus>('الكل')
-  const [governorateFilter, setGovernorateFilter] = useState('الكل')
+  const [statusFilter, setStatusFilter] = useState<typeof ALL | ShipmentStatus>(ALL)
+  const [governorateFilter, setGovernorateFilter] = useState<string>(ALL)
 
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [reasonPrompt, setReasonPrompt] = useState<{ shipment: Shipment; target: ShipmentStatus } | null>(null)
@@ -119,7 +137,7 @@ export default function DashboardClient({
 
   const governorates = useMemo(() => {
     const set = new Set(scopedShipments.map((s) => s.governorate).filter(Boolean))
-    return ['الكل', ...Array.from(set)]
+    return [ALL, ...Array.from(set)]
   }, [scopedShipments])
 
   const filteredShipments = useMemo(() => {
@@ -132,8 +150,8 @@ export default function DashboardClient({
         s.recipient_name.toLowerCase().includes(q) ||
         s.recipient_phone.includes(q) ||
         (s.merchant_name || '').toLowerCase().includes(q)
-      const matchesStatus = statusFilter === 'الكل' || s.status === statusFilter
-      const matchesGov = governorateFilter === 'الكل' || s.governorate === governorateFilter
+      const matchesStatus = statusFilter === ALL || s.status === statusFilter
+      const matchesGov = governorateFilter === ALL || s.governorate === governorateFilter
       return matchesSearch && matchesStatus && matchesGov
     })
   }, [scopedShipments, search, statusFilter, governorateFilter])
@@ -173,15 +191,15 @@ export default function DashboardClient({
       })
       const json = await res.json()
       if (!res.ok || !json.success) {
-        throw new Error(json.error || 'فشل تحديث الشحنة')
+        throw new Error(json.error || d.toastUpdateFailed)
       }
-      showToast('تم تحديث الشحنة بنجاح', 'success')
+      showToast(d.toastUpdated, 'success')
       setSelectedShipment(null)
       setReasonPrompt(null)
       setReasonText('')
       router.refresh()
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'حدث خطأ غير متوقع أثناء التحديث', 'error')
+      showToast(e instanceof Error ? e.message : d.toastUnexpected, 'error')
     } finally {
       setUpdatingId(null)
     }
@@ -199,7 +217,7 @@ export default function DashboardClient({
   const confirmReasonTransition = () => {
     if (!reasonPrompt) return
     if (!reasonText.trim()) {
-      showToast('السبب مطلوب قبل المتابعة', 'error')
+      showToast(d.toastReasonRequired, 'error')
       return
     }
     const field = reasonPrompt.target === 'POSTPONED' ? 'postponed_reason' : 'returned_reason'
@@ -215,7 +233,7 @@ export default function DashboardClient({
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#0F172A] flex flex-col font-sans">
+    <div className="min-h-screen bg-page text-ink flex flex-col font-sans">
       {/* التنبيهات العائمة */}
       {toast && (
         <div
@@ -229,29 +247,29 @@ export default function DashboardClient({
         >
           {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
           <span className="text-xs font-semibold">{toast.message}</span>
-          <button onClick={() => setToast(null)} className="text-slate-400 hover:text-slate-700 mr-2">
+          <button onClick={() => setToast(null)} className="text-ink-faint hover:text-slate-700 mr-2">
             <X size={14} />
           </button>
         </div>
       )}
 
       {/* شريط تنبيه: لا يوجد تسجيل دخول */}
-      <div className="bg-[#253765] text-white px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-[#1D2B50]">
+      <div className="bg-brand text-on-brand px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-[#1D2B50]">
         <div className="flex items-center gap-2">
           <ShieldAlert size={15} className="text-amber-300" />
-          <span className="font-bold">بيانات حقيقية من Supabase — لا يوجد تسجيل دخول على هذه اللوحة بعد:</span>
-          <span className="text-slate-200 hidden md:inline">محوّل الدور أدناه تبديل عرض فقط، وليس حماية أمنية.</span>
+          <span className="font-bold">{d.noAuthNotice}</span>
+          <span className="text-on-brand/70 hidden md:inline">{d.noAuthNoticeSub}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-[#1D2B50] p-0.5 rounded-lg border border-white/15">
+          <div className="flex items-center bg-brand-hover p-0.5 rounded-lg border border-white/15">
             <button
               onClick={() => setRole('admin')}
               className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 ${
-                role === 'admin' ? 'bg-white text-[#253765]' : 'text-slate-200 hover:text-white'
+                role === 'admin' ? 'bg-surface text-brand-text' : 'text-slate-200 hover:text-white'
               }`}
             >
               <ShieldAlert size={13} />
-              <span>مدير المنصة</span>
+              <span>{d.roleAdmin}</span>
             </button>
             <button
               onClick={() => {
@@ -263,16 +281,16 @@ export default function DashboardClient({
               }`}
             >
               <Store size={13} />
-              <span>تاجر</span>
+              <span>{d.roleMerchant}</span>
             </button>
           </div>
           {role === 'merchant' && (
             <select
               value={selectedMerchantId}
               onChange={(e) => setSelectedMerchantId(e.target.value)}
-              className="bg-[#1D2B50] border border-white/20 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-bold outline-none"
+              className="bg-brand-hover border border-white/20 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-bold outline-none"
             >
-              {initialMerchants.length === 0 && <option value="">لا يوجد تجار بعد</option>}
+              {initialMerchants.length === 0 && <option value="">{d.noMerchantsOption}</option>}
               {initialMerchants.map((m) => (
                 <option key={m.id} value={m.id} className="bg-slate-900 text-white">
                   {m.name}
@@ -285,13 +303,19 @@ export default function DashboardClient({
 
       <div className="flex flex-1">
         {/* الشريط الجانبي */}
-        <aside className="hidden lg:flex w-60 flex-col justify-between border-l border-[#E2E8F0] bg-white p-5 shrink-0">
+        <aside className="hidden lg:flex w-60 flex-col justify-between border-l border-line bg-surface p-5 shrink-0">
           <div>
             <div className="flex items-center gap-3 mb-7 px-2">
-              <div className="w-10 h-10 rounded-xl bg-[#253765] flex items-center justify-center text-white font-black text-xl shadow-md">⚡</div>
+              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center text-white font-black text-xl shadow-md">⚡</div>
               <div>
-                <p className="font-bold text-base text-[#253765] tracking-tight">برق</p>
-                <p className="text-[11px] text-[#64748B]">{role === 'merchant' ? `لوحة ${activeMerchant?.name || 'التاجر'}` : 'لوحة الشحنات الحقيقية'}</p>
+                <p className="font-bold text-base text-brand-text tracking-tight">{t.nav.home}</p>
+                <p className="text-[11px] text-ink-muted">
+                  {role === 'merchant'
+                    ? fill(d.brandSubMerchant, {
+                        name: activeMerchant?.name || t.workspace.merchantFallback,
+                      })
+                    : d.brandSubAdmin}
+                </p>
               </div>
             </div>
 
@@ -300,15 +324,15 @@ export default function DashboardClient({
               <button
                 onClick={() => setTab('shipments')}
                 className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
-                  tab === 'shipments' ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  tab === 'shipments' ? 'bg-brand text-on-brand shadow-md shadow-[#253765]/20' : 'text-ink-muted hover:bg-surface-3 hover:text-ink'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <Truck size={17} />
-                  <span>{role === 'merchant' ? 'تتبع شحناتي' : 'تتبع الشحنات'}</span>
+                  <span>{role === 'merchant' ? d.navTrackMine : d.navTrackAll}</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'shipments' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                  {toArabicDigits(scopedShipments.length)}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'shipments' ? 'bg-white/20 text-white' : 'bg-surface-3 text-ink-muted'}`}>
+                  {localizeDigits(scopedShipments.length, locale)}
                 </span>
               </button>
 
@@ -317,16 +341,16 @@ export default function DashboardClient({
                 onClick={() => setTab('booking')}
                 className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
                   tab === 'booking'
-                    ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20'
-                    : 'bg-[#253765]/5 text-[#253765] hover:bg-[#253765]/10 border border-[#253765]/15'
+                    ? 'bg-brand text-on-brand shadow-md shadow-[#253765]/20'
+                    : 'bg-brand/5 text-brand-text hover:bg-brand/10 border border-[#253765]/15'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <PackagePlus size={17} />
-                  <span>حجز الطلبات (جديد)</span>
+                  <span>{d.navBooking}</span>
                 </div>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${tab === 'booking' ? 'bg-white/25 text-white' : 'bg-[#253765]/10 text-[#253765]'} font-bold`}>
-                  حجز
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${tab === 'booking' ? 'bg-white/25 text-white' : 'bg-brand/10 text-brand-text'} font-bold`}>
+                  {d.navBookingTag}
                 </span>
               </button>
 
@@ -335,29 +359,29 @@ export default function DashboardClient({
                   <button
                     onClick={() => setTab('merchants')}
                     className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
-                      tab === 'merchants' ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                      tab === 'merchants' ? 'bg-brand text-on-brand shadow-md shadow-[#253765]/20' : 'text-ink-muted hover:bg-surface-3 hover:text-ink'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <Store size={17} />
-                      <span>التجار</span>
+                      <span>{d.navMerchants}</span>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'merchants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                      {toArabicDigits(initialMerchants.length)}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'merchants' ? 'bg-white/20 text-white' : 'bg-surface-3 text-ink-muted'}`}>
+                      {localizeDigits(initialMerchants.length, locale)}
                     </span>
                   </button>
                   <button
                     onClick={() => setTab('couriers')}
                     className={`w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all ${
-                      tab === 'couriers' ? 'bg-[#253765] text-white shadow-md shadow-[#253765]/20' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                      tab === 'couriers' ? 'bg-brand text-on-brand shadow-md shadow-[#253765]/20' : 'text-ink-muted hover:bg-surface-3 hover:text-ink'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <UserCog size={17} />
-                      <span>المندوبون</span>
+                      <span>{d.navCouriers}</span>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'couriers' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                      {toArabicDigits(initialCouriers.length)}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${tab === 'couriers' ? 'bg-white/20 text-white' : 'bg-surface-3 text-ink-muted'}`}>
+                      {localizeDigits(initialCouriers.length, locale)}
                     </span>
                   </button>
                 </>
@@ -365,11 +389,11 @@ export default function DashboardClient({
 
               <Link
                 href="/operations"
-                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A] border border-dashed border-[#E2E8F0] mt-2"
+                className="w-full flex items-center justify-between py-3 px-3.5 rounded-xl text-xs font-bold transition-all text-ink-muted hover:bg-surface-3 hover:text-ink border border-dashed border-line mt-2"
               >
                 <div className="flex items-center gap-3">
                   <ArrowLeft size={17} />
-                  <span>الرجوع للوحة العمليات</span>
+                  <span>{d.backToOperations}</span>
                 </div>
               </Link>
             </nav>
@@ -377,10 +401,10 @@ export default function DashboardClient({
 
           <button
             onClick={() => router.refresh()}
-            className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[#E2E8F0] text-xs font-bold text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#253765] transition"
+            className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-line text-xs font-bold text-ink-muted hover:bg-surface-3 hover:text-brand-text transition"
           >
             <RefreshCw size={14} />
-            <span>تحديث البيانات</span>
+            <span>{d.refresh}</span>
           </button>
         </aside>
 
@@ -389,15 +413,15 @@ export default function DashboardClient({
             شريط تنقّل الهاتف — الشريط الجانبي أعلاه مخفي دون lg، فبدونه
             لا سبيل للوصول إلى الحجز أو التجار أو المندوبين من الهاتف.
           */}
-          <nav className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E2E8F0] overflow-x-auto scrollbar-none">
+          <nav className="lg:hidden sticky top-0 z-30 bg-surface border-b border-line overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5 px-3 py-2 w-max">
               {([
-                { key: 'shipments', label: role === 'merchant' ? 'شحناتي' : 'الشحنات' },
-                { key: 'booking', label: 'حجز طلب' },
+                { key: 'shipments', label: role === 'merchant' ? d.tabShipmentsMine : d.tabShipments },
+                { key: 'booking', label: d.tabBooking },
                 ...(role === 'admin'
                   ? ([
-                      { key: 'merchants', label: 'التجار' },
-                      { key: 'couriers', label: 'المندوبون' },
+                      { key: 'merchants', label: d.navMerchants },
+                      { key: 'couriers', label: d.navCouriers },
                     ] as { key: Tab; label: string }[])
                   : []),
               ] as { key: Tab; label: string }[]).map((item) => (
@@ -405,7 +429,7 @@ export default function DashboardClient({
                   key={item.key}
                   onClick={() => setTab(item.key)}
                   className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition ${
-                    tab === item.key ? 'bg-[#253765] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'
+                    tab === item.key ? 'bg-brand text-on-brand' : 'text-ink-muted hover:bg-surface-3'
                   }`}
                 >
                   {item.label}
@@ -413,13 +437,13 @@ export default function DashboardClient({
               ))}
               <span className="w-px h-5 bg-[#E2E8F0] mx-1 shrink-0" />
               {[
-                { href: '/workspace', label: 'مساحتي' },
-                { href: '/operations', label: 'العمليات' },
+                { href: '/workspace', label: d.tabMyWorkspace },
+                { href: '/operations', label: d.tabOperations },
               ].map((l) => (
                 <Link
                   key={l.href}
                   href={l.href}
-                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-[#253765] bg-[#253765]/5 whitespace-nowrap"
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-brand-text bg-brand/5 whitespace-nowrap"
                 >
                   {l.label}
                 </Link>
@@ -429,131 +453,137 @@ export default function DashboardClient({
 
         <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full overflow-y-auto">
           {loadError && (
-            <div className="mb-5 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+            <div className="mb-5 p-4 rounded-xl bg-danger-bg border border-danger-line text-danger-ink text-xs font-semibold flex items-center gap-2">
               <AlertCircle size={16} />
-              <span>تعذّر جلب بعض البيانات من Supabase: {loadError}</span>
+              <span>{fill(d.loadError, { reason: loadError })}</span>
             </div>
           )}
 
           {role === 'merchant' && initialMerchants.length === 0 && (
-            <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
-              لا يوجد أي تاجر مسجّل بعد في جدول merchants.
+            <div className="mb-5 p-4 rounded-xl bg-warn-bg border border-warn-line text-warn-ink text-xs font-semibold">
+              {d.noMerchantsYet}
             </div>
           )}
 
           <header className="mb-6">
-            <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-black text-ink tracking-tight">
               {tab === 'shipments'
                 ? role === 'merchant'
-                  ? `تتبع شحنات ${activeMerchant?.name || ''}`
-                  : 'لوحة تتبع الشحنات الميدانية واللوجستيات'
+                  ? fill(d.titleTrackMerchant, { name: activeMerchant?.name || '' })
+                  : d.titleTrackAll
                 : tab === 'booking'
-                ? 'خانة حجز وتصعيد الطلبات (مع الستيكر الحراري)'
+                ? d.titleBooking
                 : tab === 'merchants'
-                ? 'إدارة التجار'
-                : 'إدارة المندوبين'}
+                ? d.titleMerchants
+                : d.titleCouriers}
             </h1>
-            <p className="text-xs sm:text-sm text-[#64748B] mt-1">
+            <p className="text-xs sm:text-sm text-ink-muted mt-1">
               {tab === 'booking'
-                ? 'خانة الحجز بمعزل عن التتبع: أدخل بيانات الزبون ومواصفات المنتج الدقيقة — يُصدر رقم التتبع ويُطبع الستيكر فورياً'
+                ? d.subtitleBooking
                 : tab === 'shipments'
                 ? role === 'merchant'
-                  ? 'متابعة مسار شحنات متجرك، السائق المخصص، وتحديثات الوصول والتسليم'
-                  : 'متابعة ومراقبة حالات الشحنات الميدانية (بالطريق، مؤجلة، مرتجعة، تم التسليم) وتعيين المناديب'
+                  ? d.subtitleShipmentsMerchant
+                  : d.subtitleShipmentsAdmin
                 : role === 'merchant'
-                ? 'تظهر فقط الشحنات والتسويات الخاصة بمتجرك'
-                : 'رؤية كاملة على شحنات كل التجار وحالاتها المالية واللوجستية'}
+                ? d.subtitleOtherMerchant
+                : d.subtitleOtherAdmin}
             </p>
           </header>
 
           {/* ===== بطاقات المؤشرات اللوجستية ===== */}
           {tab === 'shipments' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
-              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
-                <div className="absolute top-0 inset-x-0 h-[3px] bg-[#253765]" />
+              <div className="card-luxury rounded-2xl p-4.5 bg-surface border border-line relative overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-brand" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">إجمالي الشحنات</p>
-                  <Package size={15} className="text-[#253765]" />
+                  <p className="text-xs text-ink-muted font-semibold">{d.kpiTotal}</p>
+                  <Package size={15} className="text-brand-text" />
                 </div>
-                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">{toArabicDigits(stats.total)}</p>
-                <p className="mt-2 text-[11px] text-[#64748B]">
-                  نشطة الآن: <strong className="text-sky-700">{toArabicDigits(stats.active)}</strong>
+                <p className="text-2xl font-black text-ink mt-2 font-mono">{localizeDigits(stats.total, locale)}</p>
+                <p className="mt-2 text-[11px] text-ink-muted">
+                  {fill(d.kpiActiveNow, { n: localizeDigits(stats.active, locale) })}
                 </p>
               </div>
 
-              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+              <div className="card-luxury rounded-2xl p-4.5 bg-surface border border-line relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-emerald-600" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">نسبة التسليم الناجح</p>
+                  <p className="text-xs text-ink-muted font-semibold">{d.kpiSuccessRate}</p>
                   <TrendingUp size={15} className="text-emerald-600" />
                 </div>
-                <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">{toArabicDigits(stats.successRate)}%</p>
-                <p className="mt-2 text-[11px] text-[#64748B]">
-                  مسلَّمة: <strong className="text-emerald-700">{toArabicDigits(stats.deliveredCount)}</strong> · مؤجلة:{' '}
-                  <strong className="text-orange-700">{toArabicDigits(stats.postponed)}</strong> · مرتجعة:{' '}
-                  <strong className="text-rose-700">{toArabicDigits(stats.returned)}</strong>
+                <p className="text-2xl font-black text-ink mt-2 font-mono">
+                  {localizeDigits(stats.successRate, locale)}%
+                </p>
+                <p className="mt-2 text-[11px] text-ink-muted">
+                  {fill(d.kpiBreakdown, {
+                    delivered: localizeDigits(stats.deliveredCount, locale),
+                    postponed: localizeDigits(stats.postponed, locale),
+                    returned: localizeDigits(stats.returned, locale),
+                  })}
                 </p>
               </div>
 
-              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+              <div className="card-luxury rounded-2xl p-4.5 bg-surface border border-line relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-purple-600" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">قيمة البضائع المُحصّلة (COD)</p>
+                  <p className="text-xs text-ink-muted font-semibold">{d.kpiCod}</p>
                   <CircleDollarSign size={15} className="text-purple-600" />
                 </div>
-                <p className="text-xl font-black text-[#0F172A] mt-2 font-mono">{formatArabicCurrency(stats.codCollected)}</p>
-                <p className="mt-2 text-[11px] text-[#64748B]">
-                  أجور توصيل محصّلة: <strong className="text-[#0F172A]">{formatArabicCurrency(stats.deliveryFeesEarned)}</strong>
+                <p className="text-xl font-black text-ink mt-2 font-mono">{money(stats.codCollected)}</p>
+                <p className="mt-2 text-[11px] text-ink-muted">
+                  {fill(d.kpiFees, { amount: money(stats.deliveryFeesEarned) })}
                 </p>
               </div>
 
-              <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
+              <div className="card-luxury rounded-2xl p-4.5 bg-surface border border-line relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-amber-500" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">مستحقات {role === 'merchant' ? 'متجرك' : 'التجار'} قيد التسوية</p>
+                  <p className="text-xs text-ink-muted font-semibold">
+                    {role === 'merchant' ? d.kpiPendingMerchant : d.kpiPendingAll}
+                  </p>
                   <Wallet size={15} className="text-amber-600" />
                 </div>
-                <p className="text-xl font-black text-[#0F172A] mt-2 font-mono">{formatArabicCurrency(stats.pendingSettlement)}</p>
-                <p className="mt-2 text-[11px] text-[#64748B]">صافي بعد خصم أجور التوصيل</p>
+                <p className="text-xl font-black text-ink mt-2 font-mono">{money(stats.pendingSettlement)}</p>
+                <p className="mt-2 text-[11px] text-ink-muted">{d.kpiNetAfterFees}</p>
               </div>
             </div>
           )}
 
           {/* ===== تبويب الشحنات ===== */}
           {tab === 'shipments' && (
-            <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden">
-              <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex flex-col gap-3">
+            <div className="card-luxury rounded-2xl bg-surface border border-line overflow-hidden">
+              <div className="p-4 border-b border-line bg-surface-2 flex flex-col gap-3">
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
-                  {(['الكل', ...SHIPMENT_STATUSES] as const).map((st) => (
+                  {([ALL, ...SHIPMENT_STATUSES] as const).map((st) => (
                     <button
                       key={st}
                       onClick={() => setStatusFilter(st)}
                       className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
-                        statusFilter === st ? 'bg-[#253765] text-white shadow-sm' : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                        statusFilter === st ? 'bg-brand text-on-brand shadow-sm' : 'text-ink-muted hover:bg-surface-3 hover:text-ink'
                       }`}
                     >
-                      {st === 'الكل' ? 'الكل' : STATUS_LABELS[st]}
+                      {st === ALL ? d.filterAll : t.shipmentStatus[st]}
                     </button>
                   ))}
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="relative flex-1">
-                    <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint" />
                     <input
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      placeholder="بحث برقم التتبع، رقم الطلب، اسم الزبون، أو الهاتف..."
-                      className="w-full pr-9 pl-3 py-2 rounded-xl border border-[#E2E8F0] text-xs outline-none focus:border-[#253765] bg-white"
+                      placeholder={d.searchPlaceholder}
+                      className="w-full pr-9 pl-3 py-2 rounded-xl border border-line text-xs outline-none focus:border-[#253765] bg-surface"
                     />
                   </div>
                   <select
                     value={governorateFilter}
                     onChange={(e) => setGovernorateFilter(e.target.value)}
-                    className="px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs outline-none bg-white font-semibold"
+                    className="px-3 py-2 rounded-xl border border-line text-xs outline-none bg-surface font-semibold"
                   >
                     {governorates.map((g) => (
                       <option key={g} value={g}>
-                        {g === 'الكل' ? 'كل المحافظات' : g}
+                        {g === ALL ? d.filterAllGovernorates : g}
                       </option>
                     ))}
                   </select>
@@ -563,23 +593,23 @@ export default function DashboardClient({
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-right text-[#64748B] bg-[#FAFAFA] border-b border-[#E2E8F0]">
-                      <th className="px-4 py-3 font-bold">رقم التتبع</th>
-                      <th className="px-4 py-3 font-bold">المستلم</th>
-                      <th className="px-4 py-3 font-bold">المحافظة</th>
-                      {role === 'admin' && <th className="px-4 py-3 font-bold">التاجر</th>}
-                      <th className="px-4 py-3 font-bold">المندوب</th>
-                      <th className="px-4 py-3 font-bold">الحالة</th>
-                      <th className="px-4 py-3 font-bold">COD</th>
-                      <th className="px-4 py-3 font-bold">التسوية</th>
-                      <th className="px-4 py-3 font-bold">تاريخ الإنشاء</th>
+                    <tr className="text-right text-ink-muted bg-surface-2 border-b border-line">
+                      <th className="px-4 py-3 font-bold">{d.colTracking}</th>
+                      <th className="px-4 py-3 font-bold">{d.colRecipient}</th>
+                      <th className="px-4 py-3 font-bold">{d.colGovernorate}</th>
+                      {role === 'admin' && <th className="px-4 py-3 font-bold">{d.colMerchant}</th>}
+                      <th className="px-4 py-3 font-bold">{d.colCourier}</th>
+                      <th className="px-4 py-3 font-bold">{d.colStatus}</th>
+                      <th className="px-4 py-3 font-bold">{d.colCod}</th>
+                      <th className="px-4 py-3 font-bold">{d.colSettlement}</th>
+                      <th className="px-4 py-3 font-bold">{d.colCreatedAt}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredShipments.length === 0 && (
                       <tr>
-                        <td colSpan={role === 'admin' ? 9 : 8} className="px-4 py-10 text-center text-slate-400">
-                          لا توجد شحنات مطابقة
+                        <td colSpan={role === 'admin' ? 9 : 8} className="px-4 py-10 text-center text-ink-faint">
+                          {d.noMatches}
                         </td>
                       </tr>
                     )}
@@ -587,24 +617,26 @@ export default function DashboardClient({
                       <tr
                         key={s.id}
                         onClick={() => setSelectedShipment(s)}
-                        className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC] cursor-pointer transition"
+                        className="border-b border-line hover:bg-surface-2 cursor-pointer transition"
                       >
-                        <td className="px-4 py-3 font-bold text-[#253765]">{s.tracking_number}</td>
+                        <td className="px-4 py-3 font-bold text-brand-text">{s.tracking_number}</td>
                         <td className="px-4 py-3">
-                          <div className="font-semibold text-[#0F172A]">{s.recipient_name}</div>
-                          <div className="text-[10px] text-slate-500">{toArabicDigits(s.recipient_phone)}</div>
+                          <div className="font-semibold text-ink">{s.recipient_name}</div>
+                          <div className="text-[10px] text-ink-muted">{localizeDigits(s.recipient_phone, locale)}</div>
                         </td>
                         <td className="px-4 py-3">{s.governorate}</td>
                         {role === 'admin' && <td className="px-4 py-3">{s.merchant_name}</td>}
-                        <td className="px-4 py-3">{s.courier_name || <span className="text-slate-400">غير مُعيَّن</span>}</td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={s.status} />
+                          {s.courier_name || <span className="text-ink-faint">{d.unassigned}</span>}
                         </td>
-                        <td className="px-4 py-3 font-mono">{formatArabicCurrency(s.cod_amount_iqd)}</td>
                         <td className="px-4 py-3">
-                          <SettlementBadge status={s.settlement_status} />
+                          <StatusBadge status={s.status} t={t} />
                         </td>
-                        <td className="px-4 py-3 text-slate-500">{formatDateTime(s.created_at)}</td>
+                        <td className="px-4 py-3 font-mono">{money(s.cod_amount_iqd)}</td>
+                        <td className="px-4 py-3">
+                          <SettlementBadge status={s.settlement_status} t={t} />
+                        </td>
+                        <td className="px-4 py-3 text-ink-muted">{formatDateTime(s.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -616,28 +648,33 @@ export default function DashboardClient({
           {/* ===== تبويب حجز طلب جديد ===== */}
           {tab === 'booking' && (
             <div className="max-w-2xl">
-              <NewOrderBooking merchants={initialMerchants.map((m) => ({ id: m.id, name: m.name }))} />
+              <NewOrderBooking
+                merchants={initialMerchants.map((m) => ({ id: m.id, name: m.name }))}
+                locale={locale}
+                currency={currency}
+                t={t.booking}
+              />
             </div>
           )}
 
           {/* ===== تبويب التجار ===== */}
           {tab === 'merchants' && role === 'admin' && (
-            <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden">
+            <div className="card-luxury rounded-2xl bg-surface border border-line overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-right text-[#64748B] bg-[#FAFAFA] border-b border-[#E2E8F0]">
-                    <th className="px-4 py-3 font-bold">التاجر</th>
-                    <th className="px-4 py-3 font-bold">الهاتف</th>
-                    <th className="px-4 py-3 font-bold">الحالة</th>
-                    <th className="px-4 py-3 font-bold">عدد الشحنات</th>
-                    <th className="px-4 py-3 font-bold">مستحقات قيد التسوية</th>
-                    <th className="px-4 py-3 font-bold">الرصيد المسجّل</th>
+                  <tr className="text-right text-ink-muted bg-surface-2 border-b border-line">
+                    <th className="px-4 py-3 font-bold">{d.colMerchant}</th>
+                    <th className="px-4 py-3 font-bold">{d.colPhone}</th>
+                    <th className="px-4 py-3 font-bold">{d.colStatus}</th>
+                    <th className="px-4 py-3 font-bold">{d.colShipmentsCount}</th>
+                    <th className="px-4 py-3 font-bold">{d.colPendingSettlement}</th>
+                    <th className="px-4 py-3 font-bold">{d.colBalance}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {initialMerchants.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-slate-400">لا يوجد تجار مسجّلون بعد</td>
+                      <td colSpan={6} className="px-4 py-10 text-center text-ink-faint">{d.noMerchantsRow}</td>
                     </tr>
                   )}
                   {initialMerchants.map((m) => {
@@ -646,21 +683,23 @@ export default function DashboardClient({
                       .filter((s) => s.settlement_status === 'PENDING' && (s.status === 'DELIVERED' || s.status === 'SETTLED_FINANCIALLY'))
                       .reduce((sum, s) => sum + Number(s.merchant_net_amount_iqd || 0), 0)
                     return (
-                      <tr key={m.id} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
-                        <td className="px-4 py-3 font-bold text-[#0F172A] flex items-center gap-2">
-                          <Store size={14} className="text-[#253765]" />
+                      <tr key={m.id} className="border-b border-line hover:bg-surface-2">
+                        <td className="px-4 py-3 font-bold text-ink flex items-center gap-2">
+                          <Store size={14} className="text-brand-text" />
                           {m.name}
                         </td>
-                        <td className="px-4 py-3">{m.phone ? toArabicDigits(m.phone) : <span className="text-slate-400">غير مسجّل</span>}</td>
+                        <td className="px-4 py-3">
+                          {m.phone ? localizeDigits(m.phone, locale) : <span className="text-ink-faint">{d.notRegistered}</span>}
+                        </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${m.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
                             {m.status === 'active' ? <BadgeCheck size={11} /> : <Ban size={11} />}
-                            {m.status === 'active' ? 'نشط' : 'موقوف'}
+                            {m.status === 'active' ? d.merchantActive : d.merchantSuspended}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono">{toArabicDigits(mShipments.length)}</td>
-                        <td className="px-4 py-3 font-mono text-amber-700 font-bold">{formatArabicCurrency(pending)}</td>
-                        <td className="px-4 py-3 font-mono">{formatArabicCurrency(m.balance_iqd)}</td>
+                        <td className="px-4 py-3 font-mono">{localizeDigits(mShipments.length, locale)}</td>
+                        <td className="px-4 py-3 font-mono text-warn-ink font-bold">{money(pending)}</td>
+                        <td className="px-4 py-3 font-mono">{money(m.balance_iqd)}</td>
                       </tr>
                     )
                   })}
@@ -671,20 +710,20 @@ export default function DashboardClient({
 
           {/* ===== تبويب المندوبين ===== */}
           {tab === 'couriers' && role === 'admin' && (
-            <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden">
+            <div className="card-luxury rounded-2xl bg-surface border border-line overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-right text-[#64748B] bg-[#FAFAFA] border-b border-[#E2E8F0]">
-                    <th className="px-4 py-3 font-bold">المندوب</th>
-                    <th className="px-4 py-3 font-bold">الهاتف</th>
-                    <th className="px-4 py-3 font-bold">الحالة</th>
-                    <th className="px-4 py-3 font-bold">الشحنات النشطة الموكلة له</th>
+                  <tr className="text-right text-ink-muted bg-surface-2 border-b border-line">
+                    <th className="px-4 py-3 font-bold">{d.colCourierName}</th>
+                    <th className="px-4 py-3 font-bold">{d.colPhone}</th>
+                    <th className="px-4 py-3 font-bold">{d.colStatus}</th>
+                    <th className="px-4 py-3 font-bold">{d.colActiveAssigned}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {initialCouriers.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-slate-400">لا يوجد مندوبون مسجّلون بعد</td>
+                      <td colSpan={4} className="px-4 py-10 text-center text-ink-faint">{d.noCouriersRow}</td>
                     </tr>
                   )}
                   {initialCouriers.map((c) => {
@@ -692,18 +731,24 @@ export default function DashboardClient({
                       (s) => s.courier_id === c.id && ['PICKED_UP_SAME_DAY', 'IN_TRANSIT_HUB', 'OUT_FOR_DELIVERY'].includes(s.status)
                     ).length
                     return (
-                      <tr key={c.id} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
-                        <td className="px-4 py-3 font-bold text-[#0F172A] flex items-center gap-2">
-                          <UserCog size={14} className="text-[#253765]" />
+                      <tr key={c.id} className="border-b border-line hover:bg-surface-2">
+                        <td className="px-4 py-3 font-bold text-ink flex items-center gap-2">
+                          <UserCog size={14} className="text-brand-text" />
                           {c.name}
                         </td>
-                        <td className="px-4 py-3">{c.phone ? toArabicDigits(c.phone) : <span className="text-slate-400">غير مسجّل</span>}</td>
+                        <td className="px-4 py-3">
+                          {c.phone ? localizeDigits(c.phone, locale) : <span className="text-ink-faint">{d.notRegistered}</span>}
+                        </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-sky-50 text-sky-700 border-sky-200">
-                            {c.status === 'active' ? 'متاح' : c.status === 'on_leave' ? 'بإجازة' : 'غير متاح'}
+                            {c.status === 'active'
+                              ? d.courierAvailable
+                              : c.status === 'on_leave'
+                              ? d.courierOnLeave
+                              : d.courierUnavailable}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono">{toArabicDigits(activeCount)}</td>
+                        <td className="px-4 py-3 font-mono">{localizeDigits(activeCount, locale)}</td>
                       </tr>
                     )
                   })}
@@ -719,52 +764,56 @@ export default function DashboardClient({
       {selectedShipment && (
         <div className="fixed inset-0 z-40 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedShipment(null)} />
-          <div className="relative w-full sm:w-[420px] bg-white h-full overflow-y-auto shadow-2xl border-r border-[#E2E8F0] p-5">
+          <div className="relative w-full sm:w-[420px] bg-surface h-full overflow-y-auto shadow-2xl border-r border-line p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-lg font-black text-[#253765]">{selectedShipment.tracking_number}</p>
-                <p className="text-[11px] text-slate-500">طلب رقم {toArabicDigits(selectedShipment.order_id)}</p>
+                <p className="text-lg font-black text-brand-text">{selectedShipment.tracking_number}</p>
+                <p className="text-[11px] text-ink-muted">
+                  {fill(d.detailOrderNo, { n: localizeDigits(selectedShipment.order_id, locale) })}
+                </p>
               </div>
-              <button onClick={() => setSelectedShipment(null)} className="p-1.5 rounded-lg hover:bg-slate-100">
+              <button onClick={() => setSelectedShipment(null)} className="p-1.5 rounded-lg hover:bg-surface-3">
                 <X size={18} />
               </button>
             </div>
 
             <div className="mb-4 flex items-center justify-between gap-2">
-              <StatusBadge status={selectedShipment.status} />
+              <StatusBadge status={selectedShipment.status} t={t} />
               <PrintStickerButton
                 shipment={selectedShipment}
                 merchantName={selectedShipment.merchant_name}
                 orderContent={selectedShipment.order_content}
-                label="طباعة الستيكر"
+                label={d.detailPrintSticker}
                 compact
               />
             </div>
 
             {/* بيانات المستلم */}
-            <div className="space-y-2 p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs mb-4">
-              <div className="flex items-center gap-2 font-bold text-[#0F172A]">
-                <Users size={13} className="text-[#253765]" />
+            <div className="space-y-2 p-3 rounded-xl bg-surface-2 border border-line text-xs mb-4">
+              <div className="flex items-center gap-2 font-bold text-ink">
+                <Users size={13} className="text-brand-text" />
                 {selectedShipment.recipient_name}
               </div>
-              <div className="flex items-center gap-2 text-slate-600">
+              <div className="flex items-center gap-2 text-ink-muted">
                 <Phone size={13} />
-                {toArabicDigits(selectedShipment.recipient_phone)}
+                {localizeDigits(selectedShipment.recipient_phone, locale)}
               </div>
-              <div className="flex items-center gap-2 text-slate-600">
+              <div className="flex items-center gap-2 text-ink-muted">
                 <MapPin size={13} />
                 {selectedShipment.governorate}
                 {selectedShipment.district ? ` - ${selectedShipment.district}` : ''} — {selectedShipment.full_address}
               </div>
               {selectedShipment.nearest_landmark && (
-                <p className="text-slate-500">أقرب نقطة دالة: {selectedShipment.nearest_landmark}</p>
+                <p className="text-ink-muted">
+                  {fill(d.detailNearestLandmark, { value: selectedShipment.nearest_landmark })}
+                </p>
               )}
             </div>
 
             {/* الخط الزمني */}
             <div className="mb-4">
-              <p className="text-[11px] font-bold text-[#64748B] mb-2 flex items-center gap-1.5">
-                <Clock size={13} /> مسار الشحنة
+              <p className="text-[11px] font-bold text-ink-muted mb-2 flex items-center gap-1.5">
+                <Clock size={13} /> {d.detailTimeline}
               </p>
               <div className="space-y-0">
                 {TIMELINE_STEPS.map((step, idx) => {
@@ -774,11 +823,13 @@ export default function DashboardClient({
                     <div key={step.status} className="flex items-start gap-3">
                       <div className="flex flex-col items-center">
                         <div className={`w-2.5 h-2.5 rounded-full mt-1 ${done ? STATUS_COLORS[step.status].dot : 'bg-slate-200'}`} />
-                        {idx < TIMELINE_STEPS.length - 1 && <div className={`w-px flex-1 min-h-[22px] ${done ? 'bg-slate-300' : 'bg-slate-100'}`} />}
+                        {idx < TIMELINE_STEPS.length - 1 && <div className={`w-px flex-1 min-h-[22px] ${done ? 'bg-slate-300' : 'bg-surface-3'}`} />}
                       </div>
                       <div className="pb-3">
-                        <p className={`text-xs font-semibold ${done ? 'text-[#0F172A]' : 'text-slate-400'}`}>{STATUS_LABELS[step.status]}</p>
-                        <p className="text-[10px] text-slate-400">{done ? formatDateTime(value) : '—'}</p>
+                        <p className={`text-xs font-semibold ${done ? 'text-ink' : 'text-ink-faint'}`}>
+                          {t.shipmentStatus[step.status]}
+                        </p>
+                        <p className="text-[10px] text-ink-faint">{done ? formatDateTime(value) : '—'}</p>
                       </div>
                     </div>
                   )
@@ -786,50 +837,52 @@ export default function DashboardClient({
               </div>
               {(selectedShipment.status === 'POSTPONED' || selectedShipment.postponed_reason) && (
                 <div className="mt-2 p-2.5 rounded-lg bg-orange-50 border border-orange-200 text-[11px] text-orange-800">
-                  <strong>تأجيل:</strong> {selectedShipment.postponed_reason || '—'} ({formatDateTime(selectedShipment.postponed_at)})
+                  <strong>{d.detailPostponed}</strong> {selectedShipment.postponed_reason || '—'} ({formatDateTime(selectedShipment.postponed_at)})
                 </div>
               )}
               {(selectedShipment.status === 'RETURNED' || selectedShipment.returned_reason) && (
                 <div className="mt-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-800">
-                  <strong>إرجاع:</strong> {selectedShipment.returned_reason || '—'} ({formatDateTime(selectedShipment.returned_at)})
+                  <strong>{d.detailReturned}</strong> {selectedShipment.returned_reason || '—'} ({formatDateTime(selectedShipment.returned_at)})
                 </div>
               )}
             </div>
 
             {/* المالية */}
             <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
-              <div className="p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
-                <p className="text-[10px] text-slate-500">قيمة البضاعة (COD)</p>
-                <p className="font-bold font-mono">{formatArabicCurrency(selectedShipment.cod_amount_iqd)}</p>
+              <div className="p-2.5 rounded-lg bg-surface-2 border border-line">
+                <p className="text-[10px] text-ink-muted">{d.detailCodValue}</p>
+                <p className="font-bold font-mono">{money(selectedShipment.cod_amount_iqd)}</p>
               </div>
-              <div className="p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
-                <p className="text-[10px] text-slate-500">أجرة التوصيل</p>
-                <p className="font-bold font-mono">{formatArabicCurrency(selectedShipment.delivery_fee_iqd)}</p>
+              <div className="p-2.5 rounded-lg bg-surface-2 border border-line">
+                <p className="text-[10px] text-ink-muted">{d.detailDeliveryFee}</p>
+                <p className="font-bold font-mono">{money(selectedShipment.delivery_fee_iqd)}</p>
               </div>
               <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 col-span-2">
-                <p className="text-[10px] text-emerald-700">صافي مستحق التاجر</p>
-                <p className="font-bold font-mono text-emerald-800">{formatArabicCurrency(selectedShipment.merchant_net_amount_iqd)}</p>
+                <p className="text-[10px] text-success-ink">{d.detailMerchantNet}</p>
+                <p className="font-bold font-mono text-success-ink">
+                  {money(selectedShipment.merchant_net_amount_iqd)}
+                </p>
               </div>
             </div>
 
             {/* طباعة ستيكر الشحنة — الإجراء الميداني الأول بعد تأكيد الطلب */}
             <div className="mb-4">
-              <p className="text-[11px] font-bold text-[#64748B] mb-2">ملصق الشحنة</p>
+              <p className="text-[11px] font-bold text-ink-muted mb-2">{d.detailStickerTitle}</p>
               <PrintStickerButton
                 shipment={selectedShipment}
                 merchantName={selectedShipment.merchant_name}
                 orderContent={selectedShipment.order_content}
               />
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                ملصق حراري بعرض ٨٠ ملم — يُخفي لوحة التحكم تلقائياً عند الطباعة.
+              <p className="text-[10px] text-ink-faint mt-1.5">
+                {fill(d.detailStickerHint, { n: localizeDigits(80, locale) })}
               </p>
             </div>
 
             {/* إجراءات الحالة */}
             <div className="mb-4">
-              <p className="text-[11px] font-bold text-[#64748B] mb-2">تحديث حالة الشحنة</p>
+              <p className="text-[11px] font-bold text-ink-muted mb-2">{d.detailUpdateStatus}</p>
               {STATUS_TRANSITIONS[selectedShipment.status].length === 0 ? (
-                <p className="text-[11px] text-slate-400">الشحنة في حالتها النهائية - لا يوجد انتقال آخر متاح.</p>
+                <p className="text-[11px] text-ink-faint">{d.detailFinalState}</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {STATUS_TRANSITIONS[selectedShipment.status].map((next) => (
@@ -839,7 +892,7 @@ export default function DashboardClient({
                       onClick={() => requestTransition(selectedShipment, next)}
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition disabled:opacity-50 ${STATUS_COLORS[next].bg} ${STATUS_COLORS[next].text} ${STATUS_COLORS[next].border} hover:brightness-95`}
                     >
-                      {STATUS_LABELS[next]}
+                      {t.shipmentStatus[next]}
                     </button>
                   ))}
                 </div>
@@ -849,16 +902,16 @@ export default function DashboardClient({
             {/* تعيين مندوب */}
             {role === 'admin' && (
               <div className="mb-4">
-                <p className="text-[11px] font-bold text-[#64748B] mb-2 flex items-center gap-1.5">
-                  <Truck size={13} /> المندوب المخصص
+                <p className="text-[11px] font-bold text-ink-muted mb-2 flex items-center gap-1.5">
+                  <Truck size={13} /> {d.detailAssignedCourier}
                 </p>
                 <select
                   value={selectedShipment.courier_id || ''}
                   disabled={updatingId === selectedShipment.id}
                   onChange={(e) => assignCourier(selectedShipment, e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs outline-none bg-white"
+                  className="w-full px-3 py-2 rounded-xl border border-line text-xs outline-none bg-surface"
                 >
-                  <option value="">غير مُعيَّن</option>
+                  <option value="">{d.unassigned}</option>
                   {initialCouriers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -871,8 +924,8 @@ export default function DashboardClient({
             {/* حالة التسوية */}
             {role === 'admin' && (
               <div className="mb-2">
-                <p className="text-[11px] font-bold text-[#64748B] mb-2 flex items-center gap-1.5">
-                  <ClipboardList size={13} /> حالة التسوية المالية
+                <p className="text-[11px] font-bold text-ink-muted mb-2 flex items-center gap-1.5">
+                  <ClipboardList size={13} /> {d.detailSettlementTitle}
                 </p>
                 <div className="flex gap-2">
                   {(['PENDING', 'DEPOSITED', 'DEFERRED'] as SettlementStatus[]).map((st) => (
@@ -883,10 +936,10 @@ export default function DashboardClient({
                       className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-bold border transition disabled:opacity-50 ${
                         selectedShipment.settlement_status === st
                           ? `${SETTLEMENT_COLORS[st].bg} ${SETTLEMENT_COLORS[st].text} ${SETTLEMENT_COLORS[st].border}`
-                          : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                          : 'bg-surface text-ink-muted border-line hover:bg-surface-2'
                       }`}
                     >
-                      {SETTLEMENT_LABELS[st]}
+                      {t.settlementStatus[st]}
                     </button>
                   ))}
                 </div>
@@ -900,31 +953,33 @@ export default function DashboardClient({
       {reasonPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setReasonPrompt(null)} />
-          <div className="relative bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl">
+          <div className="relative bg-surface rounded-2xl p-5 w-full max-w-sm shadow-2xl">
             <h3 className="font-bold text-sm mb-1">
-              {reasonPrompt.target === 'POSTPONED' ? 'سبب تأجيل التسليم' : 'سبب إرجاع الشحنة'}
+              {reasonPrompt.target === 'POSTPONED' ? d.reasonPostponeTitle : d.reasonReturnTitle}
             </h3>
-            <p className="text-[11px] text-slate-500 mb-3">شحنة {reasonPrompt.shipment.tracking_number} — السبب إلزامي حسب سياسة المطابقة المالية.</p>
+            <p className="text-[11px] text-ink-muted mb-3">
+              {fill(d.reasonHint, { tracking: reasonPrompt.shipment.tracking_number })}
+            </p>
             <textarea
               value={reasonText}
               onChange={(e) => setReasonText(e.target.value)}
               rows={3}
-              placeholder="مثال: الزبون لم يرد على الاتصال، أو: تم رفض الاستلام من قبل الزبون"
-              className="w-full p-2.5 rounded-xl border border-[#E2E8F0] text-xs outline-none focus:border-[#253765] mb-3"
+              placeholder={d.reasonPlaceholder}
+              className="w-full p-2.5 rounded-xl border border-line text-xs outline-none focus:border-[#253765] mb-3"
             />
             <div className="flex gap-2">
               <button
                 onClick={() => setReasonPrompt(null)}
-                className="flex-1 py-2 rounded-xl border border-[#E2E8F0] text-xs font-bold text-slate-600 hover:bg-slate-50"
+                className="flex-1 py-2 rounded-xl border border-line text-xs font-bold text-ink-muted hover:bg-surface-2"
               >
-                إلغاء
+                {d.reasonCancel}
               </button>
               <button
                 onClick={confirmReasonTransition}
                 disabled={updatingId === reasonPrompt.shipment.id}
-                className="flex-1 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white text-xs font-bold disabled:opacity-50"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover text-white text-xs font-bold disabled:opacity-50"
               >
-                تأكيد
+                {d.reasonConfirm}
               </button>
             </div>
           </div>

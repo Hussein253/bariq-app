@@ -10,8 +10,11 @@
  */
 
 import type { Dictionary } from './ar'
+import { kuApp } from './ku.app'
 
 export const ku: Dictionary = {
+  app: kuApp,
+
   brand: {
     name: 'بەرق',
     latin: 'BARIQ PLATFORM',
