@@ -316,7 +316,33 @@ export const en: Dictionary = {
     operations: 'Operations console',
     support: 'Customer support',
     tracking: 'Shipment tracking',
+    status: 'System status',
     rights: '© {year} Bariq — Al-Mandoob Express Delivery',
+  },
+
+  status: {
+    metaTitle: 'System status | Bariq',
+    title: 'System status',
+    subtitle: 'Live updates on the health of the Bariq platform',
+    overallOperational: 'All systems operational',
+    overallDegraded: 'Some systems need attention',
+    lastChecked: 'Last checked: {time}',
+    backToPlatform: 'Back to the platform page',
+    components: {
+      api: 'API',
+      dashboard: 'Merchant dashboard',
+      database: 'Database',
+      metaWebhooks: 'WhatsApp event intake (Meta)',
+      aiBrain: 'Reply automation (n8n)',
+    },
+    states: {
+      operational: 'Operational',
+      down: 'Down',
+      configured: 'Configured',
+      not_configured: 'Not configured',
+    },
+    legendNote:
+      'These checks are real and run on every visit. "Configured" means the path has its required secret or URL set — not that an external event actually reached it this instant: this app has no visibility inside Meta’s network or n8n’s workflow.',
   },
 
   session: {

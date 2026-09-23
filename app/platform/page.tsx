@@ -446,6 +446,7 @@ export default async function Home() {
             <Link href="/operations" className="hover:text-brand-text transition">{t.footer.operations}</Link>
             <Link href="/operations/chats" className="hover:text-brand-text transition">{t.footer.support}</Link>
             <Link href="/dashboard" className="hover:text-brand-text transition">{t.footer.tracking}</Link>
+            <Link href="/status" className="hover:text-brand-text transition">{t.footer.status}</Link>
           </nav>
           <p>{fill(t.footer.rights, { year: localizeDigits(new Date().getFullYear(), locale) })}</p>
         </div>
