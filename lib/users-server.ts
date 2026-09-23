@@ -38,9 +38,18 @@ export interface CreateUserInput {
   storeName?: string | null
 }
 
+/** رمز سبب الفشل — تترجمه الواجهة، ويبقى error نصاً للسجلّ. */
+export type CreateUserErrorCode =
+  | 'invalidEmail'
+  | 'unknownRole'
+  | 'merchantRequired'
+  | 'emailTaken'
+  | 'createFailed'
+  | 'roleFailed'
+
 export type CreateUserResult =
   | { ok: true; email: string; password: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; code: CreateUserErrorCode }
 
 /**
  * أبجدية بلا محارف يلتبس بعضها ببعض (0/O و1/l/I).
@@ -104,17 +113,17 @@ export async function createPlatformUser(input: CreateUserInput): Promise<Create
   const email = input.email.trim().toLowerCase()
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { ok: false, error: 'بريد إلكتروني غير صالح' }
+    return { ok: false, error: 'بريد إلكتروني غير صالح', code: 'invalidEmail' }
   }
   if (!isAppRole(input.role)) {
-    return { ok: false, error: 'دور غير معروف' }
+    return { ok: false, error: 'دور غير معروف', code: 'unknownRole' }
   }
 
   // يطابق قيد profiles_merchant_link_check: التاجر يلزمه تاجر مرتبط،
   // وغيره يجب أن يكون بلا merchant_id — وإلا رفضت القاعدة الصف.
   const merchantId = input.role === 'merchant' ? input.merchantId?.trim() || null : null
   if (input.role === 'merchant' && !merchantId) {
-    return { ok: false, error: 'التاجر يلزمه اختيار المتجر المرتبط به' }
+    return { ok: false, error: 'التاجر يلزمه اختيار المتجر المرتبط به', code: 'merchantRequired' }
   }
 
   const password = generatePassword()
@@ -129,9 +138,9 @@ export async function createPlatformUser(input: CreateUserInput): Promise<Create
     const reason = createError?.message ?? 'سبب غير معروف'
     log.warn('USER_CREATE_FAILED', { reason })
     if (/already/i.test(reason) || /registered/i.test(reason)) {
-      return { ok: false, error: 'هذا البريد مسجَّل مسبقاً' }
+      return { ok: false, error: 'هذا البريد مسجَّل مسبقاً', code: 'emailTaken' }
     }
-    return { ok: false, error: 'تعذّر إنشاء الحساب' }
+    return { ok: false, error: 'تعذّر إنشاء الحساب', code: 'createFailed' }
   }
 
   const { error: profileError } = await supabaseServer.from('profiles').insert({
@@ -146,7 +155,7 @@ export async function createPlatformUser(input: CreateUserInput): Promise<Create
     // غامضاً. نحذفه بدل أن نتركه معلّقاً.
     await supabaseServer.auth.admin.deleteUser(created.user.id)
     log.error('USER_PROFILE_INSERT_FAILED', { reason: profileError.message })
-    return { ok: false, error: 'تعذّر ضبط الصلاحية — أُلغي الحساب' }
+    return { ok: false, error: 'تعذّر ضبط الصلاحية — أُلغي الحساب', code: 'roleFailed' }
   }
 
   log.info('USER_CREATED', { user_id: created.user.id, role: input.role })

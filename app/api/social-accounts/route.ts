@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { planLimitFailure } from '@/lib/plan-limits'
 import { requireMerchantScope } from '@/lib/api-session'
+import { apiMessages } from '@/lib/i18n/api'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,11 +18,12 @@ const PLATFORMS = ['whatsapp', 'instagram', 'messenger']
 const STATUSES = ['connected', 'needs_reauth', 'disconnected']
 
 export async function GET(request: Request) {
+  const t = await apiMessages()
   const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant_id'))
   if (!scope.ok) return scope.response
   const merchantId = scope.merchantId
   if (!merchantId) {
-    return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
+    return NextResponse.json({ success: false, error: t.merchantIdRequired }, { status: 400 })
   }
 
   const { data, error } = await supabaseServer
@@ -39,6 +41,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as {
       merchant_id?: string
@@ -55,13 +58,13 @@ export async function POST(request: Request) {
 
     const platform = String(body.platform || '')
     if (!PLATFORMS.includes(platform)) {
-      return NextResponse.json({ success: false, error: 'المنصة غير مدعومة' }, { status: 422 })
+      return NextResponse.json({ success: false, error: t.accounts.platformUnsupported }, { status: 422 })
     }
 
     const externalId = body.external_id?.trim()
     if (!externalId) {
       return NextResponse.json(
-        { success: false, error: 'معرّف الحساب لدى Meta مطلوب' },
+        { success: false, error: t.accounts.externalIdRequired },
         { status: 422 }
       )
     }
@@ -89,7 +92,7 @@ export async function POST(request: Request) {
       }
       if (error.code === '23505') {
         return NextResponse.json(
-          { success: false, error: 'هذا الحساب مربوط بالفعل — لا يُربط حساب واحد بتاجرين' },
+          { success: false, error: t.accounts.alreadyLinked },
           { status: 409 }
         )
       }
@@ -99,12 +102,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, account: data }, { status: 201 })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر ربط الحساب'
+    const message = error instanceof Error ? error.message : t.accounts.linkFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
 
 export async function PATCH(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as {
       id?: string
@@ -121,7 +125,7 @@ export async function PATCH(request: Request) {
 
     if (!body.id) {
       return NextResponse.json(
-        { success: false, error: 'معرّف الحساب مطلوب' },
+        { success: false, error: t.accounts.idRequired },
         { status: 400 }
       )
     }
@@ -138,13 +142,13 @@ export async function PATCH(request: Request) {
 
     if (body.status !== undefined) {
       if (!STATUSES.includes(body.status)) {
-        return NextResponse.json({ success: false, error: 'حالة غير صالحة' }, { status: 422 })
+        return NextResponse.json({ success: false, error: t.accounts.invalidStatus }, { status: 422 })
       }
       patch.status = body.status
     }
 
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json({ success: false, error: 'لا يوجد تغيير' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.noChange }, { status: 400 })
     }
     patch.updated_at = new Date().toISOString()
 
@@ -160,18 +164,19 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 })
     }
     if (!data) {
-      return NextResponse.json({ success: false, error: 'الحساب غير موجود' }, { status: 404 })
+      return NextResponse.json({ success: false, error: t.accounts.notFound }, { status: 404 })
     }
 
     return NextResponse.json({ success: true, account: data })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر تحديث الحساب'
+    const message = error instanceof Error ? error.message : t.accounts.updateFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
 
 /** فكّ الربط يحذف الصف ويحرّر مقعداً من حدّ الباقة. */
 export async function DELETE(request: Request) {
+  const t = await apiMessages()
   const params = new URL(request.url).searchParams
   const id = params.get('id')
   const scope = await requireMerchantScope(params.get('merchant_id'))
@@ -180,7 +185,7 @@ export async function DELETE(request: Request) {
 
   if (!id || !merchantId) {
     return NextResponse.json(
-      { success: false, error: 'معرّف الحساب مطلوب' },
+      { success: false, error: t.accounts.idRequired },
       { status: 400 }
     )
   }

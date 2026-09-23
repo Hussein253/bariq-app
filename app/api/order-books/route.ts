@@ -2,17 +2,19 @@ import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { planLimitFailure } from '@/lib/plan-limits'
 import { requireMerchantScope } from '@/lib/api-session'
+import { apiFill, apiMessages } from '@/lib/i18n/api'
 
 export const dynamic = 'force-dynamic'
 
 /** سجلات الطلبات — public.order_books. خط استقبال طلبات مستقل لكل فرع أو نشاط. */
 
 export async function GET(request: Request) {
+  const t = await apiMessages()
   const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant_id'))
   if (!scope.ok) return scope.response
   const merchantId = scope.merchantId
   if (!merchantId) {
-    return NextResponse.json({ success: false, error: 'معرّف التاجر مطلوب' }, { status: 400 })
+    return NextResponse.json({ success: false, error: t.merchantIdRequired }, { status: 400 })
   }
 
   const { data, error } = await supabaseServer
@@ -46,6 +48,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as {
       merchant_id?: string
@@ -59,7 +62,7 @@ export async function POST(request: Request) {
 
     const name = body.name?.trim()
     if (!name) {
-      return NextResponse.json({ success: false, error: 'اسم السجل مطلوب' }, { status: 422 })
+      return NextResponse.json({ success: false, error: t.books.nameRequired }, { status: 422 })
     }
 
     // أول سجل للتاجر يصير الافتراضي تلقائياً: طلب بلا سجل يضيع
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
       }
       if (error.code === '23505') {
         return NextResponse.json(
-          { success: false, error: 'لديك سجل بهذا الاسم، أو سجل افتراضي آخر' },
+          { success: false, error: t.books.duplicate },
           { status: 409 }
         )
       }
@@ -98,12 +101,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, book: data }, { status: 201 })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر إنشاء السجل'
+    const message = error instanceof Error ? error.message : t.books.createFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
 
 export async function PATCH(request: Request) {
+  const t = await apiMessages()
   try {
     const body = (await request.json()) as {
       id?: string
@@ -118,7 +122,7 @@ export async function PATCH(request: Request) {
 
     if (!body.id) {
       return NextResponse.json(
-        { success: false, error: 'معرّف السجل مطلوب' },
+        { success: false, error: t.books.idRequired },
         { status: 400 }
       )
     }
@@ -139,7 +143,7 @@ export async function PATCH(request: Request) {
     if (body.name !== undefined) {
       const name = body.name.trim()
       if (!name) {
-        return NextResponse.json({ success: false, error: 'اسم السجل مطلوب' }, { status: 422 })
+        return NextResponse.json({ success: false, error: t.books.nameRequired }, { status: 422 })
       }
       patch.name = name
     }
@@ -157,17 +161,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 })
     }
     if (!data) {
-      return NextResponse.json({ success: false, error: 'السجل غير موجود' }, { status: 404 })
+      return NextResponse.json({ success: false, error: t.books.notFound }, { status: 404 })
     }
 
     return NextResponse.json({ success: true, book: data })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'تعذّر تحديث السجل'
+    const message = error instanceof Error ? error.message : t.books.updateFailed
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
 
 export async function DELETE(request: Request) {
+  const t = await apiMessages()
   const params = new URL(request.url).searchParams
   const id = params.get('id')
   const scope = await requireMerchantScope(params.get('merchant_id'))
@@ -176,7 +181,7 @@ export async function DELETE(request: Request) {
 
   if (!id || !merchantId) {
     return NextResponse.json(
-      { success: false, error: 'معرّف السجل مطلوب' },
+      { success: false, error: t.books.idRequired },
       { status: 400 }
     )
   }
@@ -192,7 +197,7 @@ export async function DELETE(request: Request) {
   }
   if ((count ?? 0) > 0) {
     return NextResponse.json(
-      { success: false, error: `السجل يحتوي ${count} طلباً — انقلها أو أفرغه أولاً` },
+      { success: false, error: apiFill(t.books.hasOrders, { n: count ?? 0 }) },
       { status: 409 }
     )
   }

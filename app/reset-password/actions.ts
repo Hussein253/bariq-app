@@ -4,6 +4,9 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/session'
 import { log } from '@/lib/log'
+import { getTranslations } from '@/lib/i18n/server'
+import { fill } from '@/lib/i18n'
+import { localizeDigits } from '@/lib/formatters'
 
 /**
  * تعيين كلمة مرور جديدة بعد الوصول من رابط البريد
@@ -28,12 +31,15 @@ export async function updatePasswordAction(
 ): Promise<ResetState> {
   const password = String(formData.get('password') || '')
   const confirm = String(formData.get('confirm') || '')
+  const { locale, t } = await getTranslations()
 
   if (password.length < MIN_LENGTH) {
-    return { error: `كلمة المرور يجب أن تكون ${MIN_LENGTH} محارف على الأقل` }
+    return {
+      error: fill(t.reset.errors.shortPassword, { n: localizeDigits(MIN_LENGTH, locale) }),
+    }
   }
   if (password !== confirm) {
-    return { error: 'الكلمتان غير متطابقتين' }
+    return { error: t.reset.errors.mismatch }
   }
 
   const supabase = await createSessionClient()
@@ -42,13 +48,13 @@ export async function updatePasswordAction(
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return { error: 'انتهت صلاحية الرابط. اطلب رابطاً جديداً من صفحة تغيير كلمة المرور.' }
+    return { error: t.reset.errors.expired }
   }
 
   const { error } = await supabase.auth.updateUser({ password })
   if (error) {
     log.warn('PASSWORD_UPDATE_FAILED', { reason: error.message })
-    return { error: 'تعذّر تغيير كلمة المرور. جرّب كلمة أخرى أو اطلب رابطاً جديداً.' }
+    return { error: t.reset.errors.failed }
   }
 
   log.info('PASSWORD_UPDATED', { user_id: user.id })

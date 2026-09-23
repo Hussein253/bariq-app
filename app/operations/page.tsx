@@ -1,5 +1,6 @@
 import { requireRole } from '@/lib/auth'
 import OperationsClient from './OperationsClient'
+import { getTranslations } from '@/lib/i18n/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,5 +16,14 @@ export const dynamic = 'force-dynamic'
 export default async function OperationsPage() {
   await requireRole(['platform_owner', 'staff'])
 
-  return <OperationsClient />
+  // اللوحة نفسها عربية بعد؛ نافذة الحجز داخلها مترجَمة فتحتاج لغتها.
+  const { locale, t } = await getTranslations()
+
+  return (
+    <OperationsClient
+      locale={locale}
+      currency={t.pricing.price.currency}
+      bookingT={t.app.booking}
+    />
+  )
 }

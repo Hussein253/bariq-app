@@ -5,24 +5,27 @@ import { useFormStatus } from 'react-dom'
 import Link from 'next/link'
 import { AlertCircle, LogIn } from 'lucide-react'
 import { signIn, type LoginState } from './actions'
+import type { Dictionary } from '@/lib/i18n'
 
 const INITIAL: LoginState = { error: null }
 
-function SubmitButton() {
+type LoginCopy = Dictionary['login']
+
+function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   const { pending } = useFormStatus()
 
   return (
     <button
       type="submit"
       disabled={pending}
-      className="w-full inline-flex items-center justify-center gap-2 bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-60 text-white text-sm font-bold rounded-xl px-5 py-3 transition-colors"
+      className="w-full inline-flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover disabled:opacity-60 text-on-brand text-sm font-bold rounded-xl px-5 py-3 transition-colors"
     >
       {pending ? (
         <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
       ) : (
         <LogIn size={16} />
       )}
-      {pending ? 'جارٍ التحقق…' : 'تسجيل الدخول'}
+      {pending ? pendingLabel : label}
     </button>
   )
 }
@@ -30,9 +33,11 @@ function SubmitButton() {
 export default function LoginForm({
   next,
   initialError,
+  t,
 }: {
   next: string | null
   initialError?: string | null
+  t: LoginCopy
 }) {
   const [state, formAction] = useActionState(signIn, INITIAL)
   // يُتتبَّع ليُمرَّر إلى صفحة الاستعادة، فلا يُعيد المستخدم كتابته هناك
@@ -50,8 +55,8 @@ export default function LoginForm({
       {next && <input type="hidden" name="next" value={next} />}
 
       <div className="space-y-1.5">
-        <label htmlFor="email" className="block text-xs font-bold text-slate-700">
-          البريد الإلكتروني
+        <label htmlFor="email" className="block text-xs font-bold text-ink">
+          {t.email}
         </label>
         <input
           id="email"
@@ -62,13 +67,13 @@ export default function LoginForm({
           dir="ltr"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 text-left outline-none focus:border-[#253765] transition-colors"
+          className="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-ink text-left outline-none focus:border-brand transition-colors"
         />
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="password" className="block text-xs font-bold text-slate-700">
-          كلمة المرور
+        <label htmlFor="password" className="block text-xs font-bold text-ink">
+          {t.password}
         </label>
         <input
           id="password"
@@ -77,30 +82,27 @@ export default function LoginForm({
           required
           autoComplete="current-password"
           dir="ltr"
-          className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 text-left outline-none focus:border-[#253765] transition-colors"
+          className="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-ink text-left outline-none focus:border-brand transition-colors"
         />
       </div>
 
       <div className="flex justify-start">
-        <Link
-          href={forgotHref}
-          className="text-[11px] font-bold text-[#253765] hover:underline"
-        >
-          نسيت كلمة المرور؟
+        <Link href={forgotHref} className="text-[11px] font-bold text-brand-text hover:underline">
+          {t.forgot}
         </Link>
       </div>
 
       {shownError && (
         <p
           role="alert"
-          className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-800"
+          className="flex items-start gap-2 rounded-xl border border-danger-line bg-danger-bg px-3 py-2.5 text-xs font-semibold text-danger-ink"
         >
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           {shownError}
         </p>
       )}
 
-      <SubmitButton />
+      <SubmitButton label={t.submit} pendingLabel={t.submitting} />
     </form>
   )
 }

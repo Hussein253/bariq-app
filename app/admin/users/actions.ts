@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireRole } from '@/lib/auth'
 import { createPlatformUser } from '@/lib/users-server'
 import { isAppRole } from '@/lib/roles'
+import { getTranslations } from '@/lib/i18n/server'
 
 // ⚠️ ملف 'use server' لا يصدّر إلا دوالّ غير متزامنة — الحالة الأولية في
 // مكوّن العميل، والأنواع وحدها تُصدَّر من هنا لأنها تُمحى عند الترجمة.
@@ -29,8 +30,10 @@ export async function createUserAction(
   const merchantId = String(formData.get('merchant_id') || '')
   const storeName = String(formData.get('store_name') || '')
 
+  const { t } = await getTranslations()
+
   if (!isAppRole(roleRaw)) {
-    return { error: 'اختر الدور', created: null }
+    return { error: t.app.users.errors.chooseRole, created: null }
   }
 
   const result = await createPlatformUser({
@@ -41,7 +44,8 @@ export async function createUserAction(
   })
 
   if (!result.ok) {
-    return { error: result.error, created: null }
+    // الرمز لا النصّ: نصّ الوحدة عربي ثابت، والمالك قد يعمل بالإنجليزية.
+    return { error: t.app.users.errors[result.code], created: null }
   }
 
   revalidatePath('/admin/users')

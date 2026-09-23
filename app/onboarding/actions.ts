@@ -6,6 +6,7 @@ import { createSessionClient } from '@/lib/supabase/session'
 import { homeForRole } from '@/lib/roles'
 import { provisionSelfServeMerchant } from '@/lib/merchant-onboarding'
 import { log } from '@/lib/log'
+import { getTranslations } from '@/lib/i18n/server'
 
 // ⚠️ ملف 'use server' لا يصدّر إلا دوالّ غير متزامنة — الحالة الأولية في
 // مكوّن العميل، والأنواع وحدها تُصدَّر من هنا لأنها تُمحى عند الترجمة.
@@ -34,7 +35,10 @@ export async function completeOnboardingAction(
   const result = await provisionSelfServeMerchant(user.id, user.email ?? null, storeName)
 
   if (!result.ok) {
-    return { error: result.error }
+    // ⚠️ الرسالة تُختار برمز السبب من قاموس لغة المستخدم لا من نصّ الوحدة:
+    // نصّها هناك عربي ثابت، ومن سجّل بالكردية يستحق أن يفهم سبب التوقّف.
+    const { t } = await getTranslations()
+    return { error: t.onboarding.errors[result.code] }
   }
 
   log.info('ONBOARDING_COMPLETED', { user_id: user.id, role: result.profile.role })

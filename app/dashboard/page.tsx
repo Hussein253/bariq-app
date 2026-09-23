@@ -2,12 +2,15 @@ import { supabaseServer } from '@/lib/supabase-server'
 import DashboardClient from './DashboardClient'
 import type { Shipment, Merchant, Courier } from '@/lib/shipments'
 import { requireRole } from '@/lib/auth'
+import { getTranslations } from '@/lib/i18n/server'
 
 // بيانات حقيقية (شحن، تجار، مندوبين) - تُجلب في كل زيارة، لا تخزين مؤقت
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
   await requireRole(['platform_owner', 'staff'])
+
+  const { locale, t } = await getTranslations()
 
   const [shipmentsRes, merchantsRes, couriersRes, ordersRes] = await Promise.all([
     supabaseServer.from('shipments').select('*').order('created_at', { ascending: false }),
@@ -29,8 +32,8 @@ export default async function DashboardPage() {
 
   const shipments: Shipment[] = ((shipmentsRes.data || []) as Shipment[]).map((s) => ({
     ...s,
-    merchant_name: merchantMap.get(s.merchant_id) || 'تاجر غير معروف',
-    courier_name: s.courier_id ? courierMap.get(s.courier_id) || 'مندوب غير معروف' : null,
+    merchant_name: merchantMap.get(s.merchant_id) || t.app.dashboard.unknownMerchant,
+    courier_name: s.courier_id ? courierMap.get(s.courier_id) || t.app.dashboard.unknownCourier : null,
     order_content: orderContentMap.get(s.order_id) ?? null,
   }))
 
@@ -42,6 +45,9 @@ export default async function DashboardPage() {
       initialMerchants={merchants}
       initialCouriers={couriers}
       loadError={loadError}
+      locale={locale}
+      currency={t.pricing.price.currency}
+      t={t.app}
     />
   )
 }

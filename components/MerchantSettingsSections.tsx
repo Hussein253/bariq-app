@@ -23,9 +23,27 @@ import {
   type DeliverySettings,
   type MerchantProfile,
 } from '@/lib/merchant-settings'
-import { formatArabicCurrency, toArabicDigits } from '@/lib/formatters'
+import { formatNumberFor, localizeDigits } from '@/lib/formatters'
+import { fill, type Dictionary } from '@/lib/i18n'
+import type { Locale } from '@/lib/i18n/config'
 
 type Toast = { message: string; type: 'success' | 'error' }
+
+type SettingsCopy = Dictionary['app']['settings']
+type GovernorateLabels = Dictionary['app']['booking']['governorates']
+
+/**
+ * ⚠️ اللغة تصل خاصيةً لا استيراداً: هذه مكوّنات عميل، والقاموس كله لا يعبر
+ * إلى حزمة المتصفّح. و`currency` و`governorates` تأتيان من قاموس الأسعار
+ * والحجز فلا يُكتب الرمز ولا أسماء المحافظات في مكانين.
+ */
+export interface SettingsProps {
+  merchantId: string
+  locale: Locale
+  currency: string
+  t: SettingsCopy
+  governorates: GovernorateLabels
+}
 
 function useToast() {
   const [toast, setToast] = useState<Toast | null>(null)
@@ -40,15 +58,15 @@ function ToastBar({ toast, onClose }: { toast: Toast | null; onClose: () => void
   if (!toast) return null
   return (
     <div
-      className={`fixed bottom-6 left-6 z-50 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-xl ${
+      className={`fixed bottom-6 start-6 z-50 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-xl ${
         toast.type === 'success'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          : 'border-rose-200 bg-rose-50 text-rose-800'
+          ? 'border-success-line bg-success-bg text-success-ink'
+          : 'border-danger-line bg-danger-bg text-danger-ink'
       }`}
     >
       {toast.type === 'success' ? <Check size={16} /> : <AlertCircle size={16} />}
       <span className="text-xs font-semibold">{toast.message}</span>
-      <button onClick={onClose} className="text-slate-400 hover:text-slate-700 mr-2">
+      <button onClick={onClose} className="text-ink-faint hover:text-ink ms-2">
         <X size={14} />
       </button>
     </div>
@@ -69,15 +87,15 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden">
-      <div className="p-5 border-b border-[#E2E8F0] bg-[#FAFAFA] flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+    <section className="rounded-2xl bg-surface border border-line overflow-hidden">
+      <div className="p-5 border-b border-line bg-surface-2 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-[#253765]/10 text-[#253765] flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-brand-soft text-brand-text flex items-center justify-center shrink-0">
             <Icon size={19} />
           </div>
           <div className="min-w-0">
-            <h2 className="font-black text-sm text-[#0F172A]">{title}</h2>
-            <p className="text-[11px] text-[#64748B] mt-0.5 leading-relaxed">{description}</p>
+            <h2 className="font-black text-sm text-ink">{title}</h2>
+            <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">{description}</p>
           </div>
         </div>
         {action}
@@ -88,7 +106,7 @@ function SectionCard({
 }
 
 const inputClass =
-  'w-full px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs outline-none focus:border-[#253765] bg-white'
+  'w-full px-3 py-2 rounded-xl border border-line text-xs text-ink outline-none focus:border-brand bg-surface'
 
 function Field({
   label,
@@ -101,9 +119,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-[11px] font-bold text-[#475569] mb-1.5">{label}</span>
+      <span className="block text-[11px] font-bold text-ink-muted mb-1.5">{label}</span>
       {children}
-      {hint && <span className="block text-[10px] text-slate-400 mt-1">{hint}</span>}
+      {hint && <span className="block text-[10px] text-ink-faint mt-1">{hint}</span>}
     </label>
   )
 }
@@ -126,9 +144,13 @@ const EMPTY_COUPON = {
 export function OrderBooksSection({
   merchantId,
   limit,
+  locale,
+  t,
 }: {
   merchantId: string
   limit: number
+  locale: Locale
+  t: SettingsCopy
 }) {
   const [books, setBooks] = useState<
     { id: string; name: string; is_default: boolean; orders_count: number }[]
@@ -143,14 +165,14 @@ export function OrderBooksSection({
     try {
       const res = await fetch(`/api/order-books?merchant_id=${merchantId}`, { cache: 'no-store' })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التحميل')
+      if (!res.ok || !json.success) throw new Error(json.error || t.loadFailed)
       setBooks(json.books)
     } catch (err: unknown) {
-      show(err instanceof Error ? err.message : 'تعذّر التحميل', 'error')
+      show(err instanceof Error ? err.message : t.loadFailed, 'error')
     } finally {
       setLoading(false)
     }
-  }, [merchantId, show])
+  }, [merchantId, show, t.loadFailed])
 
   useEffect(() => {
     void (async () => {
@@ -171,12 +193,12 @@ export function OrderBooksSection({
         body: JSON.stringify({ merchant_id: merchantId, name }),
       })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'فشل الإنشاء')
+      if (!res.ok || !json.success) throw new Error(json.error || t.createFailed)
       setNewName('')
       await load()
-      show('أُنشئ السجل')
+      show(t.books.created)
     } catch (err: unknown) {
-      show(err instanceof Error ? err.message : 'فشل الإنشاء', 'error')
+      show(err instanceof Error ? err.message : t.createFailed, 'error')
     } finally {
       setBusy(false)
     }
@@ -189,11 +211,11 @@ export function OrderBooksSection({
         method: 'DELETE',
       })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'فشل الحذف')
+      if (!res.ok || !json.success) throw new Error(json.error || t.deleteFailed)
       await load()
-      show('حُذف السجل')
+      show(t.books.deleted)
     } catch (err: unknown) {
-      show(err instanceof Error ? err.message : 'فشل الحذف', 'error')
+      show(err instanceof Error ? err.message : t.deleteFailed, 'error')
     } finally {
       setBusy(false)
     }
@@ -204,41 +226,42 @@ export function OrderBooksSection({
       <ToastBar toast={toast} onClose={clear} />
       <SectionCard
         icon={Package}
-        title="سجلات الطلبات"
-        description={`خط استقبال طلبات مستقل لكل فرع أو نشاط. ${toArabicDigits(
-          books.length
-        )} من ${toArabicDigits(limit)}`}
+        title={t.books.title}
+        description={fill(t.books.description, {
+          used: localizeDigits(books.length, locale),
+          limit: localizeDigits(limit, locale),
+        })}
       >
         {loading ? (
-          <p className="text-xs text-[#64748B] py-4 text-center">جارِ التحميل...</p>
+          <p className="text-xs text-ink-muted py-4 text-center">{t.loading}</p>
         ) : (
           <div className="space-y-3">
             {books.length === 0 && (
-              <p className="text-xs text-[#64748B] py-2">لا سجل بعد — أنشئ السجل الرئيسي.</p>
+              <p className="text-xs text-ink-muted py-2">{t.books.empty}</p>
             )}
             {books.map((b) => (
               <div
                 key={b.id}
-                className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]"
+                className="flex items-center justify-between gap-3 p-3 rounded-xl border border-line bg-surface-2"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-bold text-[#0F172A]">{b.name}</p>
+                    <p className="text-xs font-bold text-ink">{b.name}</p>
                     {b.is_default && (
-                      <span className="px-2 py-0.5 rounded-full bg-[#253765]/10 text-[#253765] text-[10px] font-bold">
-                        الافتراضي
+                      <span className="px-2 py-0.5 rounded-full bg-brand-soft text-brand-text text-[10px] font-bold">
+                        {t.books.default}
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] text-[#64748B] mt-0.5">
-                    {toArabicDigits(b.orders_count)} طلب
+                  <p className="text-[10px] text-ink-muted mt-0.5">
+                    {fill(t.books.ordersCount, { n: localizeDigits(b.orders_count, locale) })}
                   </p>
                 </div>
                 <button
                   onClick={() => remove(b.id)}
                   disabled={busy}
-                  className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                  title="حذف"
+                  className="p-2 rounded-lg text-danger-ink hover:bg-danger-bg disabled:opacity-40"
+                  title={t.delete}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -246,24 +269,24 @@ export function OrderBooksSection({
             ))}
 
             {full ? (
-              <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                بلغت حدّ باقتك: {toArabicDigits(limit)} سجل. الترقية تفتح المزيد.
+              <p className="text-[11px] font-bold text-warn-ink bg-warn-bg border border-warn-line rounded-xl px-3 py-2">
+                {fill(t.books.full, { n: localizeDigits(limit, locale) })}
               </p>
             ) : (
               <div className="flex gap-2">
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="اسم السجل الجديد"
-                  className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#253765]"
+                  placeholder={t.books.newNamePlaceholder}
+                  className="flex-1 bg-surface-2 border border-line rounded-xl px-3 py-2 text-xs text-ink outline-none focus:border-brand"
                 />
                 <button
                   onClick={create}
                   disabled={busy || !newName.trim()}
-                  className="px-4 py-2 rounded-xl bg-[#253765] text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
+                  className="px-4 py-2 rounded-xl bg-brand text-on-brand text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
                 >
                   <Plus size={14} />
-                  <span>إضافة</span>
+                  <span>{t.add}</span>
                 </button>
               </div>
             )}
@@ -274,7 +297,7 @@ export function OrderBooksSection({
   )
 }
 
-export function CouponsSection({ merchantId }: { merchantId: string }) {
+export function CouponsSection({ merchantId, locale, currency, t }: Omit<SettingsProps, 'governorates'>) {
   const [coupons, setCoupons] = useState<Coupon[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -282,6 +305,10 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const { toast, show, clear } = useToast()
+  const c = t.coupons
+
+  const money = (value: number | string | null | undefined) =>
+    `${formatNumberFor(locale, Number(value ?? 0))} ${currency}`
 
   // التحميل داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
   // setState متزامن هناك يُطلق دورات تصيير متتالية.
@@ -295,7 +322,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
         if (!res.ok || !json.success) throw new Error(json.error)
         if (!cancelled) setCoupons(json.coupons as Coupon[])
       } catch (e) {
-        if (!cancelled) show(e instanceof Error ? e.message : 'تعذّر تحميل الكوبونات', 'error')
+        if (!cancelled) show(e instanceof Error ? e.message : t.loadFailed, 'error')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -303,7 +330,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
     return () => {
       cancelled = true
     }
-  }, [merchantId, show])
+  }, [merchantId, show, t.loadFailed])
 
   const handleCreate = async () => {
     const payload = {
@@ -318,7 +345,8 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
 
     const errors = validateCoupon(payload)
     if (errors.length > 0) {
-      show(errors[0].message, 'error')
+      // ⚠️ الرمز لا الرسالة: نصّ الوحدة عربي ثابت، والتاجر قد يعمل بالكردية.
+      show(c.errors[errors[0].code], 'error')
       return
     }
 
@@ -334,43 +362,45 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
       setCoupons((prev) => [json.coupon as Coupon, ...prev])
       setDraft(EMPTY_COUPON)
       setShowForm(false)
-      show('أُنشئ الكوبون')
+      show(c.created)
     } catch (e) {
-      show(e instanceof Error ? e.message : 'تعذّر الإنشاء', 'error')
+      show(e instanceof Error ? e.message : t.createFailed, 'error')
     } finally {
       setSaving(false)
     }
   }
 
-  const toggleActive = async (c: Coupon) => {
-    setBusyId(c.id)
+  const toggleActive = async (coupon: Coupon) => {
+    setBusyId(coupon.id)
     try {
       const res = await fetch('/api/coupons', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: c.id, merchantId, is_active: !c.is_active }),
+        body: JSON.stringify({ id: coupon.id, merchantId, is_active: !coupon.is_active }),
       })
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error)
-      setCoupons((prev) => prev.map((x) => (x.id === c.id ? (json.coupon as Coupon) : x)))
+      setCoupons((prev) => prev.map((x) => (x.id === coupon.id ? (json.coupon as Coupon) : x)))
     } catch (e) {
-      show(e instanceof Error ? e.message : 'تعذّر التحديث', 'error')
+      show(e instanceof Error ? e.message : t.updateFailed, 'error')
     } finally {
       setBusyId(null)
     }
   }
 
-  const remove = async (c: Coupon) => {
-    if (!confirm(`حذف الكوبون ${c.code}؟`)) return
-    setBusyId(c.id)
+  const remove = async (coupon: Coupon) => {
+    if (!confirm(fill(c.deleteConfirm, { code: coupon.code }))) return
+    setBusyId(coupon.id)
     try {
-      const res = await fetch(`/api/coupons?id=${c.id}&merchant=${merchantId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/coupons?id=${coupon.id}&merchant=${merchantId}`, {
+        method: 'DELETE',
+      })
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error)
-      setCoupons((prev) => prev.filter((x) => x.id !== c.id))
-      show('حُذف الكوبون')
+      setCoupons((prev) => prev.filter((x) => x.id !== coupon.id))
+      show(c.deleted)
     } catch (e) {
-      show(e instanceof Error ? e.message : 'تعذّر الحذف', 'error')
+      show(e instanceof Error ? e.message : t.deleteFailed, 'error')
     } finally {
       setBusyId(null)
     }
@@ -381,22 +411,22 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
       <ToastBar toast={toast} onClose={clear} />
       <SectionCard
         icon={Ticket}
-        title="الكوبونات"
-        description="أكواد الخصم التي يطبّقها الموظف الذكي على الطلبات داخل المحادثة."
+        title={c.title}
+        description={c.description}
         action={
           <button
             onClick={() => setShowForm((s) => !s)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs transition shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover text-on-brand font-bold text-xs transition shrink-0"
           >
             <Plus size={15} />
-            <span>إضافة كوبون</span>
+            <span>{c.addCoupon}</span>
           </button>
         }
       >
         {showForm && (
-          <div className="mb-5 p-4 rounded-xl bg-[#F8FAFC] border-2 border-[#253765]">
+          <div className="mb-5 p-4 rounded-xl bg-surface-2 border-2 border-brand">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <Field label="الرمز *" hint="حروف لاتينية وأرقام، مثل WELCOME10">
+              <Field label={c.code} hint={c.codeHint}>
                 <input
                   value={draft.code}
                   onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
@@ -404,7 +434,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
                   className={`${inputClass} font-mono`}
                 />
               </Field>
-              <Field label="نوع الخصم *">
+              <Field label={c.discountType}>
                 <select
                   value={draft.discount_type}
                   onChange={(e) =>
@@ -412,11 +442,17 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
                   }
                   className={inputClass}
                 >
-                  <option value="percent">نسبة مئوية (٪)</option>
-                  <option value="fixed">مبلغ ثابت (د.ع)</option>
+                  <option value="percent">{c.typePercent}</option>
+                  <option value="fixed">{fill(c.typeFixed, { currency })}</option>
                 </select>
               </Field>
-              <Field label={draft.discount_type === 'percent' ? 'النسبة (٪) *' : 'المبلغ (د.ع) *'}>
+              <Field
+                label={
+                  draft.discount_type === 'percent'
+                    ? c.valuePercent
+                    : fill(c.valueFixed, { currency })
+                }
+              >
                 <input
                   type="number"
                   min={0}
@@ -426,7 +462,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
                   className={inputClass}
                 />
               </Field>
-              <Field label="الحد الأدنى للطلب (د.ع)" hint="اتركه فارغاً لبلا حدّ">
+              <Field label={fill(c.minOrder, { currency })} hint={c.minOrderHint}>
                 <input
                   type="number"
                   min={0}
@@ -435,7 +471,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
                   className={inputClass}
                 />
               </Field>
-              <Field label="عدد مرات الاستخدام" hint="اتركه فارغاً لاستخدام غير محدود">
+              <Field label={c.maxUses} hint={c.maxUsesHint}>
                 <input
                   type="number"
                   min={1}
@@ -444,7 +480,7 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
                   className={inputClass}
                 />
               </Field>
-              <Field label="تاريخ الانتهاء" hint="اتركه فارغاً لبلا انتهاء">
+              <Field label={c.expiresAt} hint={c.expiresAtHint}>
                 <input
                   type="date"
                   value={draft.expires_at}
@@ -457,89 +493,98 @@ export function CouponsSection({ merchantId }: { merchantId: string }) {
               <button
                 onClick={handleCreate}
                 disabled={saving}
-                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-xs transition"
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-50 text-on-brand font-bold text-xs transition"
               >
                 {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />}
-                <span>إنشاء</span>
+                <span>{c.create}</span>
               </button>
               <button
                 onClick={() => {
                   setShowForm(false)
                   setDraft(EMPTY_COUPON)
                 }}
-                className="px-5 py-2 rounded-xl border border-[#E2E8F0] text-slate-600 font-bold text-xs hover:bg-slate-50 transition"
+                className="px-5 py-2 rounded-xl border border-line text-ink-muted font-bold text-xs hover:bg-surface-2 transition"
               >
-                إلغاء
+                {t.cancel}
               </button>
             </div>
           </div>
         )}
 
         {loading ? (
-          <p className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-            <Loader size={14} className="animate-spin" /> جاري التحميل...
+          <p className="py-8 text-center text-xs text-ink-faint flex items-center justify-center gap-2">
+            <Loader size={14} className="animate-spin" /> {t.loading}
           </p>
         ) : coupons.length === 0 ? (
-          <p className="py-8 text-center text-xs text-slate-500 leading-relaxed">
-            لا توجد كوبونات بعد. أنشئ أكواد خصم يستطيع الموظف الذكي تطبيقها على الطلبات.
-          </p>
+          <p className="py-8 text-center text-xs text-ink-muted leading-relaxed">{c.empty}</p>
         ) : (
           <ul className="space-y-2">
-            {coupons.map((c) => {
-              const st = couponState(c)
-              const busy = busyId === c.id
+            {coupons.map((coupon) => {
+              const st = couponState(coupon)
+              const busy = busyId === coupon.id
               return (
                 <li
-                  key={c.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:bg-[#F8FAFC] transition"
+                  key={coupon.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-line hover:bg-surface-2 transition"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <code className="px-2.5 py-1 rounded-lg bg-[#253765] text-white font-mono font-bold text-xs shrink-0">
-                      {c.code}
+                    <code className="px-2.5 py-1 rounded-lg bg-brand text-on-brand font-mono font-bold text-xs shrink-0">
+                      {coupon.code}
                     </code>
                     <div className="min-w-0 text-[11px]">
-                      <p className="font-bold text-[#0F172A]">
-                        {c.discount_type === 'percent'
-                          ? `خصم ${toArabicDigits(c.discount_value)}٪`
-                          : `خصم ${formatArabicCurrency(c.discount_value)}`}
-                        {Number(c.min_order_iqd) > 0 && (
-                          <span className="text-slate-500 font-normal">
-                            {' '}· فوق {formatArabicCurrency(c.min_order_iqd)}
+                      <p className="font-bold text-ink">
+                        {coupon.discount_type === 'percent'
+                          ? fill(c.discountPercent, {
+                              value: localizeDigits(coupon.discount_value, locale),
+                            })
+                          : fill(c.discountFixed, { value: money(coupon.discount_value) })}
+                        {Number(coupon.min_order_iqd) > 0 && (
+                          <span className="text-ink-muted font-normal">
+                            {fill(c.aboveAmount, { amount: money(coupon.min_order_iqd) })}
                           </span>
                         )}
                       </p>
-                      <p className="text-slate-500">
-                        استُخدم {toArabicDigits(c.used_count)}
-                        {c.max_uses !== null ? ` من ${toArabicDigits(c.max_uses)}` : ' مرة'}
-                        {c.expires_at &&
-                          ` · ينتهي ${toArabicDigits(new Date(c.expires_at).toLocaleDateString('ar-IQ'))}`}
+                      <p className="text-ink-muted">
+                        {fill(c.usedCount, { used: localizeDigits(coupon.used_count, locale) })}
+                        {coupon.max_uses !== null
+                          ? fill(c.usedOf, { max: localizeDigits(coupon.max_uses, locale) })
+                          : c.usedTimes}
+                        {coupon.expires_at &&
+                          fill(c.expiresOn, {
+                            date: localizeDigits(
+                              new Date(coupon.expires_at).toISOString().slice(0, 10),
+                              locale
+                            ),
+                          })}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.className}`}>
-                      {st.label}
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.className}`}
+                    >
+                      {c.state[st.key]}
                     </span>
                     <button
-                      onClick={() => toggleActive(c)}
+                      onClick={() => toggleActive(coupon)}
                       disabled={busy}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#253765] hover:bg-slate-100 transition disabled:opacity-50"
-                      aria-label={c.is_active ? 'إيقاف' : 'تفعيل'}
+                      className="p-1.5 rounded-lg text-ink-faint hover:text-brand-text hover:bg-surface-3 transition disabled:opacity-50"
+                      aria-label={coupon.is_active ? c.pause : c.activate}
                     >
                       {busy ? (
                         <Loader size={14} className="animate-spin" />
-                      ) : c.is_active ? (
+                      ) : coupon.is_active ? (
                         <Pause size={14} />
                       ) : (
                         <Play size={14} />
                       )}
                     </button>
                     <button
-                      onClick={() => remove(c)}
+                      onClick={() => remove(coupon)}
                       disabled={busy}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-50"
-                      aria-label="حذف"
+                      className="p-1.5 rounded-lg text-ink-faint hover:text-danger-ink hover:bg-danger-bg transition disabled:opacity-50"
+                      aria-label={t.delete}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -576,13 +621,20 @@ const EMPTY_DELIVERY = {
   other_note: '',
 }
 
-export function BusinessAndDeliverySections({ merchantId }: { merchantId: string }) {
+export function BusinessAndDeliverySections({
+  merchantId,
+  currency,
+  t,
+  governorates,
+}: SettingsProps) {
   const [profile, setProfile] = useState(EMPTY_PROFILE)
   const [delivery, setDelivery] = useState(EMPTY_DELIVERY)
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingDelivery, setSavingDelivery] = useState(false)
   const { toast, show, clear } = useToast()
+  const b = t.business
+  const d = t.delivery
 
   useEffect(() => {
     let cancelled = false
@@ -607,20 +659,20 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
           })
         }
 
-        const d = json.delivery as DeliverySettings | null
-        if (d) {
+        const del = json.delivery as DeliverySettings | null
+        if (del) {
           setDelivery({
-            base_governorate: d.base_governorate,
-            local_fee_iqd: String(d.local_fee_iqd),
-            local_days: String(d.local_days),
-            local_note: d.local_note ?? '',
-            other_fee_iqd: String(d.other_fee_iqd),
-            other_days: String(d.other_days),
-            other_note: d.other_note ?? '',
+            base_governorate: del.base_governorate,
+            local_fee_iqd: String(del.local_fee_iqd),
+            local_days: String(del.local_days),
+            local_note: del.local_note ?? '',
+            other_fee_iqd: String(del.other_fee_iqd),
+            other_days: String(del.other_days),
+            other_note: del.other_note ?? '',
           })
         }
       } catch (e) {
-        if (!cancelled) show(e instanceof Error ? e.message : 'تعذّر التحميل', 'error')
+        if (!cancelled) show(e instanceof Error ? e.message : t.loadFailed, 'error')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -628,7 +680,7 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
     return () => {
       cancelled = true
     }
-  }, [merchantId, show])
+  }, [merchantId, show, t.loadFailed])
 
   const save = async (section: 'profile' | 'delivery') => {
     const setBusy = section === 'profile' ? setSavingProfile : setSavingDelivery
@@ -652,9 +704,9 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
       })
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error)
-      show(section === 'profile' ? 'حُفظت معلومات النشاط' : 'حُفظت قواعد التوصيل')
+      show(section === 'profile' ? b.saved : d.saved)
     } catch (e) {
-      show(e instanceof Error ? e.message : 'تعذّر الحفظ', 'error')
+      show(e instanceof Error ? e.message : t.saveFailed, 'error')
     } finally {
       setBusy(false)
     }
@@ -662,58 +714,58 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
 
   if (loading) {
     return (
-      <div className="rounded-2xl bg-white border border-[#E2E8F0] py-12 text-center">
-        <Loader size={18} className="animate-spin mx-auto text-slate-400" />
+      <div className="rounded-2xl bg-surface border border-line py-12 text-center">
+        <Loader size={18} className="animate-spin mx-auto text-ink-faint" />
       </div>
     )
   }
+
+  const baseLabel =
+    governorates[delivery.base_governorate as keyof GovernorateLabels] ??
+    delivery.base_governorate
 
   return (
     <>
       <ToastBar toast={toast} onClose={clear} />
 
-      <SectionCard
-        icon={Store}
-        title="معلومات النشاط"
-        description="تفاصيل يشاركها موظفك الذكي حين يسأل الزبائن عن نشاطك — الدوام والموقع والعروض ومنطقة التوصيل."
-      >
+      <SectionCard icon={Store} title={b.title} description={b.description}>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="lg:col-span-2">
-            <Field label="نبذة عن نشاطك">
+            <Field label={b.about}>
               <textarea
                 rows={3}
                 value={profile.about}
                 onChange={(e) => setProfile({ ...profile, about: e.target.value })}
-                placeholder="ماذا تقدّم، تخصصك، أي شيء يهم الزبون…"
+                placeholder={b.aboutPlaceholder}
                 className={`${inputClass} resize-y`}
               />
             </Field>
           </div>
-          <Field label="ساعات الدوام">
+          <Field label={b.hours}>
             <input
               value={profile.working_hours}
               onChange={(e) => setProfile({ ...profile, working_hours: e.target.value })}
-              placeholder="مثال: السبت–الخميس، ١٠ص–١٠م"
+              placeholder={b.hoursPlaceholder}
               className={inputClass}
             />
           </Field>
-          <Field label="هاتف التواصل">
+          <Field label={b.phone}>
             <input
               value={profile.contact_phone}
               onChange={(e) => setProfile({ ...profile, contact_phone: e.target.value })}
-              placeholder="مثال: ٠٧٧٠…"
+              placeholder={b.phonePlaceholder}
               className={inputClass}
             />
           </Field>
-          <Field label="الموقع">
+          <Field label={b.address}>
             <input
               value={profile.address}
               onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-              placeholder="مثال: بغداد، الكرادة، قرب…"
+              placeholder={b.addressPlaceholder}
               className={inputClass}
             />
           </Field>
-          <Field label="رابط الخرائط">
+          <Field label={b.mapsUrl}>
             <input
               value={profile.maps_url}
               onChange={(e) => setProfile({ ...profile, maps_url: e.target.value })}
@@ -722,45 +774,39 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
               className={`${inputClass} text-left`}
             />
           </Field>
-          <Field label="منطقة التوصيل">
+          <Field label={b.deliveryZone}>
             <input
               value={profile.delivery_zone}
               onChange={(e) => setProfile({ ...profile, delivery_zone: e.target.value })}
-              placeholder="مثال: كل العراق / بغداد فقط"
+              placeholder={b.deliveryZonePlaceholder}
               className={inputClass}
             />
           </Field>
-          <Field label="العروض الحالية">
+          <Field label={b.offers}>
             <input
               value={profile.current_offers}
               onChange={(e) => setProfile({ ...profile, current_offers: e.target.value })}
-              placeholder="مثال: خصم ١٠٪ هذا الأسبوع، توصيل مجاني فوق ٥٠,٠٠٠ د.ع"
+              placeholder={b.offersPlaceholder}
               className={inputClass}
             />
           </Field>
         </div>
 
-        <div className="mt-5 pt-4 border-t border-[#F1F5F9] flex items-center justify-between gap-3">
-          <p className="text-[10px] text-slate-400 leading-relaxed">
-            يستعمل موظفك الذكي هذه المعلومات للإجابة عن الأسئلة حول نشاطك.
-          </p>
+        <div className="mt-5 pt-4 border-t border-line flex items-center justify-between gap-3">
+          <p className="text-[10px] text-ink-faint leading-relaxed">{b.footnote}</p>
           <button
             onClick={() => save('profile')}
             disabled={savingProfile}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-xs transition shrink-0"
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-50 text-on-brand font-bold text-xs transition shrink-0"
           >
             {savingProfile ? <Loader size={14} className="animate-spin" /> : <Check size={14} />}
-            <span>حفظ معلومات النشاط</span>
+            <span>{b.save}</span>
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard
-        icon={Truck}
-        title="إعدادات التوصيل"
-        description="تكاليف ومدد التوصيل التي يعلنها موظفك الذكي للزبائن. مستقلة عن تسعيرة برق الداخلية للمناديب."
-      >
-        <Field label="محافظة الانطلاق" hint="التوصيل داخلها بالسعر الأول، وبقية المحافظات بالسعر الثاني.">
+      <SectionCard icon={Truck} title={d.title} description={d.description}>
+        <Field label={d.baseGovernorate} hint={d.baseGovernorateHint}>
           <select
             value={delivery.base_governorate}
             onChange={(e) => setDelivery({ ...delivery, base_governorate: e.target.value })}
@@ -768,19 +814,19 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
           >
             {IRAQI_GOVERNORATES.map((g) => (
               <option key={g} value={g}>
-                {g}
+                {governorates[g as keyof GovernorateLabels] ?? g}
               </option>
             ))}
           </select>
         </Field>
 
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
-            <p className="font-bold text-xs text-[#0F172A] mb-3">
-              التوصيل داخل {delivery.base_governorate}
+          <div className="p-4 rounded-xl bg-surface-2 border border-line">
+            <p className="font-bold text-xs text-ink mb-3">
+              {fill(d.insideBase, { name: baseLabel })}
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="الأجرة (د.ع)">
+              <Field label={fill(d.fee, { currency })}>
                 <input
                   type="number"
                   min={0}
@@ -789,7 +835,7 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
                   className={inputClass}
                 />
               </Field>
-              <Field label="المدة (أيام)">
+              <Field label={d.days}>
                 <input
                   type="number"
                   min={0}
@@ -800,21 +846,21 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
               </Field>
             </div>
             <div className="mt-3">
-              <Field label="ملاحظة">
+              <Field label={d.note}>
                 <input
                   value={delivery.local_note}
                   onChange={(e) => setDelivery({ ...delivery, local_note: e.target.value })}
-                  placeholder="مثال: نفس اليوم إذا تم الطلب قبل الساعة ٢ ظهراً"
+                  placeholder={d.localNotePlaceholder}
                   className={inputClass}
                 />
               </Field>
             </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
-            <p className="font-bold text-xs text-[#0F172A] mb-3">باقي العراق (المحافظات الأخرى)</p>
+          <div className="p-4 rounded-xl bg-surface-2 border border-line">
+            <p className="font-bold text-xs text-ink mb-3">{d.restOfIraq}</p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="الأجرة (د.ع)">
+              <Field label={fill(d.fee, { currency })}>
                 <input
                   type="number"
                   min={0}
@@ -823,7 +869,7 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
                   className={inputClass}
                 />
               </Field>
-              <Field label="المدة (أيام)">
+              <Field label={d.days}>
                 <input
                   type="number"
                   min={0}
@@ -834,11 +880,11 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
               </Field>
             </div>
             <div className="mt-3">
-              <Field label="ملاحظة">
+              <Field label={d.note}>
                 <input
                   value={delivery.other_note}
                   onChange={(e) => setDelivery({ ...delivery, other_note: e.target.value })}
-                  placeholder="مثال: باستثناء المناطق النائية"
+                  placeholder={d.otherNotePlaceholder}
                   className={inputClass}
                 />
               </Field>
@@ -846,17 +892,15 @@ export function BusinessAndDeliverySections({ merchantId }: { merchantId: string
           </div>
         </div>
 
-        <div className="mt-5 pt-4 border-t border-[#F1F5F9] flex items-center justify-between gap-3">
-          <p className="text-[10px] text-slate-400 leading-relaxed">
-            تُدرج هذه القواعد في توجيهات الموظف الذكي المرتبط بهذا الكتالوج.
-          </p>
+        <div className="mt-5 pt-4 border-t border-line flex items-center justify-between gap-3">
+          <p className="text-[10px] text-ink-faint leading-relaxed">{d.footnote}</p>
           <button
             onClick={() => save('delivery')}
             disabled={savingDelivery}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-[#253765] hover:bg-[#1D2B50] disabled:opacity-50 text-white font-bold text-xs transition shrink-0"
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-50 text-on-brand font-bold text-xs transition shrink-0"
           >
             {savingDelivery ? <Loader size={14} className="animate-spin" /> : <Check size={14} />}
-            <span>حفظ قواعد التوصيل</span>
+            <span>{d.save}</span>
           </button>
         </div>
       </SectionCard>

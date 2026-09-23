@@ -1,3 +1,5 @@
+import type { Locale } from '@/lib/i18n/config'
+
 /**
  * دوال تحويل وتنسيق الأرقام إلى الأرقام العربية (٠، ١، ٢، ٣، ٤، ٥، ٦، ٧، ٨، ٩)
  * -------------------------------------------------------------------------
@@ -89,4 +91,40 @@ export function formatDateTime(dateStr: string | undefined | null): string {
   } catch {
     return toArabicDigits(dateStr)
   }
+}
+
+// ---------- تنسيق يتبع لغة الواجهة ----------
+
+/**
+ * الأرقام العربية الهندية (٠١٢) تُستعمل في العربية والكردية السورانية معاً —
+ * كلتاهما تُكتبان بالأبجدية العربية وبالأرقام نفسها في السوق العراقي.
+ * الإنجليزية وحدها تُعرض بالأرقام الغربية.
+ *
+ * ⚠️ الدوالّ القديمة أعلاه (toArabicDigits وأخواتها) تبقى كما هي: تستعملها
+ * شاشات التشغيل الداخلية وملصقات الشحن، وتحويلها كلها إلى لغة الواجهة عمل
+ * قائم بذاته. ما يُترجَم اليوم هو الواجهات العامة ومسار التسجيل.
+ */
+const LOCALE_USES_ARABIC_DIGITS: Record<Locale, boolean> = {
+  ar: true,
+  ku: true,
+  en: false,
+}
+
+/** يحوّل أرقام النص إلى أرقام اللغة المعروضة. */
+export function localizeDigits(
+  value: string | number | undefined | null,
+  locale: Locale
+): string {
+  if (value === undefined || value === null) return ''
+  const str = String(value)
+  return LOCALE_USES_ARABIC_DIGITS[locale] ? toArabicDigits(str) : str
+}
+
+/** رقم بفواصل الآلاف، بأرقام اللغة المعروضة. */
+export function formatNumberFor(
+  locale: Locale,
+  value: number | undefined | null
+): string {
+  if (value === undefined || value === null || isNaN(value)) return localizeDigits(0, locale)
+  return localizeDigits(new Intl.NumberFormat('en-US').format(value), locale)
 }

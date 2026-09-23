@@ -26,7 +26,24 @@ export interface ProductDraft {
   stock: number
 }
 
-export type ValidationError = { field: keyof ProductDraft; message: string }
+/**
+ * ⚠️ الرسالة صارت رمزاً: هذه الوحدة تُستدعى من الواجهة (بثلاث لغات) ومن
+ * مسار API معاً، فلا تستطيع أن تعرف لغة قارئها. الرمز يُترجَم عند العرض،
+ * و`message` يبقى نصّاً عربياً للسجلّ ولردود الـ API.
+ */
+export type ValidationErrorCode =
+  | 'nameRequired'
+  | 'nameTooLong'
+  | 'priceRequired'
+  | 'priceInvalid'
+  | 'stockRequired'
+  | 'stockInvalid'
+
+export type ValidationError = {
+  field: keyof ProductDraft
+  code: ValidationErrorCode
+  message: string
+}
 
 /**
  * يتحقّق من مسوّدة منتج قبل الحفظ.
@@ -36,36 +53,40 @@ export function validateProduct(draft: Partial<ProductDraft>): ValidationError[]
   const errors: ValidationError[] = []
 
   if (!draft.name || !draft.name.trim()) {
-    errors.push({ field: 'name', message: 'اسم المنتج مطلوب' })
+    errors.push({ field: 'name', code: 'nameRequired', message: 'اسم المنتج مطلوب' })
   } else if (draft.name.trim().length > 200) {
-    errors.push({ field: 'name', message: 'اسم المنتج طويل جداً (٢٠٠ حرف كحد أقصى)' })
+    errors.push({ field: 'name', code: 'nameTooLong', message: 'اسم المنتج طويل جداً (٢٠٠ حرف كحد أقصى)' })
   }
 
   if (draft.price_iqd === undefined || draft.price_iqd === null || Number.isNaN(draft.price_iqd)) {
-    errors.push({ field: 'price_iqd', message: 'السعر مطلوب' })
+    errors.push({ field: 'price_iqd', code: 'priceRequired', message: 'السعر مطلوب' })
   } else if (!Number.isFinite(draft.price_iqd) || draft.price_iqd < 0) {
-    errors.push({ field: 'price_iqd', message: 'السعر يجب أن يكون رقماً موجباً' })
+    errors.push({ field: 'price_iqd', code: 'priceInvalid', message: 'السعر يجب أن يكون رقماً موجباً' })
   }
 
   if (draft.stock === undefined || draft.stock === null || Number.isNaN(draft.stock)) {
-    errors.push({ field: 'stock', message: 'الكمية مطلوبة' })
+    errors.push({ field: 'stock', code: 'stockRequired', message: 'الكمية مطلوبة' })
   } else if (!Number.isInteger(draft.stock) || draft.stock < 0) {
-    errors.push({ field: 'stock', message: 'الكمية يجب أن تكون عدداً صحيحاً غير سالب' })
+    errors.push({ field: 'stock', code: 'stockInvalid', message: 'الكمية يجب أن تكون عدداً صحيحاً غير سالب' })
   }
 
   return errors
 }
 
 /** حالة المنتج المعروضة، مشتقّة من المخزون حين لا تُضبط صراحة. */
-export function displayStatus(p: Product): { label: string; className: string } {
+/** مفتاح حالة العرض — نصّه في قاموس اللغة لا هنا. */
+export type ProductDisplayStatus = 'inactive' | 'outOfStock' | 'lowStock' | 'available'
+
+export function displayStatus(p: Product): { key: ProductDisplayStatus; className: string } {
+  // ⚠️ 'معطل' قيمة مخزَّنة في قاعدة البيانات لا نصَّ واجهة — تبقى كما هي.
   if (p.status === 'inactive' || p.status === 'معطل') {
-    return { label: 'معطّل', className: 'bg-slate-100 text-slate-600 border-slate-200' }
+    return { key: 'inactive', className: 'bg-surface-3 text-ink-muted border-line' }
   }
   if ((p.stock ?? 0) <= 0) {
-    return { label: 'نفد المخزون', className: 'bg-rose-50 text-rose-700 border-rose-200' }
+    return { key: 'outOfStock', className: 'bg-danger-bg text-danger-ink border-danger-line' }
   }
   if ((p.stock ?? 0) <= 3) {
-    return { label: 'مخزون منخفض', className: 'bg-amber-50 text-amber-800 border-amber-200' }
+    return { key: 'lowStock', className: 'bg-warn-bg text-warn-ink border-warn-line' }
   }
-  return { label: 'متوفّر', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+  return { key: 'available', className: 'bg-success-bg text-success-ink border-success-line' }
 }

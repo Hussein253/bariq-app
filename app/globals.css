@@ -1,84 +1,234 @@
 @import "tailwindcss";
 
+/**
+ * المظهر الداكن يتبع صنفاً على <html> لا إعداد الجهاز وحده
+ * =========================================================
+ * الافتراضي في Tailwind هو prefers-color-scheme، وهو لا يكفي هنا: الزرّ في
+ * الترويسة يجب أن يغلب إعداد الجهاز حين يضغطه صاحبه. الصنف dark يكتبه
+ * الخادم من الكوكي (app/layout.tsx) وسكربت ما قبل الرسم (lib/theme.ts).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/**
+ * لوحة الألوان بمتغيّرات دلالية — لا هكس مباشر في المكوّنات الجديدة
+ * =================================================================
+ * قيم الوضع الفاتح هي نفسها الألوان القديمة حرفياً، فلا تتغيّر شاشة واحدة
+ * عمّا كانت عليه. الوضع الداكن يعيد تعريف المتغيّرات نفسها، فينقلب المظهر
+ * بلا صنف dark: على كل عنصر.
+ *
+ * ⚠️ الأزرق الملكي #253765 لا يصلح كما هو في الوضع الداكن: على خلفية داكنة
+ * يبتلعه السواد فلا يُقرأ زرّاً ولا نصاً. لذا رُمز إليه بثلاثة متغيّرات لا
+ * واحد — خلفية الزرّ (brand)، والنص فوقه (on-brand)، والنصّ الملوّن على
+ * الصفحة (brand-text) — ويأخذ كلٌّ منها قيمة مناسبة لكل وضع.
+ */
 :root {
-  --background: #F8F9FA;
-  --foreground: #0F172A;
-  --royal-blue: #253765;
-  --royal-blue-hover: #1D2B50;
-  --royal-blue-light: #324780;
-  --gold-accent: #C9932F;
-  --surface-card: #FFFFFF;
-  --surface-muted: #F1F5F9;
-  --surface-subtle: #F8FAFC;
-  --border-color: #E2E8F0;
-  --border-hover: #CBD5E1;
+  color-scheme: light;
+
+  --page: #f8f9fa;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+
+  --ink: #0f172a;
+  --ink-muted: #64748b;
+  --ink-faint: #94a3b8;
+
+  --brand: #253765;
+  --brand-hover: #1d2b50;
+  --on-brand: #ffffff;
+  --brand-text: #253765;
+  --brand-soft: rgba(37, 55, 101, 0.08);
+  --accent: #c9932f;
+
+  /* الشريط العلوي الداكن (شريط الجلسة) — لونه مقصود في الوضعين. */
+  --bar: #1d2b50;
+  --on-bar: #ffffff;
+
+  --danger-bg: #fff1f2;
+  --danger-line: #fecdd3;
+  --danger-ink: #9f1239;
+  --success-bg: #ecfdf5;
+  --success-line: #a7f3d0;
+  --success-ink: #065f46;
+  --warn-bg: #fffbeb;
+  --warn-line: #fde68a;
+  --warn-ink: #92400e;
+  --info-bg: #eff6ff;
+  --info-line: #bfdbfe;
+  --info-ink: #1e3a8a;
+
+  /* متوافقة مع ما كان معرَّفاً قبل التوسعة — لا تُستعمل في كود جديد. */
+  --background: var(--page);
+  --foreground: var(--ink);
+  --royal-blue: var(--brand);
+  --royal-blue-hover: var(--brand-hover);
+  --surface-card: var(--surface);
+  --surface-muted: var(--surface-3);
+  --surface-subtle: var(--surface-2);
+  --border-color: var(--line);
+  --border-hover: var(--line-strong);
+  --gold-accent: var(--accent);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --page: #0b1120;
+  --surface: #111a2d;
+  --surface-2: #16203a;
+  --surface-3: #1e2a47;
+  --line: #263354;
+  --line-strong: #35456e;
+
+  --ink: #e9eef9;
+  --ink-muted: #9caac4;
+  --ink-faint: #6b7a99;
+
+  --brand: #3b5ba9;
+  --brand-hover: #4a6cc0;
+  --on-brand: #ffffff;
+  --brand-text: #9bb4f0;
+  --brand-soft: rgba(155, 180, 240, 0.12);
+  --accent: #e3bc6a;
+
+  --bar: #16203a;
+  --on-bar: #ffffff;
+
+  --danger-bg: rgba(244, 63, 94, 0.12);
+  --danger-line: rgba(244, 63, 94, 0.35);
+  --danger-ink: #fda4af;
+  --success-bg: rgba(16, 185, 129, 0.12);
+  --success-line: rgba(16, 185, 129, 0.32);
+  --success-ink: #6ee7b7;
+  --warn-bg: rgba(245, 158, 11, 0.12);
+  --warn-line: rgba(245, 158, 11, 0.32);
+  --warn-ink: #fcd34d;
+  --info-bg: rgba(59, 130, 246, 0.12);
+  --info-line: rgba(59, 130, 246, 0.32);
+  --info-ink: #93c5fd;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--page);
+  --color-foreground: var(--ink);
+
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-on-brand: var(--on-brand);
+  --color-brand-text: var(--brand-text);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-bar: var(--bar);
+  --color-on-bar: var(--on-bar);
+
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-line: var(--danger-line);
+  --color-danger-ink: var(--danger-ink);
+  --color-success-bg: var(--success-bg);
+  --color-success-line: var(--success-line);
+  --color-success-ink: var(--success-ink);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-line: var(--warn-line);
+  --color-warn-ink: var(--warn-ink);
+  --color-info-bg: var(--info-bg);
+  --color-info-line: var(--info-line);
+  --color-info-ink: var(--info-ink);
+
   --font-sans: var(--font-arabic, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
 body {
-  background: #F8F9FA;
-  color: #0F172A;
+  background: var(--page);
+  color: var(--ink);
   font-family: var(--font-sans);
-  direction: rtl;
   overflow-x: hidden;
 }
 
-/* الأزرار والتدرجات باللون الأزرق الملكي الفاخر (#253765) */
+/**
+ * ⚠️ الاتجاه لم يعد مثبَّتاً هنا على rtl.
+ * كان `direction: rtl` في body يغلب سمة dir على <html>، فتبقى الواجهة
+ * الإنجليزية معكوسة: الأسهم تشير إلى الخلاف، والنص يُحاذى يميناً. الاتجاه
+ * الآن من <html dir> وحده (app/layout.tsx) ويتبع اللغة المختارة.
+ */
+
+/* السورانية تحتاج ڕ ڵ ێ ۆ ڤ — وليست كلها في الخط العربي الأساسي، فيُقدَّم
+   عليها خط Noto الذي يغطّيها، وإلا ظهرت مربّعات مكان الحروف. */
+html[lang="ckb"] body {
+  font-family: var(--font-kurdish), var(--font-arabic), sans-serif;
+}
+
+/* الأزرار والتدرجات باللون الأساسي */
 .royal-btn {
-  background-color: #253765;
-  color: #FFFFFF;
+  background-color: var(--brand);
+  color: var(--on-brand);
   transition: all 0.2s ease;
 }
 
 .royal-btn:hover {
-  background-color: #1D2B50;
+  background-color: var(--brand-hover);
 }
 
 .royal-gradient-bg {
-  background: linear-gradient(135deg, #2D4175 0%, #253765 60%, #172445 100%);
+  background: linear-gradient(135deg, #2d4175 0%, #253765 60%, #172445 100%);
+}
+
+.dark .royal-gradient-bg {
+  background: linear-gradient(135deg, #2b3d6f 0%, #1c2a4c 60%, #111a2d 100%);
 }
 
 .royal-gradient-text {
-  background: linear-gradient(135deg, #253765 0%, #3B538C 50%, #253765 100%);
+  background: linear-gradient(135deg, var(--brand-text) 0%, var(--brand-hover) 50%, var(--brand-text) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-/* بطاقات الأوف وايت الفاخرة */
+/* البطاقات */
 .card-luxury {
-  background: #FFFFFF;
-  border: 1px solid #E2E8F0;
+  background: var(--surface);
+  border: 1px solid var(--line);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
   transition: all 0.2s ease;
 }
 
 .card-luxury:hover {
-  border-color: #CBD5E1;
+  border-color: var(--line-strong);
   box-shadow: 0 4px 12px rgba(37, 55, 101, 0.06);
 }
 
-/* تخصيص شريط التمرير (Scrollbar) الناعم */
+.dark .card-luxury {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* شريط التمرير */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #F1F5F9;
+  background: var(--surface-3);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: var(--line-strong);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #253765;
+  background: var(--brand);
 }
 
 /* Animations */
@@ -95,4 +245,244 @@ body {
 
 .animate-fadeIn {
   animation: fadeIn 0.2s ease-out forwards;
+}
+
+/**
+ * ================================================================
+ * طبقة المعادلة: الشاشات الداخلية في الوضع الداكن
+ * ================================================================
+ * شاشات التشغيل (لوحة المالك، مساحة التاجر، العمليات، المحادثات) مكتوبة
+ * بألوان صريحة في الأصناف — `bg-white` و `text-[#0F172A]` وأخواتها — في
+ * نحو مئة ملف. تحويلها كلها إلى المتغيّرات الدلالية عملٌ قائم بذاته، وتركها
+ * يعني شاشةً بيضاء تُفتح في وجه من اختار الوضع الداكن.
+ *
+ * فتُعاد هنا تعريفُ تلك الأصناف نفسها تحت .dark وحدها. الوضع الفاتح لا
+ * يتغيّر منه حرف واحد.
+ *
+ * ⚠️ هذه القواعد خارج @layer عمداً: طبقات CSS تُرتَّب قبل غير المطبَّق،
+ * فالقاعدة غير المطبَّقة تغلب أدوات Tailwind المطبَّقة بلا !important.
+ *
+ * ⚠️ وما يُكتب من مكوّنات جديدة يستعمل المتغيّرات (bg-surface، text-ink…)
+ * لا هذه الأصناف — فهذه الطبقة جسر إلى أن تُحدَّث الشاشات الداخلية، لا
+ * نمطٌ يُقتدى به.
+ */
+
+/* ---- أسطح ---- */
+.dark .bg-white,
+.dark .bg-\[\#FFFFFF\] {
+  background-color: var(--surface);
+}
+
+.dark .bg-\[\#F8F9FA\] {
+  background-color: var(--page);
+}
+
+.dark .bg-\[\#F8FAFC\],
+.dark .bg-\[\#FAFAFA\],
+.dark .bg-slate-50 {
+  background-color: var(--surface-2);
+}
+
+.dark .bg-\[\#F1F5F9\],
+.dark .bg-\[\#E2E8F0\],
+.dark .bg-slate-100,
+.dark .bg-slate-200 {
+  background-color: var(--surface-3);
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: var(--surface-3);
+}
+
+/* ---- حدود ---- */
+.dark .border-\[\#E2E8F0\],
+.dark .border-\[\#F1F5F9\],
+.dark .border-slate-100,
+.dark .border-slate-200 {
+  border-color: var(--line);
+}
+
+.dark .border-\[\#CBD5E1\],
+.dark .border-slate-300 {
+  border-color: var(--line-strong);
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--line);
+}
+
+/* ---- نصوص ---- */
+.dark .text-\[\#0F172A\],
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: var(--ink);
+}
+
+.dark .text-\[\#64748B\],
+.dark .text-\[\#475569\],
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: var(--ink-muted);
+}
+
+.dark .text-\[\#94A3B8\] {
+  color: var(--ink-faint);
+}
+
+/* ⚠️ slate-200/300/400 لا تُعاد هنا: أغلب استعمالها نصٌّ فاتح فوق بطاقة
+   داكنة أصلاً، وتعتيمها يقلب التباين على صاحبه. */
+
+/* ---- اللون الأساسي ---- */
+.dark .bg-\[\#253765\] {
+  background-color: var(--brand);
+}
+
+.dark .bg-\[\#1D2B50\] {
+  background-color: var(--bar);
+}
+
+.dark .hover\:bg-\[\#1D2B50\]:hover,
+.dark .hover\:bg-\[\#253765\]:hover {
+  background-color: var(--brand-hover);
+}
+
+.dark .text-\[\#253765\] {
+  color: var(--brand-text);
+}
+
+.dark .hover\:text-\[\#253765\]:hover {
+  color: var(--brand-text);
+}
+
+.dark .border-\[\#253765\] {
+  border-color: var(--brand);
+}
+
+.dark .accent-\[\#253765\] {
+  accent-color: var(--brand-text);
+}
+
+.dark .bg-\[\#253765\]\/10,
+.dark .bg-\[\#253765\]\/5,
+.dark .bg-\[\#253765\]\/20 {
+  background-color: var(--brand-soft);
+}
+
+.dark .hover\:bg-\[\#253765\]\/5:hover,
+.dark .hover\:bg-\[\#253765\]\/10:hover {
+  background-color: var(--brand-soft);
+}
+
+/* ---- بطاقات الحالة: خطأ، نجاح، تنبيه، معلومة ---- */
+.dark .bg-rose-50 {
+  background-color: var(--danger-bg);
+}
+.dark .border-rose-200,
+.dark .border-rose-100 {
+  border-color: var(--danger-line);
+}
+.dark .text-rose-800,
+.dark .text-rose-900,
+.dark .text-rose-700,
+.dark .text-rose-600 {
+  color: var(--danger-ink);
+}
+
+.dark .bg-emerald-50 {
+  background-color: var(--success-bg);
+}
+.dark .border-emerald-200,
+.dark .border-emerald-300,
+.dark .border-emerald-100 {
+  border-color: var(--success-line);
+}
+.dark .text-emerald-900,
+.dark .text-emerald-800,
+.dark .text-emerald-700,
+.dark .text-emerald-600 {
+  color: var(--success-ink);
+}
+
+.dark .bg-amber-50 {
+  background-color: var(--warn-bg);
+}
+.dark .border-amber-200,
+.dark .border-amber-100 {
+  border-color: var(--warn-line);
+}
+.dark .text-amber-900,
+.dark .text-amber-800,
+.dark .text-amber-700,
+.dark .text-amber-600 {
+  color: var(--warn-ink);
+}
+
+.dark .bg-blue-50,
+.dark .bg-sky-50 {
+  background-color: var(--info-bg);
+}
+.dark .border-blue-200,
+.dark .border-blue-100,
+.dark .border-sky-200 {
+  border-color: var(--info-line);
+}
+.dark .text-blue-900,
+.dark .text-blue-800,
+.dark .text-blue-700,
+.dark .text-sky-700 {
+  color: var(--info-ink);
+}
+
+/* ---- حقول الإدخال ---- */
+.dark input,
+.dark textarea,
+.dark select {
+  color-scheme: dark;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+/**
+ * ⚠️ الطباعة تبقى فاتحة دائماً مهما كان المظهر المختار: ملصق الشحن يُطبع
+ * على ورق أبيض، وباركود فاتح على خلفية داكنة لا يقرأه ماسح المندوب. تُعاد
+ * المتغيّرات إلى قيم الوضع الفاتح عند الطباعة لا الصنف وحده.
+ */
+@media print {
+  .dark {
+    color-scheme: light;
+    --page: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --surface-3: #f1f5f9;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --ink: #0f172a;
+    --ink-muted: #475569;
+    --ink-faint: #64748b;
+    --brand: #253765;
+    --brand-hover: #1d2b50;
+    --brand-text: #253765;
+    --bar: #1d2b50;
+  }
+
+  .dark .bg-white,
+  .dark .bg-\[\#FFFFFF\],
+  .dark .bg-\[\#F8F9FA\],
+  .dark .bg-\[\#F8FAFC\],
+  .dark .bg-\[\#FAFAFA\] {
+    background-color: #ffffff;
+  }
+
+  .dark .text-\[\#0F172A\],
+  .dark .text-slate-900,
+  .dark .text-slate-800,
+  .dark .text-slate-700 {
+    color: #0f172a;
+  }
 }
