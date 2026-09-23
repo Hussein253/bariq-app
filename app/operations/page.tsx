@@ -16,14 +16,13 @@ export const dynamic = 'force-dynamic'
 export default async function OperationsPage() {
   await requireRole(['platform_owner', 'staff'])
 
-  // اللوحة نفسها عربية بعد؛ نافذة الحجز داخلها مترجَمة فتحتاج لغتها.
   const { locale, t } = await getTranslations()
 
   return (
     <OperationsClient
       locale={locale}
       currency={t.pricing.price.currency}
-      bookingT={t.app.booking}
+      t={t.app}
     />
   )
 }

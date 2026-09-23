@@ -1,16 +1,21 @@
 'use client'
 
 /**
- * لوحة تحكم منصة "برق" — النسخة الإدارية الفاخرة بالأوف وايت وتوحيد الأرقام العربية
+ * لوحة تحكم منصة "برق" — النسخة الإدارية الفاخرة بالأوف وايت
  * -------------------------------------------------------------------------------
  * المسار: app/operations/page.tsx
- * 
+ *
  * الميزات:
- * 1. توحيد كافة الأرقام والمبالغ والنسب والتواريخ وأرقام الهواتف إلى الأرقام العربية (٠، ١، ٢، ٣، ٤، ٥، ٦، ٧، ٨، ٩).
+ * 1. الواجهة ثلاثية اللغة (عربية · کوردی · English)، والأرقام تتبع لغة العرض
+ *    (٠١٢٣ في العربية والكردية، 0123 في الإنجليزية) عبر lib/formatters.
  * 2. قسم "الإدارة" الشامل مع إدارة حسابات واشتراكات التجار وحسابات المروجين.
  * 3. نظام تخصيص الصلاحيات (التاجر يرى فقط طلباته ومحادثاته وحملاته الخاصة).
  * 4. تكامل بوابات الدفع الإلكترونية العراقية (Zain Cash و Qi Card).
  * 5. واجهة أوف وايت فاخرة (#F8F9FA) مع أزرار أزرق ملكي (#253765).
+ *
+ * ⚠️ الملصق الحراري المطبوع (handlePrintLabel) عربي دائماً بصرف النظر عن لغة
+ * الواجهة: يقرأه المندوب والزبون في العراق، لا من فتح اللوحة — نفس مبدأ
+ * STATUS_LABELS في lib/shipments.ts.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -44,16 +49,15 @@ import {
 } from 'lucide-react'
 import {
   toArabicDigits,
-  formatArabicNumber,
   formatArabicCurrency,
-  formatArabicPercent,
   formatArabicPhone,
-  formatArabicDate
+  localizeDigits,
+  formatNumberFor,
 } from '@/lib/formatters'
 import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
-import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
+import type { ShipmentStatus } from '@/lib/shipments'
 import NewOrderBooking from '@/components/NewOrderBooking'
-import type { Dictionary } from '@/lib/i18n'
+import { fill, type Dictionary } from '@/lib/i18n'
 import type { Locale } from '@/lib/i18n/config'
 
 // ---------- أنواع البيانات ----------
@@ -71,7 +75,7 @@ export interface Merchant {
   city: string | null
   /** اسم الباقة الفعّالة (Spark…Storm)، أو null إن لم يشترك بعد. */
   plan: string | null
-  /** حالة الاشتراك بالعربية، أو null إن لم يوجد اشتراك فعّال. */
+  /** رمز حالة الاشتراك الخام (trialing/active/past_due/canceled)، أو null إن لم يوجد اشتراك فعّال. تُترجَم عند العرض عبر t.subscriptionStatus. */
   subscription_status: string | null
   api_connected: boolean
   monthly_fee: number | null
@@ -82,14 +86,6 @@ export interface Merchant {
   balance: number
 }
 
-/** حالة الاشتراك في قاعدة البيانات → التسمية المعروضة. */
-const SUBSCRIPTION_LABELS: Record<string, string> = {
-  trialing: 'تجريبي',
-  active: 'نشط',
-  past_due: 'متأخر السداد',
-  canceled: 'ملغى',
-}
-
 /** المروّج كما يصل من /api/marketers — جدول public.marketers الحقيقي. */
 export interface Marketer {
   id: string
@@ -97,7 +93,7 @@ export interface Marketer {
   agency_name: string | null
   email: string | null
   phone: string | null
-  /** الحالة بالعربية بعد الترجمة من active/suspended. */
+  /** رمز الحالة الخام (active/suspended) — يُترجَم عند العرض عبر t.marketerStatus. */
   status: string
   /** التجار المسندون — من جدول marketer_merchants لا مصفوفة أسماء. */
   assigned_merchants: { id: string; name: string }[]
@@ -109,19 +105,6 @@ export interface Marketer {
 
 export type AdPlatform = 'instagram' | 'facebook' | 'tiktok' | 'snapchat' | 'google'
 
-/** حالات الحملة في قاعدة البيانات → التسمية المعروضة. */
-export const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
-  active: 'نشطة',
-  completed: 'مكتملة',
-  under_review: 'قيد المراجعة',
-  paused: 'متوقفة',
-}
-
-const MARKETER_STATUS_LABELS: Record<string, string> = {
-  active: 'نشط',
-  suspended: 'متوقف',
-}
-
 /** الحملة كما تصل من /api/campaigns — جدول public.ad_campaigns الحقيقي. */
 export interface AdCampaign {
   id: string
@@ -131,7 +114,7 @@ export interface AdCampaign {
   marketer_id: string | null
   marketer_name: string | null
   platform: AdPlatform
-  /** الحالة بالعربية بعد الترجمة. */
+  /** رمز الحالة الخام (active/completed/under_review/paused) — يُترجَم عند العرض عبر t.campaignStatus. */
   status: string
   budget_total: number
   budget_spent: number
@@ -155,33 +138,64 @@ type AdminSubTab = 'merchants' | 'marketers' | 'permissions'
 type UserRole = 'super_admin' | 'merchant'
 type TimeRange = 'today' | 'week' | 'month' | 'all'
 
-// ---------- البيانات الأولية المحملة ----------
+type OpsCopy = Dictionary['app']
 
+/** «الكل» كان نصاً عربياً يُقارَن به منطق التصفية — فيتعطّل بمجرد ترجمته.
+ *  صار رمزاً لا لغة له، والنصّ المعروض يأتي من القاموس (t.common.all). */
+const ALL = 'ALL' as const
 
 // ---------- مكونات الشارات ----------
 
-function StatusBadge({ status }: { status: string }) {
-  let style = 'bg-slate-100 text-slate-700 border-slate-200'
+type BadgeTone = 'positive' | 'negative' | 'info' | 'warning' | 'neutral'
 
-  if (['تم التسليم', 'تم الدفع', 'نشط', 'متصل', 'نشطة', 'يرد تلقائيًا'].includes(status)) {
-    style = 'bg-emerald-50 text-emerald-700 border-emerald-200'
-  } else if (['ملغي', 'متوقف', 'متوقفة', 'فشل الدفع', 'تم التصعيد', 'غير مربوط'].includes(status)) {
-    style = 'bg-rose-50 text-rose-700 border-rose-200'
-  } else if (['بالطريق', 'متقدمة', 'احترافية', 'قيد المراجعة'].includes(status)) {
-    style = 'bg-sky-50 text-sky-700 border-sky-200'
-  } else if (['جديد', 'قيد المعالجة', 'بانتظار رد'].includes(status)) {
-    style = 'bg-amber-50 text-amber-800 border-amber-200'
-  }
+const TONE_STYLES: Record<BadgeTone, string> = {
+  positive: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  negative: 'bg-rose-50 text-rose-700 border-rose-200',
+  info: 'bg-sky-50 text-sky-700 border-sky-200',
+  warning: 'bg-amber-50 text-amber-800 border-amber-200',
+  neutral: 'bg-slate-100 text-slate-700 border-slate-200',
+}
 
+/** شارة حالة عامة — النغمة (tone) رمز لغوي محايد، فلا تنكسر ألوانها حين تُترجَم التسمية المعروضة. */
+function Badge({ tone, label }: { tone: BadgeTone; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${TONE_STYLES[tone]}`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-      {status}
+      {label}
     </span>
   )
 }
 
+const SUBSCRIPTION_TONE: Record<string, BadgeTone> = {
+  trialing: 'info',
+  active: 'positive',
+  past_due: 'warning',
+  canceled: 'negative',
+}
+const CAMPAIGN_TONE: Record<string, BadgeTone> = {
+  active: 'positive',
+  completed: 'info',
+  under_review: 'warning',
+  paused: 'negative',
+}
+const MARKETER_TONE: Record<string, BadgeTone> = {
+  active: 'positive',
+  suspended: 'negative',
+}
+
+function subscriptionBadgeProps(status: string | null, t: OpsCopy): { tone: BadgeTone; label: string } {
+  if (!status) return { tone: 'neutral', label: t.operations.merchantsTable.noSubscription }
+  return { tone: SUBSCRIPTION_TONE[status] ?? 'neutral', label: (t.subscriptionStatus as Record<string, string>)[status] ?? status }
+}
+function campaignBadgeProps(status: string, t: OpsCopy): { tone: BadgeTone; label: string } {
+  return { tone: CAMPAIGN_TONE[status] ?? 'neutral', label: (t.campaignStatus as Record<string, string>)[status] ?? status }
+}
+function marketerBadgeProps(status: string, t: OpsCopy): { tone: BadgeTone; label: string } {
+  return { tone: MARKETER_TONE[status] ?? 'neutral', label: (t.marketerStatus as Record<string, string>)[status] ?? status }
+}
+
 function PlatformBadge({ platform }: { platform: AdPlatform }) {
+  // أسماء منصات الإعلانات علامات تجارية — لا تُترجَم، كما في بقية المنصة.
   const styles: Record<AdPlatform, { name: string; bg: string; text: string; border: string }> = {
     instagram: { name: 'Instagram Ads', bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200' },
     tiktok: { name: 'TikTok Ads', bg: 'bg-slate-900', text: 'text-white', border: 'border-slate-800' },
@@ -206,52 +220,62 @@ const ACTIVE_SHIPMENT_STATUSES = new Set<ShipmentStatus>([
 ])
 const DELIVERED_SHIPMENT_STATUSES = new Set<ShipmentStatus>(['DELIVERED', 'SETTLED_FINANCIALLY'])
 
-type OrderStageKey = 'ملغي' | 'بانتظار الشحن' | 'قيد الشحن' | 'تم التسليم'
+type OrderStageKey = 'CANCELLED' | 'AWAITING_SHIPMENT' | 'IN_TRANSIT' | 'DELIVERED'
 
-/** يشتق مرحلة الطلب من current_state (orders) وحالة الشحنة المرتبطة (shipments) إن وُجدت. */
-function deriveOrderStage(order: ConfirmedOrder): { key: OrderStageKey; label: string } {
-  if (order.current_state === 'cancelled') return { key: 'ملغي', label: 'ملغي' }
-  if (!order.shipment) return { key: 'بانتظار الشحن', label: 'بانتظار الإرسال للشحن' }
+const ORDER_STAGE_TONE: Record<OrderStageKey, BadgeTone> = {
+  CANCELLED: 'negative',
+  DELIVERED: 'positive',
+  IN_TRANSIT: 'info',
+  AWAITING_SHIPMENT: 'warning',
+}
+
+/** تسميات المرحلة للملصق المطبوع فقط — عربية ثابتة بصرف النظر عن لغة الواجهة. */
+const PRINT_STAGE_LABELS: Record<OrderStageKey, string> = {
+  CANCELLED: 'ملغي',
+  AWAITING_SHIPMENT: 'بانتظار الإرسال للشحن',
+  IN_TRANSIT: 'قيد الشحن',
+  DELIVERED: 'تم التسليم',
+}
+
+function deriveOrderStageKey(order: ConfirmedOrder): OrderStageKey {
+  if (order.current_state === 'cancelled') return 'CANCELLED'
+  if (!order.shipment) return 'AWAITING_SHIPMENT'
   const status = order.shipment.status as ShipmentStatus
-  if (DELIVERED_SHIPMENT_STATUSES.has(status)) return { key: 'تم التسليم', label: STATUS_LABELS[status] ?? status }
-  return { key: 'قيد الشحن', label: STATUS_LABELS[status] ?? status }
+  return DELIVERED_SHIPMENT_STATUSES.has(status) ? 'DELIVERED' : 'IN_TRANSIT'
 }
-
-function OrderStageBadge({ order }: { order: ConfirmedOrder }) {
-  const stage = deriveOrderStage(order)
-  const style =
-    stage.key === 'ملغي'
-      ? 'bg-rose-50 text-rose-700 border-rose-200'
-      : stage.key === 'تم التسليم'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      : stage.key === 'قيد الشحن'
-      ? 'bg-sky-50 text-sky-700 border-sky-200'
-      : 'bg-amber-50 text-amber-800 border-amber-200'
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style}`}>
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-      {stage.label}
-    </span>
-  )
-}
-
-// ---------- المكون الرئيسي للوحة العمليات والإدارة بالأرقام العربية ----------
 
 /**
- * ⚠️ نصوص هذه اللوحة عربية بعد، وهي لفريق تشغيل برق لا للتجار.
- * ما يعبرها مترجَماً هو نافذة حجز الطلب وحدها (NewOrderBooking) لأن
- * مكوّنها مشترك مع لوحة الشحنات التي تُرجمت — فتصلها لغتها خاصيةً.
+ * يشتق مرحلة الطلب من current_state (orders) وحالة الشحنة المرتبطة (shipments) إن وُجدت.
+ * التسمية المعروضة على الشاشة تتبع لغة الواجهة: عامة (ملغي/بانتظار الشحن) من
+ * قاموس العمليات، أو دقيقة (STATUS_LABELS المترجَمة) من t.shipmentStatus حين
+ * تكون الشحنة قيد الشحن أو مُسلَّمة.
  */
+function deriveOrderStage(order: ConfirmedOrder, t: OpsCopy): { key: OrderStageKey; label: string } {
+  const key = deriveOrderStageKey(order)
+  if (key === 'CANCELLED') return { key, label: t.operations.orderStage.cancelled }
+  if (key === 'AWAITING_SHIPMENT') return { key, label: t.operations.orderStage.awaitingShipment }
+  const status = order.shipment!.status as ShipmentStatus
+  return { key, label: t.shipmentStatus[status] ?? status }
+}
+
+function OrderStageBadge({ order, t }: { order: ConfirmedOrder; t: OpsCopy }) {
+  const stage = deriveOrderStage(order, t)
+  return <Badge tone={ORDER_STAGE_TONE[stage.key]} label={stage.label} />
+}
+
+// ---------- المكون الرئيسي للوحة العمليات والإدارة ----------
+
 export default function OperationsClient({
   locale,
   currency,
-  bookingT,
+  t,
 }: {
   locale: Locale
   currency: string
-  bookingT: Dictionary['app']['booking']
+  /** ⚠️ خاصية لا استيراد: مكوّن عميل، والقاموس كله لا يعبر إلى المتصفّح. */
+  t: OpsCopy
 }) {
+  const o = t.operations
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('super_admin')
   const [activeMerchantName, setActiveMerchantName] = useState<string>('متجر دجلة')
 
@@ -275,11 +299,11 @@ export default function OperationsClient({
 
   // التصفية والبحث
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('الكل')
+  const [statusFilter, setStatusFilter] = useState<typeof ALL | OrderStageKey>(ALL)
   // تصفية الحملات حسب المنصة: القيمة تُقرأ في الفلترة أدناه، لكن لا يوجد
   // عنصر واجهة يغيّرها بعد — فهي عملياً معطَّلة على "الكل". يُضاف المُبدِّل
   // عند بناء قسم الحملات الكامل.
-  const [platformFilter] = useState<string>('الكل')
+  const [platformFilter] = useState<typeof ALL | AdPlatform>(ALL)
 
   // النوافذ المنبثقة
   const [selectedOrder, setSelectedOrder] = useState<ConfirmedOrder | null>(null)
@@ -299,20 +323,28 @@ export default function OperationsClient({
     setTimeout(() => setToast(null), 3500)
   }
 
+  // ---------- تنسيق الأرقام بلغة الواجهة (لا عربية ثابتة) ----------
+  const num = (value: number | null | undefined) => formatNumberFor(locale, value)
+  const digits = (value: string | number | null | undefined) => localizeDigits(value, locale)
+  const money = (value: number | null | undefined) => `${formatNumberFor(locale, value)} ${currency}`
+  const percent = (value: number | string | null | undefined) => `${localizeDigits(value ?? 0, locale)}%`
+  const timeLocale = locale === 'en' ? 'en-US' : 'ar-IQ'
+
   // تحميل الطلبات الحية من public.orders عبر Supabase (لا بيانات وهمية)
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true)
     try {
       const res = await fetch('/api/orders/dashboard', { cache: 'no-store' })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل الطلبات')
+      if (!res.ok || !json.success) throw new Error(json.error || o.errors.loadOrdersFailed)
       setOrders(json.orders as ConfirmedOrder[])
       setOrdersError(null)
     } catch (err: unknown) {
-      setOrdersError(err instanceof Error ? err.message : 'تعذر تحميل الطلبات')
+      setOrdersError(err instanceof Error ? err.message : o.errors.loadOrdersFailed)
     } finally {
       setOrdersLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // الاستدعاء داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
@@ -329,7 +361,7 @@ export default function OperationsClient({
     try {
       const res = await fetch('/api/merchants', { cache: 'no-store' })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحميل التجار')
+      if (!res.ok || !json.success) throw new Error(json.error || o.errors.loadMerchantsFailed)
 
       const rows = json.merchants as {
         id: string
@@ -357,9 +389,8 @@ export default function OperationsClient({
           phone: m.phone,
           city: m.city,
           plan: m.plan_name,
-          subscription_status: m.subscription_status
-            ? SUBSCRIPTION_LABELS[m.subscription_status] ?? m.subscription_status
-            : null,
+          // الرمز الخام يُحفَظ كما وصل — يُترجَم عند العرض حسب لغة الواجهة
+          subscription_status: m.subscription_status,
           api_connected: m.api_connected,
           monthly_fee: m.monthly_fee_iqd,
           commission_rate: m.commission_rate,
@@ -371,10 +402,11 @@ export default function OperationsClient({
       )
       setMerchantsError(null)
     } catch (err: unknown) {
-      setMerchantsError(err instanceof Error ? err.message : 'تعذر تحميل التجار')
+      setMerchantsError(err instanceof Error ? err.message : o.errors.loadMerchantsFailed)
     } finally {
       setMerchantsLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -393,15 +425,11 @@ export default function OperationsClient({
       ])
       const [mJson, cJson] = await Promise.all([mRes.json(), cRes.json()])
 
-      if (!mRes.ok || !mJson.success) throw new Error(mJson.error || 'تعذر تحميل المروّجين')
-      if (!cRes.ok || !cJson.success) throw new Error(cJson.error || 'تعذر تحميل الحملات')
+      if (!mRes.ok || !mJson.success) throw new Error(mJson.error || o.errors.loadPromotionFailed)
+      if (!cRes.ok || !cJson.success) throw new Error(cJson.error || o.errors.loadPromotionFailed)
 
-      setMarketers(
-        (mJson.marketers as (Omit<Marketer, 'status'> & { status: string })[]).map((m) => ({
-          ...m,
-          status: MARKETER_STATUS_LABELS[m.status] ?? m.status,
-        }))
-      )
+      // الرموز الخام تُحفَظ كما وصلت — تُترجَم عند العرض حسب لغة الواجهة
+      setMarketers(mJson.marketers as Marketer[])
 
       setCampaigns(
         (
@@ -437,7 +465,7 @@ export default function OperationsClient({
           marketer_id: c.marketer_id,
           marketer_name: c.marketer_name,
           platform: c.platform,
-          status: CAMPAIGN_STATUS_LABELS[c.status] ?? c.status,
+          status: c.status,
           budget_total: c.budget_total_iqd,
           budget_spent: c.budget_spent_iqd,
           daily_budget: c.daily_budget_iqd,
@@ -456,10 +484,11 @@ export default function OperationsClient({
       )
       setPromoError(null)
     } catch (err: unknown) {
-      setPromoError(err instanceof Error ? err.message : 'تعذر تحميل بيانات الترويج')
+      setPromoError(err instanceof Error ? err.message : o.errors.loadPromotionFailed)
     } finally {
       setPromoLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -559,16 +588,16 @@ export default function OperationsClient({
 
   // تصفية الطلبات المعروضة
   const filteredOrders = useMemo(() => {
-    return userScopedOrders.filter((o) => {
+    return userScopedOrders.filter((ord) => {
       const q = (search || '').trim().toLowerCase()
       const matchesSearch =
         !q ||
-        orderDisplayName(o).toLowerCase().includes(q) ||
-        String(o.order_id).includes(q) ||
-        orderDisplayPhone(o).includes(q) ||
-        (o.order_content ?? '').toLowerCase().includes(q)
+        orderDisplayName(ord).toLowerCase().includes(q) ||
+        String(ord.order_id).includes(q) ||
+        orderDisplayPhone(ord).includes(q) ||
+        (ord.order_content ?? '').toLowerCase().includes(q)
 
-      const matchesStatus = statusFilter === 'الكل' || deriveOrderStage(o).key === statusFilter
+      const matchesStatus = statusFilter === ALL || deriveOrderStageKey(ord) === statusFilter
       return matchesSearch && matchesStatus
     })
   }, [userScopedOrders, search, statusFilter])
@@ -581,7 +610,7 @@ export default function OperationsClient({
         !q ||
         c.name.toLowerCase().includes(q) ||
         (c.merchant_name || '').toLowerCase().includes(q)
-      const matchesPlatform = platformFilter === 'الكل' || c.platform === platformFilter
+      const matchesPlatform = platformFilter === ALL || c.platform === platformFilter
       return matchesSearch && matchesPlatform
     })
   }, [userScopedCampaigns, search, platformFilter])
@@ -592,27 +621,28 @@ export default function OperationsClient({
     try {
       const res = await fetch(`/api/orders/${orderId}/dispatch`, { method: 'POST' })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر إرسال الطلب للشحن')
+      if (!res.ok || !json.success) throw new Error(json.error || o.errors.dispatchFailed)
 
       const shipmentRef = { id: json.shipment.id, tracking_number: json.shipment.tracking_number, status: json.shipment.status }
-      setOrders((prev) => prev.map((o) => (o.order_id === orderId ? { ...o, shipment: shipmentRef } : o)))
+      setOrders((prev) => prev.map((ord) => (ord.order_id === orderId ? { ...ord, shipment: shipmentRef } : ord)))
       setSelectedOrder((prev) => (prev && prev.order_id === orderId ? { ...prev, shipment: shipmentRef } : prev))
-      showToast(`تم إرسال الطلب #${toArabicDigits(orderId)} للشحن — رقم التتبع ${json.shipment.tracking_number}`, 'success')
+      showToast(fill(o.errors.dispatchedToast, { n: digits(orderId), tracking: json.shipment.tracking_number }), 'success')
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'تعذر إرسال الطلب للشحن', 'error')
+      showToast(err instanceof Error ? err.message : o.errors.dispatchFailed, 'error')
     } finally {
       setDispatchingOrderId(null)
     }
   }
 
   // طباعة البوليصة الحرارية بالأرقام العربية من بيانات الطلب الحقيقية
+  // ⚠️ عربية دائماً بصرف النظر عن لغة الواجهة — راجع تعليق ترويسة الملف.
   const handlePrintLabel = (order: ConfirmedOrder) => {
     const w = window.open('', '_blank', 'width=450,height=650')
     if (!w) {
-      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'error')
+      showToast(o.errors.popupBlocked, 'error')
       return
     }
-    const stage = deriveOrderStage(order)
+    const stageLabel = PRINT_STAGE_LABELS[deriveOrderStageKey(order)]
     w.document.write(`
       <html lang="ar" dir="rtl">
         <head>
@@ -639,13 +669,21 @@ export default function OperationsClient({
                   </div>`
                 : ''
             }
-            <div class="row"><span>حالة الطلب:</span><span>${stage.label}</span></div>
+            <div class="row"><span>حالة الطلب:</span><span>${stageLabel}</span></div>
             <div class="total">الإجمالي: ${formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}</div>
           </div>
         </body>
       </html>
     `)
     w.document.close()
+  }
+
+  const stageFilterLabel = (key: typeof ALL | OrderStageKey) => {
+    if (key === ALL) return t.common.all
+    if (key === 'CANCELLED') return o.orderStage.cancelled
+    if (key === 'AWAITING_SHIPMENT') return o.orderStage.awaitingShipment
+    if (key === 'IN_TRANSIT') return o.orderStage.inTransit
+    return o.orderStage.delivered
   }
 
   return (
@@ -673,8 +711,8 @@ export default function OperationsClient({
       <div className="bg-[#253765] text-white px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-[#1D2B50] shadow-sm">
         <div className="flex items-center gap-2">
           <ShieldAlert size={15} className="text-amber-300" />
-          <span className="font-bold">نظام محاكاة الصلاحيات المتقدمة:</span>
-          <span className="text-slate-200 hidden md:inline">اختر نوع الحساب لمعاينة الصلاحيات وطريقة العرض المخصصة:</span>
+          <span className="font-bold">{o.roleSwitcher.label}</span>
+          <span className="text-slate-200 hidden md:inline">{o.roleSwitcher.hint}</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -682,28 +720,28 @@ export default function OperationsClient({
             <button
               onClick={() => {
                 setCurrentUserRole('super_admin')
-                showToast('تم التبديل إلى: وضع مدير المنصة (صلاحيات كاملة)', 'info')
+                showToast(o.roleSwitcher.toastAdmin, 'info')
               }}
               className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 ${
                 currentUserRole === 'super_admin' ? 'bg-white text-[#253765] shadow-xs' : 'text-slate-200 hover:text-white'
               }`}
             >
               <Award size={13} />
-              <span>مدير المنصة (Super Admin)</span>
+              <span>{o.roleSwitcher.admin}</span>
             </button>
 
             <button
               onClick={() => {
                 setCurrentUserRole('merchant')
                 if (view === 'admin') setView('orders')
-                showToast(`تم تسجيل الدخول كـ: تاجر (${activeMerchantName})`, 'info')
+                showToast(fill(o.roleSwitcher.toastMerchant, { name: activeMerchantName }), 'info')
               }}
               className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 ${
                 currentUserRole === 'merchant' ? 'bg-amber-400 text-slate-900 shadow-xs' : 'text-slate-200 hover:text-white'
               }`}
             >
               <Store size={13} />
-              <span>حساب تاجر / صاحب بيج</span>
+              <span>{o.roleSwitcher.merchant}</span>
             </button>
           </div>
 
@@ -735,7 +773,7 @@ export default function OperationsClient({
               <div>
                 <p className="font-bold text-base text-[#253765] tracking-tight">بـرق</p>
                 <p className="text-[11px] text-[#64748B]">
-                  {currentUserRole === 'merchant' ? `لوحة ${activeMerchantName}` : 'لوحة الإدارة والعمليات'}
+                  {currentUserRole === 'merchant' ? fill(o.sidebar.subMerchant, { name: activeMerchantName }) : o.sidebar.subAdmin}
                 </p>
               </div>
             </div>
@@ -753,10 +791,10 @@ export default function OperationsClient({
               >
                 <div className="flex items-center gap-3">
                   <Package size={17} />
-                  <span>{currentUserRole === 'merchant' ? 'طلبات متجري' : 'الطلبات والشحنات'}</span>
+                  <span>{currentUserRole === 'merchant' ? o.sidebar.navOrdersMerchant : o.sidebar.navOrdersAdmin}</span>
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'orders' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                  {toArabicDigits(userScopedOrders.length)}
+                  {digits(userScopedOrders.length)}
                 </span>
               </button>
 
@@ -772,16 +810,16 @@ export default function OperationsClient({
                 >
                   <div className="flex items-center gap-3">
                     <ShieldCheck size={17} />
-                    <span>الإدارة</span>
+                    <span>{o.sidebar.navAdmin}</span>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'admin' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                    {toArabicDigits(merchants.length + marketers.length)}
+                    {digits(merchants.length + marketers.length)}
                   </span>
                 </button>
               ) : (
                 <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-[11px] text-slate-500 flex items-center gap-2">
                   <Lock size={14} className="text-slate-400" />
-                  <span>الإدارة مقيدة لمدير المنصة فقط</span>
+                  <span>{o.sidebar.navAdminLocked}</span>
                 </div>
               )}
 
@@ -796,17 +834,17 @@ export default function OperationsClient({
               >
                 <div className="flex items-center gap-3">
                   <Megaphone size={17} />
-                  <span>{currentUserRole === 'merchant' ? 'حملاتي الإعلانية' : 'الحملات والترويج الإعلاني'}</span>
+                  <span>{currentUserRole === 'merchant' ? o.sidebar.navCampaignsMerchant : o.sidebar.navCampaignsAdmin}</span>
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${view === 'campaigns' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>
-                  {toArabicDigits(userScopedCampaigns.length)}
+                  {digits(userScopedCampaigns.length)}
                 </span>
               </button>
 
               {/* 4. لوحات محادثات التطبيقات الثلاثة المستقلة (عزل تام دون تداخل) */}
               <div className="pt-2 pb-1">
                 <p className="text-[10px] font-bold text-[#64748B] px-3 mb-1.5 uppercase tracking-wider">
-                  محادثات المنصات المستقلة
+                  {o.sidebar.independentChatsTitle}
                 </p>
                 <div className="space-y-1">
                   {/* لوحة واتساب — رابط مباشر لتبويب واتساب الحقيقي في /operations/chats */}
@@ -816,10 +854,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
-                      <span>محادثات واتساب</span>
+                      <span>{o.sidebar.chatWhatsapp}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.whatsapp) : '…'}
                     </span>
                   </Link>
 
@@ -830,10 +868,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
-                      <span>محادثات إنستغرام</span>
+                      <span>{o.sidebar.chatInstagram}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.instagram) : '…'}
                     </span>
                   </Link>
 
@@ -844,10 +882,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
-                      <span>محادثات ماسنجر</span>
+                      <span>{o.sidebar.chatMessenger}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.messenger) : '…'}
                     </span>
                   </Link>
                 </div>
@@ -860,10 +898,10 @@ export default function OperationsClient({
               >
                 <div className="flex items-center gap-2.5">
                   <MessageCircle size={16} />
-                  <span>المحادثات المباشرة (جميع القنوات)</span>
+                  <span>{o.sidebar.liveChatsLink}</span>
                 </div>
                 <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-black">
-                  جديد ⚡
+                  {o.sidebar.liveChatsNew}
                 </span>
               </Link>
 
@@ -874,7 +912,7 @@ export default function OperationsClient({
               >
                 <div className="flex items-center gap-2.5">
                   <Truck size={16} />
-                  <span>تتبع الشحنات الميداني</span>
+                  <span>{o.sidebar.trackingLink}</span>
                 </div>
                 <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#253765] text-white">
                   Tracking
@@ -885,7 +923,7 @@ export default function OperationsClient({
             {/* بوابات الدفع المدعومة */}
             <div className="mt-8 pt-6 border-t border-[#E2E8F0]">
               <p className="text-[10px] font-bold text-[#64748B] mb-3 uppercase tracking-wider">
-                بوابات الدفع الإلكتروني
+                {o.sidebar.paymentGatewaysTitle}
               </p>
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
@@ -893,14 +931,14 @@ export default function OperationsClient({
                     <span className="w-2 h-2 rounded-full bg-purple-600" />
                     <span className="font-semibold text-slate-800">Zain Cash Iraq</span>
                   </div>
-                  <span className="text-[10px] text-emerald-600 font-bold">نشط</span>
+                  <span className="text-[10px] text-emerald-600 font-bold">{o.sidebar.gatewayActive}</span>
                 </div>
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-rose-600" />
                     <span className="font-semibold text-slate-800">Qi Card & Master</span>
                   </div>
-                  <span className="text-[10px] text-emerald-600 font-bold">نشط</span>
+                  <span className="text-[10px] text-emerald-600 font-bold">{o.sidebar.gatewayActive}</span>
                 </div>
               </div>
             </div>
@@ -909,9 +947,9 @@ export default function OperationsClient({
           <div className="pt-4 border-t border-[#E2E8F0] text-[11px] text-[#64748B] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>{currentUserRole === 'merchant' ? `متصل: ${activeMerchantName}` : 'النظام متصل بالإدارة'}</span>
+              <span>{currentUserRole === 'merchant' ? fill(o.sidebar.connectedMerchant, { name: activeMerchantName }) : o.sidebar.connectedAdmin}</span>
             </div>
-            <span className="text-[#253765] font-bold">الإصدار {toArabicDigits('2.6')}</span>
+            <span className="text-[#253765] font-bold">{fill(o.sidebar.version, { n: digits('2.6') })}</span>
           </div>
         </aside>
 
@@ -924,11 +962,11 @@ export default function OperationsClient({
           <nav className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E2E8F0] overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5 px-3 py-2 w-max">
               {([
-                { key: 'orders', label: 'الطلبات' },
+                { key: 'orders', label: o.mobileNav.orders },
                 ...(currentUserRole === 'super_admin'
-                  ? ([{ key: 'admin', label: 'الإدارة' }] as { key: MainNavView; label: string }[])
+                  ? ([{ key: 'admin', label: o.mobileNav.admin }] as { key: MainNavView; label: string }[])
                   : []),
-                { key: 'campaigns', label: 'الحملات' },
+                { key: 'campaigns', label: o.mobileNav.campaigns },
               ] as { key: MainNavView; label: string }[]).map((item) => (
                 <button
                   key={item.key}
@@ -942,12 +980,12 @@ export default function OperationsClient({
               ))}
               <span className="w-px h-5 bg-[#E2E8F0] mx-1 shrink-0" />
               {[
-                { href: '/operations/chats?platform=whatsapp', label: 'واتساب' },
-                { href: '/operations/chats?platform=instagram', label: 'إنستغرام' },
-                { href: '/operations/chats?platform=messenger', label: 'ماسنجر' },
-                { href: '/workspace', label: 'مساحتي' },
-                { href: '/dashboard', label: 'الشحنات' },
-                { href: '/admin', label: 'لوحة المالك' },
+                { href: '/operations/chats?platform=whatsapp', label: o.mobileNav.whatsapp },
+                { href: '/operations/chats?platform=instagram', label: o.mobileNav.instagram },
+                { href: '/operations/chats?platform=messenger', label: o.mobileNav.messenger },
+                { href: '/workspace', label: o.mobileNav.myWorkspace },
+                { href: '/dashboard', label: o.mobileNav.shipments },
+                { href: '/admin', label: o.mobileNav.ownerPanel },
               ].map((l) => (
                 <Link
                   key={l.href}
@@ -967,23 +1005,23 @@ export default function OperationsClient({
               <div className="flex items-center gap-3">
                 <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
                   {view === 'orders'
-                    ? currentUserRole === 'merchant' ? `متابعة شحنات وطلبات ${activeMerchantName}` : 'إدارة الطلبات والشحن الذكي'
+                    ? currentUserRole === 'merchant' ? fill(o.header.titleOrdersMerchant, { name: activeMerchantName }) : o.header.titleOrdersAdmin
                     : view === 'admin'
-                    ? 'الإدارة العامة — التحكم بالتجار والمروجين والصلاحيات'
-                    : currentUserRole === 'merchant' ? `لوحة متابعة إعلانات ${activeMerchantName}` : 'منظومة الترويج والحملات الإعلانية الممولة'}
+                    ? o.header.titleAdmin
+                    : currentUserRole === 'merchant' ? fill(o.header.titleCampaignsMerchant, { name: activeMerchantName }) : o.header.titleCampaignsAdmin}
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#253765] text-white shadow-sm">
                   {view === 'orders'
-                    ? `${toArabicDigits(filteredOrders.length)} شحنة`
+                    ? fill(o.header.badgeShipments, { n: digits(filteredOrders.length) })
                     : view === 'admin'
-                    ? `${toArabicDigits(merchants.length)} متجر • ${toArabicDigits(marketers.length)} مروج`
-                    : `${toArabicDigits(filteredCampaigns.length)} حملة`}
+                    ? fill(o.header.badgeAdmin, { merchants: digits(merchants.length), marketers: digits(marketers.length) })
+                    : fill(o.header.badgeCampaigns, { n: digits(filteredCampaigns.length) })}
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-[#64748B] mt-1">
                 {currentUserRole === 'merchant'
-                  ? `أنت في وضع التاجر (${activeMerchantName}): تظهر فقط الشحنات والمحادثات والحملات الخاصة بمتجرك`
-                  : 'أنت في وضع مدير المنصة (Super Admin): صلاحيات كاملة لإدارة التجار، المروجين، والباقات، والربط البرمجي'}
+                  ? fill(o.header.subtitleMerchant, { name: activeMerchantName })
+                  : o.header.subtitleAdmin}
               </p>
             </div>
 
@@ -995,7 +1033,7 @@ export default function OperationsClient({
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition active:scale-95"
                 >
                   <Plus size={16} />
-                  <span>إضافة طلب جديد</span>
+                  <span>{o.header.addOrder}</span>
                 </button>
               )}
               {view === 'admin' && currentUserRole === 'super_admin' && (
@@ -1005,14 +1043,14 @@ export default function OperationsClient({
                     className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition"
                   >
                     <Plus size={15} />
-                    <span>تسجيل تاجر</span>
+                    <span>{o.header.addMerchant}</span>
                   </button>
                   <button
                     onClick={() => setNewMarketerModal(true)}
                     className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition"
                   >
                     <Plus size={15} />
-                    <span>إضافة مروج</span>
+                    <span>{o.header.addMarketer}</span>
                   </button>
                 </div>
               )}
@@ -1022,18 +1060,18 @@ export default function OperationsClient({
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs shadow-sm transition active:scale-95"
                 >
                   <Plus size={16} />
-                  <span>إنشاء حملة إعلانية</span>
+                  <span>{o.header.addCampaign}</span>
                 </button>
               )}
             </div>
           </header>
 
-          {/* ===== لوحة الإحصائيات العلوية بالأرقام العربية ===== */}
+          {/* ===== لوحة الإحصائيات العلوية ===== */}
           <div className="mb-7 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-bold text-[#253765] flex items-center gap-1.5">
                 <TrendingUp size={15} />
-                <span>مؤشرات الأداء المالي، اللوجستي، والتسويقي {currentUserRole === 'merchant' && `(خاصة بـ ${activeMerchantName})`}</span>
+                <span>{currentUserRole === 'merchant' ? fill(o.kpi.sectionLabelMerchant, { name: activeMerchantName }) : o.kpi.sectionLabel}</span>
               </p>
               <div className="flex items-center bg-white p-1 rounded-xl border border-[#E2E8F0] text-[11px] shadow-sm">
                 {(['today', 'week', 'month', 'all'] as TimeRange[]).map((tr) => (
@@ -1046,7 +1084,7 @@ export default function OperationsClient({
                         : 'text-[#64748B] hover:text-[#0F172A]'
                     }`}
                   >
-                    {tr === 'today' ? 'اليوم' : tr === 'week' ? 'هذا الأسبوع' : tr === 'month' ? 'هذا الشهر' : 'الكل'}
+                    {tr === 'today' ? o.timeRange.today : tr === 'week' ? o.timeRange.week : tr === 'month' ? o.timeRange.month : o.timeRange.all}
                   </button>
                 ))}
               </div>
@@ -1057,16 +1095,16 @@ export default function OperationsClient({
               <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-[#253765]" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">إجمالي المبيعات (طلبات غير ملغاة)</p>
+                  <p className="text-xs text-[#64748B] font-semibold">{o.kpi.totalSales}</p>
                   <DollarSign size={15} className="text-[#253765]" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {ordersLoading ? '…' : formatArabicCurrency(stats.totalSales)}
+                  {ordersLoading ? '…' : money(stats.totalSales)}
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
-                  {toArabicDigits(stats.totalOrders)} طلب إجمالاً
+                  {fill(o.kpi.totalOrdersCount, { n: digits(stats.totalOrders) })}
                   {stats.cancelledCount > 0 && (
-                    <> · <strong className="text-rose-600">{toArabicDigits(stats.cancelledCount)} ملغي</strong></>
+                    <> · <strong className="text-rose-600">{fill(o.kpi.cancelledSuffix, { n: digits(stats.cancelledCount) })}</strong></>
                   )}
                 </p>
               </div>
@@ -1074,17 +1112,17 @@ export default function OperationsClient({
               <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-sky-600" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">الشحنات النشطة والتوصيل</p>
+                  <p className="text-xs text-[#64748B] font-semibold">{o.kpi.activeShipments}</p>
                   <Truck size={15} className="text-sky-600" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
-                  {ordersLoading ? '…' : toArabicDigits(stats.activeShipments)}{' '}
-                  <span className="text-xs font-semibold text-sky-700">قيد الشحن</span>
+                  {ordersLoading ? '…' : digits(stats.activeShipments)}{' '}
+                  <span className="text-xs font-semibold text-sky-700">{o.kpi.inTransitTag}</span>
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
-                  نسبة التسليم الناجح: <strong className="text-emerald-700">{formatArabicPercent(stats.successRate)}</strong>
+                  {o.kpi.successRateLabel} <strong className="text-emerald-700">{percent(stats.successRate)}</strong>
                   {stats.pendingDispatchCount > 0 && (
-                    <> · <strong className="text-amber-700">{toArabicDigits(stats.pendingDispatchCount)}</strong> بانتظار الإرسال</>
+                    <> · <strong className="text-amber-700">{fill(o.kpi.awaitingDispatchSuffix, { n: digits(stats.pendingDispatchCount) })}</strong></>
                   )}
                 </p>
               </div>
@@ -1092,7 +1130,7 @@ export default function OperationsClient({
               <div className="card-luxury rounded-2xl p-4.5 bg-white border border-[#E2E8F0] relative overflow-hidden">
                 <div className="absolute top-0 inset-x-0 h-[3px] bg-amber-500" />
                 <div className="flex items-start justify-between">
-                  <p className="text-xs text-[#64748B] font-semibold">عائد الإعلانات (ROAS)</p>
+                  <p className="text-xs text-[#64748B] font-semibold">{o.kpi.roas}</p>
                   <Megaphone size={15} className="text-amber-600" />
                 </div>
                 <p className="text-2xl font-black text-[#0F172A] mt-2 font-mono">
@@ -1100,13 +1138,13 @@ export default function OperationsClient({
                     <span className="text-lg text-slate-400">—</span>
                   ) : (
                     <>
-                      {toArabicDigits(stats.avgRoas)}x{' '}
-                      <span className="text-xs font-semibold text-emerald-700">معدل العائد</span>
+                      {digits(stats.avgRoas)}x{' '}
+                      <span className="text-xs font-semibold text-emerald-700">{o.kpi.roasRateTag}</span>
                     </>
                   )}
                 </p>
                 <p className="mt-2 text-[11px] text-[#64748B]">
-                  طلبات مولدة: <strong className="text-[#0F172A]">{toArabicDigits(stats.totalAdOrders)} طلب</strong>
+                  {o.kpi.generatedOrdersLabel} <strong className="text-[#0F172A]">{fill(o.kpi.generatedOrdersValue, { n: digits(stats.totalAdOrders) })}</strong>
                 </p>
               </div>
             </div>
@@ -1120,7 +1158,7 @@ export default function OperationsClient({
               <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
                 <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-xs">
-                    {['الكل', 'بانتظار الشحن', 'قيد الشحن', 'تم التسليم', 'ملغي'].map((st) => (
+                    {([ALL, 'AWAITING_SHIPMENT', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'] as (typeof ALL | OrderStageKey)[]).map((st) => (
                       <button
                         key={st}
                         onClick={() => setStatusFilter(st)}
@@ -1130,7 +1168,7 @@ export default function OperationsClient({
                             : 'text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
                         }`}
                       >
-                        {st}
+                        {stageFilterLabel(st)}
                       </button>
                     ))}
                   </div>
@@ -1141,7 +1179,7 @@ export default function OperationsClient({
                       <input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="بحث بالرقم، الزبون، الهاتف، المحتوى..."
+                        placeholder={o.ordersTable.searchPlaceholder}
                         className="bg-transparent outline-none placeholder:text-[#94A3B8] text-[#0F172A] w-48 sm:w-56 text-xs"
                       />
                     </div>
@@ -1151,7 +1189,7 @@ export default function OperationsClient({
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#E2E8F0] hover:border-[#253765] disabled:opacity-50 text-slate-600 font-bold text-[11px] transition shrink-0"
                     >
                       <RefreshCw size={12} className={ordersLoading ? 'animate-spin' : ''} />
-                      تحديث
+                      {o.ordersTable.refresh}
                     </button>
                   </div>
                 </div>
@@ -1160,7 +1198,7 @@ export default function OperationsClient({
                   <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
                     <span>{ordersError}</span>
                     <button onClick={() => setOrdersError(null)} className="text-amber-600 hover:text-amber-900 shrink-0">
-                      إخفاء
+                      {o.ordersTable.hide}
                     </button>
                   </div>
                 )}
@@ -1169,11 +1207,11 @@ export default function OperationsClient({
                   <table className="w-full text-right text-xs">
                     <thead>
                       <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
-                        <th className="p-3.5">الطلب</th>
-                        <th className="p-3.5">الزبون والمحافظة</th>
-                        <th className="p-3.5">المبلغ المطلوب</th>
-                        <th className="p-3.5">حالة الطلب</th>
-                        <th className="p-3.5 text-center">العمليات</th>
+                        <th className="p-3.5">{o.ordersTable.colOrder}</th>
+                        <th className="p-3.5">{o.ordersTable.colCustomer}</th>
+                        <th className="p-3.5">{o.ordersTable.colAmount}</th>
+                        <th className="p-3.5">{o.ordersTable.colStatus}</th>
+                        <th className="p-3.5 text-center">{o.ordersTable.colActions}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E2E8F0]">
@@ -1181,13 +1219,13 @@ export default function OperationsClient({
                         <tr>
                           <td colSpan={5} className="p-8 text-center text-slate-400">
                             <RefreshCw size={20} className="animate-spin inline-block mb-2" />
-                            <p className="text-xs font-semibold">جارِ تحميل الطلبات...</p>
+                            <p className="text-xs font-semibold">{o.ordersTable.loading}</p>
                           </td>
                         </tr>
                       ) : filteredOrders.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="p-8 text-center text-slate-500">
-                            لا توجد طلبات مسجلة حالياً
+                            {o.ordersTable.empty}
                           </td>
                         </tr>
                       ) : (
@@ -1198,22 +1236,22 @@ export default function OperationsClient({
                             className="hover:bg-[#F8FAFC] transition-colors cursor-pointer"
                           >
                             <td className="p-3.5 whitespace-nowrap">
-                              <span className="font-bold text-[#253765]">#{toArabicDigits(order.order_id)}</span>
+                              <span className="font-bold text-[#253765]">#{digits(order.order_id)}</span>
                               <div className="text-[10px] text-[#64748B] mt-0.5">
-                                {toArabicDigits(new Date(order.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }))}
+                                {digits(new Date(order.created_at).toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' }))}
                               </div>
                             </td>
                             <td className="p-3.5">
                               <p className="font-bold text-[#0F172A] text-[13px]">{orderDisplayName(order)}</p>
                               <p className="text-[11px] text-[#64748B]">
-                                {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'} • {formatArabicPhone(orderDisplayPhone(order))}
+                                {[order.governorate, order.district].filter(Boolean).join(' · ') || '—'} • {digits(orderDisplayPhone(order))}
                               </p>
                             </td>
                             <td className="p-3.5 whitespace-nowrap font-bold text-emerald-700 text-sm">
-                              {formatArabicCurrency(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}
+                              {money(order.grand_total_iqd ?? order.items_total_iqd ?? 0)}
                             </td>
                             <td className="p-3.5 whitespace-nowrap">
-                              <OrderStageBadge order={order} />
+                              <OrderStageBadge order={order} t={t} />
                             </td>
                             <td className="p-3.5" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">
@@ -1228,7 +1266,7 @@ export default function OperationsClient({
                                     ) : (
                                       <Truck size={12} />
                                     )}
-                                    <span>إرسال للشحن</span>
+                                    <span>{o.ordersTable.sendToShipping}</span>
                                   </button>
                                 )}
                                 <button
@@ -1253,11 +1291,11 @@ export default function OperationsClient({
                   <div className="flex items-center gap-2">
                     <MessageCircle size={17} className="text-[#253765]" />
                     <p className="text-sm font-bold text-[#0F172A]">
-                      {currentUserRole === 'merchant' ? `محادثات ${activeMerchantName}` : 'محادثات المنصات الحية'}
+                      {currentUserRole === 'merchant' ? fill(o.chatsSidebar.titleMerchant, { name: activeMerchantName }) : o.chatsSidebar.titleAdmin}
                     </p>
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#253765] text-white font-bold">
-                    {liveChatCounts ? toArabicDigits(liveChatCounts.total) : '…'} محادثة
+                    {fill(o.chatsSidebar.totalBadge, { n: liveChatCounts ? digits(liveChatCounts.total) : '…' })}
                   </span>
                 </div>
 
@@ -1268,10 +1306,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#25D366]" />
-                      <span>واتساب</span>
+                      <span>{o.chatsSidebar.whatsapp}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.whatsapp) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.whatsapp) : '…'}
                     </span>
                   </Link>
 
@@ -1281,10 +1319,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600" />
-                      <span>إنستغرام</span>
+                      <span>{o.chatsSidebar.instagram}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.instagram) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.instagram) : '…'}
                     </span>
                   </Link>
 
@@ -1294,10 +1332,10 @@ export default function OperationsClient({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#0084FF]" />
-                      <span>ماسنجر</span>
+                      <span>{o.chatsSidebar.messenger}</span>
                     </div>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                      {liveChatCounts ? toArabicDigits(liveChatCounts.messenger) : '…'}
+                      {liveChatCounts ? digits(liveChatCounts.messenger) : '…'}
                     </span>
                   </Link>
 
@@ -1306,7 +1344,7 @@ export default function OperationsClient({
                     className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white text-xs font-bold transition mt-1"
                   >
                     <MessageCircle size={13} />
-                    <span>فتح المحادثات المباشرة والرد</span>
+                    <span>{o.chatsSidebar.openLive}</span>
                   </Link>
                 </div>
               </div>
@@ -1330,7 +1368,7 @@ export default function OperationsClient({
                     }`}
                   >
                     <Store size={15} />
-                    <span>إدارة التجار والاشتراكات ({toArabicDigits(merchants.length)})</span>
+                    <span>{fill(o.adminTabs.merchantsTab, { n: digits(merchants.length) })}</span>
                   </button>
 
                   <button
@@ -1342,7 +1380,7 @@ export default function OperationsClient({
                     }`}
                   >
                     <Megaphone size={15} />
-                    <span>إدارة المروجين والحملات ({toArabicDigits(marketers.length)})</span>
+                    <span>{fill(o.adminTabs.marketersTab, { n: digits(marketers.length) })}</span>
                   </button>
 
                   <button
@@ -1354,12 +1392,12 @@ export default function OperationsClient({
                     }`}
                   >
                     <Key size={15} />
-                    <span>صلاحيات المنصة والـ API</span>
+                    <span>{o.adminTabs.permissionsTab}</span>
                   </button>
                 </div>
 
                 <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full font-bold">
-                  صلاحية مدير النظام الكاملة (Full Platform Access)
+                  {o.adminTabs.fullAccessBadge}
                 </span>
               </div>
 
@@ -1367,13 +1405,13 @@ export default function OperationsClient({
               {adminSubTab === 'merchants' && (
                 <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
                   <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
-                    <p className="text-sm font-bold text-[#0F172A]">قائمة المتاجر المسجلة والتحكم بالاشتراكات</p>
+                    <p className="text-sm font-bold text-[#0F172A]">{o.merchantsTable.title}</p>
                     <button
                       onClick={() => setNewMerchantModal(true)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] text-white font-bold text-xs"
                     >
                       <Plus size={14} />
-                      <span>إضافة تاجر جديد</span>
+                      <span>{o.merchantsTable.addMerchant}</span>
                     </button>
                   </div>
 
@@ -1381,13 +1419,13 @@ export default function OperationsClient({
                     <table className="w-full text-right text-xs">
                       <thead>
                         <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
-                          <th className="p-3.5">المتجر</th>
-                          <th className="p-3.5">المدينة والمسؤول</th>
-                          <th className="p-3.5">نوع الباقة</th>
-                          <th className="p-3.5">الاشتراك</th>
-                          <th className="p-3.5">نسبة العمولة</th>
-                          <th className="p-3.5">الرصيد المالي</th>
-                          <th className="p-3.5 text-left">إجراءات الإدارة</th>
+                          <th className="p-3.5">{o.merchantsTable.colStore}</th>
+                          <th className="p-3.5">{o.merchantsTable.colCityOwner}</th>
+                          <th className="p-3.5">{o.merchantsTable.colPlan}</th>
+                          <th className="p-3.5">{o.merchantsTable.colSubscription}</th>
+                          <th className="p-3.5">{o.merchantsTable.colCommission}</th>
+                          <th className="p-3.5">{o.merchantsTable.colBalance}</th>
+                          <th className="p-3.5 text-left">{o.merchantsTable.colActions}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0]">
@@ -1395,25 +1433,27 @@ export default function OperationsClient({
                           <tr>
                             <td colSpan={7} className="p-10 text-center text-[#64748B]">
                               <RefreshCw size={16} className="animate-spin inline-block ml-2" />
-                              جارِ تحميل التجار من قاعدة البيانات...
+                              {o.merchantsTable.loading}
                             </td>
                           </tr>
                         )}
                         {!merchantsLoading && merchantsError && (
                           <tr>
                             <td colSpan={7} className="p-10 text-center text-rose-700 font-semibold">
-                              تعذّر تحميل التجار: {merchantsError}
+                              {fill(o.merchantsTable.loadError, { error: merchantsError })}
                             </td>
                           </tr>
                         )}
                         {!merchantsLoading && !merchantsError && merchants.length === 0 && (
                           <tr>
                             <td colSpan={7} className="p-10 text-center text-[#64748B]">
-                              لا يوجد تاجر مسجّل بعد — سجّل أول تاجر من الزر أعلاه.
+                              {o.merchantsTable.empty}
                             </td>
                           </tr>
                         )}
-                        {merchants.map((m) => (
+                        {merchants.map((m) => {
+                          const sub = subscriptionBadgeProps(m.subscription_status, t)
+                          return (
                           <tr key={m.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="p-3.5">
                               <p className="font-bold text-[13px] text-[#0F172A]">{m.name}</p>
@@ -1423,11 +1463,11 @@ export default function OperationsClient({
                             </td>
                             <td className="p-3.5">
                               <p className="font-semibold text-slate-800">
-                                {m.city ?? <span className="text-slate-400 font-normal">غير مسجّلة</span>}
+                                {m.city ?? <span className="text-slate-400 font-normal">{o.merchantsTable.cityUnset}</span>}
                               </p>
                               <p className="text-[11px] text-[#64748B]">
-                                {m.owner_name ?? 'المالك غير مسجّل'}
-                                {m.phone ? ` • ${formatArabicPhone(m.phone)}` : ''}
+                                {m.owner_name ?? o.merchantsTable.ownerUnset}
+                                {m.phone ? ` • ${digits(m.phone)}` : ''}
                               </p>
                             </td>
                             <td className="p-3.5">
@@ -1438,34 +1478,35 @@ export default function OperationsClient({
                                     : 'bg-slate-100 text-slate-400'
                                 }`}
                               >
-                                {m.plan ?? 'بلا باقة'}
+                                {m.plan ?? o.merchantsTable.noPlan}
                               </span>
                             </td>
                             <td className="p-3.5">
-                              <StatusBadge status={m.subscription_status ?? 'بلا اشتراك'} />
+                              <Badge tone={sub.tone} label={sub.label} />
                             </td>
                             {/* العمولة تُعرض فارغة إن لم تُتفق — رقم افتراضي هنا التزام مالي مُخترع */}
                             <td className="p-3.5 font-bold text-[#253765]">
                               {m.commission_rate === null ? (
-                                <span className="text-slate-400 font-normal">لم تُحدَّد</span>
+                                <span className="text-slate-400 font-normal">{o.merchantsTable.commissionUnset}</span>
                               ) : (
-                                formatArabicPercent(m.commission_rate)
+                                percent(m.commission_rate)
                               )}
                             </td>
                             <td className="p-3.5 font-bold text-emerald-700 text-sm">
-                              {formatArabicCurrency(m.balance)}
+                              {money(m.balance)}
                             </td>
                             <td className="p-3.5 text-left">
                               <button
                                 onClick={() => setSelectedMerchant(m)}
                                 className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white shadow-sm transition"
                               >
-                                <span>التحكم بالاشتراك</span>
+                                <span>{o.merchantsTable.controlSubscription}</span>
                                 <Sliders size={13} />
                               </button>
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1477,15 +1518,15 @@ export default function OperationsClient({
                 <div className="card-luxury rounded-2xl bg-white border border-[#E2E8F0] overflow-hidden shadow-sm">
                   <div className="p-4 border-b border-[#E2E8F0] bg-[#FAFAFA] flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-bold text-[#0F172A]">سجل المروجين ووكالات التسويق المعتمدة</p>
-                      <p className="text-xs text-slate-500">إدارة حسابات المسوقين وتعيين المتاجر وإشراف الحملات الإعلانية</p>
+                      <p className="text-sm font-bold text-[#0F172A]">{o.marketersTable.title}</p>
+                      <p className="text-xs text-slate-500">{o.marketersTable.subtitle}</p>
                     </div>
                     <button
                       onClick={() => setNewMarketerModal(true)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#253765] text-white font-bold text-xs"
                     >
                       <Plus size={14} />
-                      <span>إضافة حساب مروج</span>
+                      <span>{o.marketersTable.addMarketer}</span>
                     </button>
                   </div>
 
@@ -1493,13 +1534,13 @@ export default function OperationsClient({
                     <table className="w-full text-right text-xs">
                       <thead>
                         <tr className="text-[#64748B] border-b border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
-                          <th className="p-3.5">المروج / الوكالة</th>
-                          <th className="p-3.5">الاتصال والبريد</th>
-                          <th className="p-3.5">المتاجر المسندة</th>
-                          <th className="p-3.5">الحملات النشطة</th>
-                          <th className="p-3.5">الميزانيات المدارة</th>
-                          <th className="p-3.5">نسبة العمولة</th>
-                          <th className="p-3.5 text-left">الحالة</th>
+                          <th className="p-3.5">{o.marketersTable.colMarketer}</th>
+                          <th className="p-3.5">{o.marketersTable.colContact}</th>
+                          <th className="p-3.5">{o.marketersTable.colMerchants}</th>
+                          <th className="p-3.5">{o.marketersTable.colCampaigns}</th>
+                          <th className="p-3.5">{o.marketersTable.colBudgets}</th>
+                          <th className="p-3.5">{o.marketersTable.colCommission}</th>
+                          <th className="p-3.5 text-left">{o.marketersTable.colStatus}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0]">
@@ -1507,7 +1548,7 @@ export default function OperationsClient({
                           <tr>
                             <td colSpan={6} className="p-10 text-center text-[#64748B]">
                               <RefreshCw size={16} className="animate-spin inline-block ml-2" />
-                              جارِ تحميل المروّجين من قاعدة البيانات...
+                              {o.marketersTable.loading}
                             </td>
                           </tr>
                         )}
@@ -1521,24 +1562,26 @@ export default function OperationsClient({
                         {!promoLoading && !promoError && marketers.length === 0 && (
                           <tr>
                             <td colSpan={6} className="p-10 text-center text-[#64748B]">
-                              لا يوجد مروّج مسجّل بعد — سجّل أول مروّج من الزر أعلاه.
+                              {o.marketersTable.empty}
                             </td>
                           </tr>
                         )}
-                        {marketers.map((mkt) => (
+                        {marketers.map((mkt) => {
+                          const mktBadge = marketerBadgeProps(mkt.status, t)
+                          return (
                           <tr key={mkt.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="p-3.5">
                               <p className="font-bold text-[13px] text-[#0F172A]">{mkt.name}</p>
                               <p className="text-[11px] text-[#64748B]">{mkt.agency_name}</p>
                             </td>
                             <td className="p-3.5 text-slate-700">
-                              <p>{formatArabicPhone(mkt.phone)}</p>
+                              <p>{digits(mkt.phone)}</p>
                               <p className="text-[10px] text-slate-400">{mkt.email}</p>
                             </td>
                             <td className="p-3.5">
                               <div className="flex flex-wrap gap-1">
                                 {mkt.assigned_merchants.length === 0 && (
-                                  <span className="text-[10px] text-slate-400">لا تجار مسندون</span>
+                                  <span className="text-[10px] text-slate-400">{o.marketersTable.noAssignedMerchants}</span>
                                 )}
                                 {mkt.assigned_merchants.map((m) => (
                                   <span key={m.id} className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-[10px] font-bold">
@@ -1548,19 +1591,20 @@ export default function OperationsClient({
                               </div>
                             </td>
                             <td className="p-3.5 font-bold text-slate-800">
-                              {toArabicDigits(mkt.active_campaigns_count)} حملات
+                              {digits(mkt.active_campaigns_count)} {o.marketersTable.campaignsCountSuffix}
                             </td>
                             <td className="p-3.5 font-bold text-emerald-700">
-                              {formatArabicCurrency(mkt.total_ad_budget_managed)}
+                              {money(mkt.total_ad_budget_managed)}
                             </td>
                             <td className="p-3.5 font-bold text-[#253765]">
-                              {formatArabicPercent(mkt.commission_rate)}
+                              {percent(mkt.commission_rate)}
                             </td>
                             <td className="p-3.5 text-left">
-                              <StatusBadge status={mkt.status} />
+                              <Badge tone={mktBadge.tone} label={mktBadge.label} />
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1575,8 +1619,8 @@ export default function OperationsClient({
                       <Key size={20} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-[#0F172A]">إعدادات الـ Webhooks والربط المركزي للمنصة</h3>
-                      <p className="text-slate-500">التحكم بالمفاتيح البرمجية الرئيسية ومسارات الربط مع بوابات التوصيل والدفع</p>
+                      <h3 className="text-sm font-bold text-[#0F172A]">{o.permissions.title}</h3>
+                      <p className="text-slate-500">{o.permissions.subtitle}</p>
                     </div>
                   </div>
 
@@ -1590,28 +1634,25 @@ export default function OperationsClient({
                   */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                      <p className="font-bold text-slate-800">مسار Webhook البوتات</p>
+                      <p className="font-bold text-slate-800">{o.permissions.botWebhookTitle}</p>
                       <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
                         POST /api/webhooks/bot
                       </p>
                       <p className="text-[10px] text-slate-500 leading-relaxed">
-                        يتطلّب ترويسة توقيع{' '}
-                        <span className="font-mono">x-bariq-signature</span> محسوبة
-                        HMAC-SHA256 على الجسم الخام بالسرّ{' '}
-                        <span className="font-mono">BARIQ_BOT_WEBHOOK_SECRET</span>. الطلب
-                        غير الموقَّع يُرفض.
+                        {o.permissions.botWebhookHint1}{' '}
+                        <span className="font-mono">x-bariq-signature</span> {o.permissions.botWebhookHint2}{' '}
+                        <span className="font-mono">BARIQ_BOT_WEBHOOK_SECRET</span>{o.permissions.botWebhookHint3}
                       </p>
                     </div>
 
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                      <p className="font-bold text-slate-800">مسار مزامنة التوصيل</p>
+                      <p className="font-bold text-slate-800">{o.permissions.deliverySyncTitle}</p>
                       <p className="font-mono text-[11px] text-[#253765] bg-white p-2 rounded border border-slate-200 break-all">
                         POST /api/delivery/sync
                       </p>
                       <p className="text-[10px] text-slate-500 leading-relaxed">
-                        نفس آلية التوقيع بالسرّ{' '}
-                        <span className="font-mono">BARIQ_DELIVERY_SYNC_SECRET</span>. يحرّك
-                        حالة الشحنة خطوة واحدة وفق التسلسل المُلزَم.
+                        {o.permissions.deliverySyncHint1}{' '}
+                        <span className="font-mono">BARIQ_DELIVERY_SYNC_SECRET</span>{o.permissions.deliverySyncHint2}
                       </p>
                     </div>
                   </div>
@@ -1633,13 +1674,13 @@ export default function OperationsClient({
                   <div>
                     <h2 className="text-sm font-bold text-[#0F172A]">
                       {currentUserRole === 'merchant'
-                        ? `لوحة متابعة إعلانات ${activeMerchantName}`
-                        : 'إدارة ومتابعة الحملات الإعلانية لكافة المتاجر'}
+                        ? fill(o.campaignsView.titleMerchant, { name: activeMerchantName })
+                        : o.campaignsView.titleAdmin}
                     </h2>
                     <p className="text-xs text-[#64748B]">
                       {currentUserRole === 'merchant'
-                        ? 'مراقبة العائد المالي (ROAS)، الوصول، والميزانية المصروفة على حملات متجرك'
-                        : 'إطلاق وتعديل الحملات وتحديث الميزانيات وكتابة التوجيهات للعملاء'}
+                        ? o.campaignsView.subtitleMerchant
+                        : o.campaignsView.subtitleAdmin}
                     </p>
                   </div>
                 </div>
@@ -1650,7 +1691,7 @@ export default function OperationsClient({
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs shadow-sm hover:bg-[#1D2B50] transition"
                   >
                     <Plus size={15} />
-                    <span>إنشاء حملة جديدة</span>
+                    <span>{o.campaignsView.newCampaign}</span>
                   </button>
                 )}
               </div>
@@ -1660,7 +1701,7 @@ export default function OperationsClient({
                 {promoLoading ? (
                   <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
                     <RefreshCw size={18} className="animate-spin inline-block ml-2" />
-                    جارِ تحميل الحملات من قاعدة البيانات...
+                    {o.campaignsView.loading}
                   </div>
                 ) : promoError ? (
                   <div className="col-span-2 p-12 bg-white rounded-2xl border border-rose-200 text-center text-rose-700 font-semibold">
@@ -1668,7 +1709,7 @@ export default function OperationsClient({
                   </div>
                 ) : filteredCampaigns.length === 0 ? (
                   <div className="col-span-2 p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
-                    لا توجد حملات إعلانية مسجلة حالياً
+                    {o.campaignsView.empty}
                   </div>
                 ) : (
                   filteredCampaigns.map((camp) => {
@@ -1677,6 +1718,7 @@ export default function OperationsClient({
                       camp.budget_total > 0
                         ? Math.min(100, Math.round((camp.budget_spent / camp.budget_total) * 100))
                         : 0
+                    const campBadge = campaignBadgeProps(camp.status, t)
                     return (
                       <div
                         key={camp.id}
@@ -1686,11 +1728,11 @@ export default function OperationsClient({
                           <div>
                             <div className="flex items-center gap-2 mb-1">
                               <PlatformBadge platform={camp.platform} />
-                              <StatusBadge status={camp.status} />
+                              <Badge tone={campBadge.tone} label={campBadge.label} />
                             </div>
                             <h3 className="text-sm font-bold text-[#0F172A]">{camp.name}</h3>
                             <p className="text-xs text-[#64748B]">
-                              التاجر: <strong className="text-slate-800">{camp.merchant_name}</strong> • المروج: {camp.marketer_name}
+                              {o.campaignsView.merchantLabel} <strong className="text-slate-800">{camp.merchant_name}</strong> • {o.campaignsView.marketerLabel} {camp.marketer_name}
                             </p>
                           </div>
 
@@ -1700,7 +1742,7 @@ export default function OperationsClient({
                                 // الحفظ في قاعدة البيانات لا في حالة المتصفح:
                                 // إيقاف حملة يعني إيقاف إنفاق فعلي، ولا يصحّ
                                 // أن يعود المبلغ يُصرف بمجرد تحديث الصفحة.
-                                const nextDb = camp.status === 'نشطة' ? 'paused' : 'active'
+                                const nextDb = camp.status === 'active' ? 'paused' : 'active'
                                 try {
                                   const res = await fetch(`/api/campaigns/${camp.id}`, {
                                     method: 'PATCH',
@@ -1710,41 +1752,41 @@ export default function OperationsClient({
                                   const json = await res.json()
                                   if (!res.ok || !json.success) throw new Error(json.error)
                                   await loadPromotion()
-                                  showToast(`تم ${nextDb === 'active' ? 'تفعيل' : 'إيقاف'} الحملة`, 'success')
+                                  showToast(nextDb === 'active' ? o.campaignsView.toggledOn : o.campaignsView.toggledOff, 'success')
                                 } catch (err: unknown) {
-                                  showToast(err instanceof Error ? err.message : 'تعذّر التحديث', 'error')
+                                  showToast(err instanceof Error ? err.message : o.campaignsView.toggleFailed, 'error')
                                 }
                               }}
                               className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 ${
-                                camp.status === 'نشطة'
+                                camp.status === 'active'
                                   ? 'bg-amber-50 text-amber-800 border-amber-200'
                                   : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                               }`}
                             >
-                              {camp.status === 'نشطة' ? <Pause size={13} /> : <Play size={13} />}
-                              <span>{camp.status === 'نشطة' ? 'إيقاف' : 'تشغيل'}</span>
+                              {camp.status === 'active' ? <Pause size={13} /> : <Play size={13} />}
+                              <span>{camp.status === 'active' ? o.campaignsView.pause : o.campaignsView.play}</span>
                             </button>
                           )}
                         </div>
 
-                        {/* مؤشرات الأداء بالأرقام العربية */}
+                        {/* مؤشرات الأداء */}
                         <div className="grid grid-cols-4 gap-2 bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] text-center text-xs">
                           <div>
-                            <p className="text-[10px] text-[#64748B]">الوصول</p>
-                            <p className="font-bold text-[#0F172A] mt-0.5">{formatArabicNumber(camp.reach)}</p>
+                            <p className="text-[10px] text-[#64748B]">{o.campaignsView.reach}</p>
+                            <p className="font-bold text-[#0F172A] mt-0.5">{num(camp.reach)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-[#64748B]">النقرات</p>
-                            <p className="font-bold text-[#0F172A] mt-0.5">{formatArabicNumber(camp.clicks)}</p>
+                            <p className="text-[10px] text-[#64748B]">{o.campaignsView.clicksLabel}</p>
+                            <p className="font-bold text-[#0F172A] mt-0.5">{num(camp.clicks)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-[#64748B]">الطلبات</p>
-                            <p className="font-bold text-emerald-700 mt-0.5">{toArabicDigits(camp.conversions)}</p>
+                            <p className="text-[10px] text-[#64748B]">{o.campaignsView.ordersLabel}</p>
+                            <p className="font-bold text-emerald-700 mt-0.5">{digits(camp.conversions)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-[#64748B]">العائد (ROAS)</p>
+                            <p className="text-[10px] text-[#64748B]">{o.campaignsView.roasLabel}</p>
                             <p className="font-black text-[#253765] mt-0.5 font-mono">
-                              {camp.roas === null ? <span className="text-slate-400">—</span> : `${toArabicDigits(camp.roas)}x`}
+                              {camp.roas === null ? <span className="text-slate-400">—</span> : `${digits(camp.roas)}x`}
                             </p>
                           </div>
                         </div>
@@ -1753,10 +1795,10 @@ export default function OperationsClient({
                         <div className="space-y-1.5">
                           <div className="flex justify-between text-xs font-semibold">
                             <span className="text-[#64748B]">
-                              المصروف: <strong className="text-slate-900">{formatArabicCurrency(camp.budget_spent)}</strong>
+                              {o.campaignsView.spentLabel} <strong className="text-slate-900">{money(camp.budget_spent)}</strong>
                             </span>
                             <span className="text-[#253765]">
-                              الميزانية: {formatArabicCurrency(camp.budget_total)} ({formatArabicPercent(spendPercent)})
+                              {o.campaignsView.budgetLabel} {money(camp.budget_total)} ({percent(spendPercent)})
                             </span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
@@ -1772,19 +1814,19 @@ export default function OperationsClient({
                           <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl text-xs text-blue-900 space-y-1">
                             <p className="font-bold flex items-center gap-1.5 text-[#253765]">
                               <Sparkles size={13} />
-                              <span>تقرير وتوصية خبير التسويق:</span>
+                              <span>{o.campaignsView.marketerReportTitle}</span>
                             </p>
-                            <p className="leading-relaxed text-[11px]">{toArabicDigits(camp.marketer_notes)}</p>
+                            <p className="leading-relaxed text-[11px]">{camp.marketer_notes}</p>
                           </div>
                         )}
 
                         <div className="pt-2 flex items-center justify-between text-xs">
-                          <span className="text-[11px] text-[#64748B]">الفترة: {formatArabicDate(camp.start_date)} إلى {formatArabicDate(camp.end_date)}</span>
+                          <span className="text-[11px] text-[#64748B]">{fill(o.campaignsView.periodLabel, { start: digits(camp.start_date), end: digits(camp.end_date) })}</span>
                           <button
                             onClick={() => setSelectedCampaign(camp)}
                             className="font-bold text-[#253765] hover:underline inline-flex items-center gap-1"
                           >
-                            <span>عرض التقرير</span>
+                            <span>{o.campaignsView.viewReport}</span>
                             <ArrowUpRight size={13} />
                           </button>
                         </div>
@@ -1813,11 +1855,14 @@ export default function OperationsClient({
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-base font-bold text-[#0F172A]">{selectedMerchant.name}</h2>
-                    <StatusBadge status={selectedMerchant.subscription_status ?? 'بلا اشتراك'} />
+                    {(() => {
+                      const sub = subscriptionBadgeProps(selectedMerchant.subscription_status, t)
+                      return <Badge tone={sub.tone} label={sub.label} />
+                    })()}
                   </div>
                   <p className="text-xs text-[#64748B]">
-                    المعرف: {toArabicDigits(selectedMerchant.id)} •{' '}
-                    {selectedMerchant.city ? `مدينة ${selectedMerchant.city}` : 'المدينة غير مسجّلة'}
+                    {fill(o.merchantModal.idLabel, { id: digits(selectedMerchant.id) })} •{' '}
+                    {selectedMerchant.city ? fill(o.merchantModal.cityKnown, { city: selectedMerchant.city }) : o.merchantModal.cityUnknown}
                   </p>
                 </div>
               </div>
@@ -1829,21 +1874,21 @@ export default function OperationsClient({
             <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs">
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                  <p className="text-[10px] text-[#64748B]">الرصيد المتاح</p>
+                  <p className="text-[10px] text-[#64748B]">{o.merchantModal.availableBalance}</p>
                   <p className="text-lg font-black text-emerald-700 font-mono mt-1">
-                    {formatArabicCurrency(selectedMerchant.balance)}
+                    {money(selectedMerchant.balance)}
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                  <p className="text-[10px] text-[#64748B]">إجمالي الشحنات</p>
+                  <p className="text-[10px] text-[#64748B]">{o.merchantModal.totalShipments}</p>
                   <p className="text-lg font-black text-slate-800 font-mono mt-1">
-                    {toArabicDigits(selectedMerchant.orders_count)}
+                    {digits(selectedMerchant.orders_count)}
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                  <p className="text-[10px] text-[#64748B]">الرسوم الشهرية</p>
+                  <p className="text-[10px] text-[#64748B]">{o.merchantModal.monthlyFee}</p>
                   <p className="text-lg font-black text-[#253765] font-mono mt-1">
-                    {formatArabicCurrency(selectedMerchant.monthly_fee)}
+                    {money(selectedMerchant.monthly_fee)}
                   </p>
                 </div>
               </div>
@@ -1851,38 +1896,39 @@ export default function OperationsClient({
               {/* تعديل الباقة والاشتراك */}
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-[#253765] border-b border-slate-200 pb-1.5">
-                  إعدادات الاشتراك والباقة (صلاحيات الإدارة)
+                  {o.merchantModal.subscriptionSettingsTitle}
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#64748B] block mb-1 font-bold">باقة المتجر</label>
+                    <label className="text-[#64748B] block mb-1 font-bold">{o.merchantModal.planLabel}</label>
                     <select
                       value={selectedMerchant.plan ?? ''}
                       onChange={(e) => setSelectedMerchant({ ...selectedMerchant, plan: e.target.value || null })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
-                      <option value="أساسية">أساسية</option>
-                      <option value="متقدمة">متقدمة</option>
-                      <option value="احترافية">احترافية</option>
+                      <option value={o.merchantModal.planBasic}>{o.merchantModal.planBasic}</option>
+                      <option value={o.merchantModal.planAdvanced}>{o.merchantModal.planAdvanced}</option>
+                      <option value={o.merchantModal.planPro}>{o.merchantModal.planPro}</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-[#64748B] block mb-1 font-bold">حالة الاشتراك</label>
+                    <label className="text-[#64748B] block mb-1 font-bold">{o.merchantModal.subscriptionStatusLabel}</label>
                     <select
                       value={selectedMerchant.subscription_status ?? ''}
                       onChange={(e) => setSelectedMerchant({ ...selectedMerchant, subscription_status: e.target.value || null })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     >
-                      <option value="نشط">نشط</option>
-                      <option value="تجريبي">تجريبي</option>
-                      <option value="متوقف">متوقف</option>
+                      <option value="active">{t.subscriptionStatus.active}</option>
+                      <option value="trialing">{t.subscriptionStatus.trialing}</option>
+                      <option value="past_due">{t.subscriptionStatus.past_due}</option>
+                      <option value="canceled">{t.subscriptionStatus.canceled}</option>
                     </select>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#64748B] block mb-1 font-bold">الرسوم الشهرية (د.ع)</label>
+                    <label className="text-[#64748B] block mb-1 font-bold">{o.merchantModal.monthlyFeeInputLabel}</label>
                     <input
                       type="number"
                       value={selectedMerchant.monthly_fee ?? ''}
@@ -1891,11 +1937,11 @@ export default function OperationsClient({
                     />
                   </div>
                   <div>
-                    <label className="text-[#64748B] block mb-1 font-bold">نسبة عمولة التوصيل (%)</label>
+                    <label className="text-[#64748B] block mb-1 font-bold">{o.merchantModal.commissionInputLabel}</label>
                     <input
                       type="number"
                       value={selectedMerchant.commission_rate ?? ''}
-                      placeholder="لم تُحدَّد"
+                      placeholder={o.merchantModal.commissionPlaceholder}
                       onChange={(e) => setSelectedMerchant({ ...selectedMerchant, commission_rate: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]"
                     />
@@ -1905,7 +1951,7 @@ export default function OperationsClient({
 
               {/* الربط البرمجي ومفاتيح الـ API */}
               <div className="space-y-2">
-                <h3 className="text-xs font-bold text-[#253765]">مفتاح الوصول البرمجي (API Key):</h3>
+                <h3 className="text-xs font-bold text-[#253765]">{o.merchantModal.apiKeyLabel}</h3>
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
                   <Key size={14} className="text-[#253765] shrink-0" />
                   <span className="font-mono text-[11px] text-slate-800 flex-1 truncate">{selectedMerchant.api_key}</span>
@@ -1914,7 +1960,7 @@ export default function OperationsClient({
                       navigator.clipboard.writeText(selectedMerchant.api_key ?? '')
                       setCopiedKey(true)
                       setTimeout(() => setCopiedKey(false), 2000)
-                      showToast('تم نسخ مفتاح الـ API', 'info')
+                      showToast(o.merchantModal.apiKeyCopied, 'info')
                     }}
                     className="text-slate-500 hover:text-slate-900"
                   >
@@ -1926,17 +1972,17 @@ export default function OperationsClient({
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <button onClick={() => setSelectedMerchant(null)} className="text-xs font-bold text-slate-500">
-                إلغاء
+                {t.common.cancel}
               </button>
               <button
                 onClick={() => {
                   setMerchants((prev) => prev.map((m) => (m.id === selectedMerchant.id ? selectedMerchant : m)))
                   setSelectedMerchant(null)
-                  showToast(`تم حفظ تعديلات حساب ${selectedMerchant.name} بنجاح`, 'success')
+                  showToast(fill(o.merchantModal.savedToast, { name: selectedMerchant.name }), 'success')
                 }}
                 className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs"
               >
-                حفظ التغييرات الإدارية
+                {o.merchantModal.saveChanges}
               </button>
             </div>
           </div>
@@ -1950,7 +1996,7 @@ export default function OperationsClient({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#0F172A]">تسجيل مروج / وكالة إعلانات جديدة</h2>
+              <h2 className="text-sm font-bold text-[#0F172A]">{o.newMarketerModal.title}</h2>
               <button onClick={() => setNewMarketerModal(false)} className="text-slate-400 hover:text-slate-700">
                 <X size={17} />
               </button>
@@ -1978,53 +2024,53 @@ export default function OperationsClient({
                     }),
                   })
                   const json = await res.json()
-                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+                  if (!res.ok || !json.success) throw new Error(json.error || o.newMarketerModal.registerFailed)
 
                   await loadPromotion()
                   setNewMarketerModal(false)
                   showToast(
-                    json.warning || `تم تسجيل المروّج "${name}" في قاعدة البيانات`,
+                    json.warning || fill(o.newMarketerModal.registeredToast, { name }),
                     json.warning ? 'info' : 'success'
                   )
                 } catch (err: unknown) {
-                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
+                  showToast(err instanceof Error ? err.message : o.newMarketerModal.registerFailed, 'error')
                 }
               }}
               className="p-5 space-y-3 text-xs"
             >
               <div>
-                <label className="text-[#64748B] block mb-1 font-bold">اسم المروج / المسوق *</label>
-                <input required name="name" placeholder="مثال: يوسف الكرخي" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                <label className="text-[#64748B] block mb-1 font-bold">{o.newMarketerModal.nameLabel}</label>
+                <input required name="name" placeholder={o.newMarketerModal.namePlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">اسم الوكالة أو الفريق</label>
-                  <input name="agency_name" placeholder="وكالة ديجيتال" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMarketerModal.agencyLabel}</label>
+                  <input name="agency_name" placeholder={o.newMarketerModal.agencyPlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">رقم الهاتف *</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMarketerModal.phoneLabel}</label>
                   <input required name="phone" placeholder="077XXXXXXXX" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">إسناد المتجر الأولي</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMarketerModal.assignLabel}</label>
                   {/* القيمة معرّف التاجر لا اسمه: الإسناد مفتاح أجنبي حقيقي */}
                   <select name="assigned_merchant" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
-                    <option value="">بلا إسناد</option>
+                    <option value="">{o.newMarketerModal.noAssign}</option>
                     {merchants.map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">نسبة عمولة الإعلانات (%)</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMarketerModal.commissionLabel}</label>
                   <input required type="number" name="commission_rate" defaultValue="10" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
               </div>
               <div className="pt-3 border-t border-slate-100 flex justify-between">
-                <button type="button" onClick={() => setNewMarketerModal(false)} className="text-slate-500 font-bold">إلغاء</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">تسجيل المروج</button>
+                <button type="button" onClick={() => setNewMarketerModal(false)} className="text-slate-500 font-bold">{t.common.cancel}</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">{o.newMarketerModal.submit}</button>
               </div>
             </form>
           </div>
@@ -2042,11 +2088,11 @@ export default function OperationsClient({
             <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-[#0F172A]">تفاصيل الطلب #{toArabicDigits(selectedOrder.order_id)}</h2>
-                  <OrderStageBadge order={selectedOrder} />
+                  <h2 className="text-base font-bold text-[#0F172A]">{fill(o.orderDetail.title, { n: digits(selectedOrder.order_id) })}</h2>
+                  <OrderStageBadge order={selectedOrder} t={t} />
                 </div>
                 {selectedOrder.shipment && (
-                  <p className="text-xs text-[#64748B] mt-0.5">رقم التتبع: {selectedOrder.shipment.tracking_number}</p>
+                  <p className="text-xs text-[#64748B] mt-0.5">{fill(o.orderDetail.trackingNumber, { tracking: selectedOrder.shipment.tracking_number })}</p>
                 )}
               </div>
               <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-700">
@@ -2056,15 +2102,15 @@ export default function OperationsClient({
 
             <div className="p-6 space-y-4 text-xs">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="flex justify-between"><span className="text-[#64748B]">الزبون:</span><span className="font-bold">{orderDisplayName(selectedOrder)}</span></div>
-                <div className="flex justify-between"><span className="text-[#64748B]">الهاتف:</span><span>{formatArabicPhone(orderDisplayPhone(selectedOrder))}</span></div>
-                <div className="flex justify-between"><span className="text-[#64748B]">العنوان:</span><span>{[selectedOrder.governorate, selectedOrder.district].filter(Boolean).join(' - ')} - {toArabicDigits(selectedOrder.address || '')}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">{o.orderDetail.customer}</span><span className="font-bold">{orderDisplayName(selectedOrder)}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">{o.orderDetail.phone}</span><span>{digits(orderDisplayPhone(selectedOrder))}</span></div>
+                <div className="flex justify-between"><span className="text-[#64748B]">{o.orderDetail.address}</span><span>{[selectedOrder.governorate, selectedOrder.district].filter(Boolean).join(' - ')} - {digits(selectedOrder.address || '')}</span></div>
                 {selectedOrder.order_content && (
-                  <div className="flex justify-between"><span className="text-[#64748B]">محتوى الطلب:</span><span>{selectedOrder.order_content}</span></div>
+                  <div className="flex justify-between"><span className="text-[#64748B]">{o.orderDetail.content}</span><span>{selectedOrder.order_content}</span></div>
                 )}
                 <div className="flex justify-between pt-2 border-t border-slate-200 font-bold">
-                  <span>المبلغ المطلوب:</span>
-                  <span className="text-emerald-700 text-sm">{formatArabicCurrency(selectedOrder.grand_total_iqd ?? selectedOrder.items_total_iqd ?? 0)}</span>
+                  <span>{o.orderDetail.amountDue}</span>
+                  <span className="text-emerald-700 text-sm">{money(selectedOrder.grand_total_iqd ?? selectedOrder.items_total_iqd ?? 0)}</span>
                 </div>
               </div>
             </div>
@@ -2076,7 +2122,7 @@ export default function OperationsClient({
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs"
                 >
                   <Printer size={14} />
-                  <span>طباعة البوليصة</span>
+                  <span>{o.orderDetail.printLabel}</span>
                 </button>
                 {!selectedOrder.shipment && selectedOrder.current_state === 'confirmed' && (
                   <button
@@ -2089,12 +2135,12 @@ export default function OperationsClient({
                     ) : (
                       <Truck size={14} />
                     )}
-                    <span>إرسال للشحن</span>
+                    <span>{o.orderDetail.sendToShipping}</span>
                   </button>
                 )}
               </div>
               <button onClick={() => setSelectedOrder(null)} className="px-5 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs">
-                إغلاق
+                {t.common.close}
               </button>
             </div>
           </div>
@@ -2109,7 +2155,10 @@ export default function OperationsClient({
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <PlatformBadge platform={selectedCampaign.platform} />
-                  <StatusBadge status={selectedCampaign.status} />
+                  {(() => {
+                    const campBadge = campaignBadgeProps(selectedCampaign.status, t)
+                    return <Badge tone={campBadge.tone} label={campBadge.label} />
+                  })()}
                 </div>
                 <h2 className="text-base font-bold text-[#0F172A]">{selectedCampaign.name}</h2>
               </div>
@@ -2121,46 +2170,46 @@ export default function OperationsClient({
             <div className="p-6 space-y-4 text-xs">
               <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
                 <div>
-                  <p className="text-[10px] text-slate-500">الوصول الكلي</p>
-                  <p className="font-bold text-slate-800 text-sm mt-0.5">{formatArabicNumber(selectedCampaign.reach)}</p>
+                  <p className="text-[10px] text-slate-500">{o.campaignDetail.totalReach}</p>
+                  <p className="font-bold text-slate-800 text-sm mt-0.5">{num(selectedCampaign.reach)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500">الطلبات المولدة</p>
-                  <p className="font-bold text-emerald-700 text-sm mt-0.5">{toArabicDigits(selectedCampaign.conversions)}</p>
+                  <p className="text-[10px] text-slate-500">{o.campaignDetail.generatedOrders}</p>
+                  <p className="font-bold text-emerald-700 text-sm mt-0.5">{digits(selectedCampaign.conversions)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500">معدل العائد (ROAS)</p>
+                  <p className="text-[10px] text-slate-500">{o.campaignDetail.roas}</p>
                   <p className="font-black text-[#253765] text-sm mt-0.5 font-mono">
                     {selectedCampaign.roas === null ? (
-                      <span className="text-slate-400 text-xs font-normal">لا إنفاق بعد</span>
+                      <span className="text-slate-400 text-xs font-normal">{o.campaignDetail.noSpendYet}</span>
                     ) : (
-                      `${toArabicDigits(selectedCampaign.roas)}x`
+                      `${digits(selectedCampaign.roas)}x`
                     )}
                   </p>
                 </div>
               </div>
 
               <div>
-                <span className="text-[#64748B] block font-bold mb-1">الجمهور المستهدف:</span>
-                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{toArabicDigits(selectedCampaign.target_audience)}</p>
+                <span className="text-[#64748B] block font-bold mb-1">{o.campaignDetail.targetAudience}</span>
+                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{selectedCampaign.target_audience}</p>
               </div>
 
               <div>
-                <span className="text-[#64748B] block font-bold mb-1">النص الإعلاني (Headline):</span>
-                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{toArabicDigits(selectedCampaign.ad_headline)}</p>
+                <span className="text-[#64748B] block font-bold mb-1">{o.campaignDetail.adHeadline}</span>
+                <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">{selectedCampaign.ad_headline}</p>
               </div>
 
               {selectedCampaign.marketer_notes && (
                 <div>
-                  <span className="text-[#64748B] block font-bold mb-1">ملاحظات وتوصية المروج:</span>
-                  <p className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 leading-relaxed">{toArabicDigits(selectedCampaign.marketer_notes)}</p>
+                  <span className="text-[#64748B] block font-bold mb-1">{o.campaignDetail.marketerNotes}</span>
+                  <p className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 leading-relaxed">{selectedCampaign.marketer_notes}</p>
                 </div>
               )}
             </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button onClick={() => setSelectedCampaign(null)} className="px-5 py-2 rounded-xl bg-[#253765] text-white font-bold text-xs">
-                إغلاق
+                {t.common.close}
               </button>
             </div>
           </div>
@@ -2172,7 +2221,7 @@ export default function OperationsClient({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#0F172A]">تسجيل تاجر جديد في الإدارة</h2>
+              <h2 className="text-sm font-bold text-[#0F172A]">{o.newMerchantModal.title}</h2>
               <button onClick={() => setNewMerchantModal(false)} className="text-slate-400 hover:text-slate-700">
                 <X size={17} />
               </button>
@@ -2195,36 +2244,36 @@ export default function OperationsClient({
                     }),
                   })
                   const json = await res.json()
-                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر التسجيل')
+                  if (!res.ok || !json.success) throw new Error(json.error || o.newMerchantModal.registerFailed)
 
                   // إعادة الجلب بدل الإضافة محلياً: الباقة وعدد الشحنات
                   // يحسبهما الخادم، ولا يصحّ تخمينهما في المتصفح
                   await loadMerchants()
                   setNewMerchantModal(false)
-                  showToast(`تم تسجيل المتجر "${name}" في قاعدة البيانات`, 'success')
+                  showToast(fill(o.newMerchantModal.registeredToast, { name }), 'success')
                 } catch (err: unknown) {
-                  showToast(err instanceof Error ? err.message : 'تعذّر التسجيل', 'error')
+                  showToast(err instanceof Error ? err.message : o.newMerchantModal.registerFailed, 'error')
                 }
               }}
               className="p-5 space-y-3 text-xs"
             >
               <div>
-                <label className="text-[#64748B] block mb-1 font-bold">اسم المتجر *</label>
-                <input required name="name" placeholder="مثال: بوتيك أور" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                <label className="text-[#64748B] block mb-1 font-bold">{o.newMerchantModal.nameLabel}</label>
+                <input required name="name" placeholder={o.newMerchantModal.namePlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">اسم المالك</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMerchantModal.ownerLabel}</label>
                   <input name="owner_name" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">رقم الهاتف</label>
-                  <input name="phone" placeholder="077XXXXXXXX" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newMerchantModal.phoneLabel}</label>
+                  <input name="phone" placeholder={o.newMerchantModal.phonePlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
               </div>
               <div className="pt-3 border-t border-slate-100 flex justify-between">
-                <button type="button" onClick={() => setNewMerchantModal(false)} className="text-slate-500 font-bold">إلغاء</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">تسجيل الحساب</button>
+                <button type="button" onClick={() => setNewMerchantModal(false)} className="text-slate-500 font-bold">{t.common.cancel}</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">{o.newMerchantModal.submit}</button>
               </div>
             </form>
           </div>
@@ -2237,7 +2286,7 @@ export default function OperationsClient({
           <div className="w-full max-w-lg my-8">
             <div className="rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                <h2 className="text-sm font-bold text-[#0F172A]">إضافة طلب شحن جديد</h2>
+                <h2 className="text-sm font-bold text-[#0F172A]">{o.newOrderModal.title}</h2>
                 <button onClick={() => setNewOrderModal(false)} className="text-slate-400 hover:text-slate-700">
                   <X size={17} />
                 </button>
@@ -2246,11 +2295,11 @@ export default function OperationsClient({
                 <NewOrderBooking
                   locale={locale}
                   currency={currency}
-                  t={bookingT}
+                  t={t.booking}
                   merchants={merchants.map((m) => ({ id: m.id, name: m.name }))}
                   onBooked={() => {
                     void loadOrders()
-                    showToast('تم حجز الطلب وإنشاء الشحنة بنجاح', 'success')
+                    showToast(o.newOrderModal.bookedToast, 'success')
                   }}
                 />
               </div>
@@ -2264,7 +2313,7 @@ export default function OperationsClient({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-right">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#0F172A]">إطلاق حملة ترويج إعلانية جديدة</h2>
+              <h2 className="text-sm font-bold text-[#0F172A]">{o.newCampaignModal.title}</h2>
               <button onClick={() => setNewCampaignModal(false)} className="text-slate-400 hover:text-slate-700">
                 <X size={17} />
               </button>
@@ -2283,7 +2332,7 @@ export default function OperationsClient({
                     : (fd.get('merchant_id') as string)
 
                 if (!merchantId) {
-                  showToast('اختر التاجر أولاً', 'error')
+                  showToast(o.newCampaignModal.chooseMerchantFirst, 'error')
                   return
                 }
 
@@ -2306,25 +2355,25 @@ export default function OperationsClient({
                     }),
                   })
                   const json = await res.json()
-                  if (!res.ok || !json.success) throw new Error(json.error || 'تعذّر الإنشاء')
+                  if (!res.ok || !json.success) throw new Error(json.error || o.newCampaignModal.createFailed)
 
                   await loadPromotion()
                   setNewCampaignModal(false)
-                  showToast(`أُنشئت الحملة "${name}" وهي قيد المراجعة`, 'success')
+                  showToast(fill(o.newCampaignModal.createdToast, { name }), 'success')
                 } catch (err: unknown) {
-                  showToast(err instanceof Error ? err.message : 'تعذّر الإنشاء', 'error')
+                  showToast(err instanceof Error ? err.message : o.newCampaignModal.createFailed, 'error')
                 }
               }}
               className="p-5 space-y-3 text-xs"
             >
               <div>
-                <label className="text-[#64748B] block mb-1 font-bold">اسم الحملة الإعلانية *</label>
-                <input required name="name" placeholder="مثال: حملة عروض نهاية الأسبوع" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.nameLabel}</label>
+                <input required name="name" placeholder={o.newCampaignModal.namePlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">المنصة الإعلانية *</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.platformLabel}</label>
                   <select name="platform" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
                     <option value="instagram">Instagram Ads</option>
                     <option value="tiktok">TikTok Ads</option>
@@ -2335,9 +2384,9 @@ export default function OperationsClient({
                 </div>
                 {currentUserRole === 'super_admin' && (
                   <div>
-                    <label className="text-[#64748B] block mb-1 font-bold">المتجر / العميل *</label>
+                    <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.merchantLabel}</label>
                     <select required name="merchant_id" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]">
-                      <option value="">اختر التاجر…</option>
+                      <option value="">{o.newCampaignModal.chooseMerchant}</option>
                       {merchants.map((m) => (
                         <option key={m.id} value={m.id}>{m.name}</option>
                       ))}
@@ -2348,23 +2397,23 @@ export default function OperationsClient({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">الميزانية الإجمالية (د.ع) *</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.totalBudgetLabel}</label>
                   <input required type="number" name="budget_total" defaultValue="300000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
                 <div>
-                  <label className="text-[#64748B] block mb-1 font-bold">الميزانية اليومية (د.ع)</label>
+                  <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.dailyBudgetLabel}</label>
                   <input required type="number" name="daily_budget" defaultValue="20000" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
                 </div>
               </div>
 
               <div>
-                <label className="text-[#64748B] block mb-1 font-bold">الجمهور المستهدف</label>
-                <input name="target_audience" placeholder="مثال: فئة الشباب 18-35 سنة في بغداد والمحافظات" className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
+                <label className="text-[#64748B] block mb-1 font-bold">{o.newCampaignModal.targetAudienceLabel}</label>
+                <input name="target_audience" placeholder={o.newCampaignModal.targetAudiencePlaceholder} className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-[#253765]" />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex justify-between">
-                <button type="button" onClick={() => setNewCampaignModal(false)} className="text-slate-500 font-bold">إلغاء</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">إطلاق الحملة</button>
+                <button type="button" onClick={() => setNewCampaignModal(false)} className="text-slate-500 font-bold">{t.common.cancel}</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#253765] hover:bg-[#1D2B50] text-white font-bold text-xs">{o.newCampaignModal.submit}</button>
               </div>
             </form>
           </div>
