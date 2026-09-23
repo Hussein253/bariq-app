@@ -57,8 +57,7 @@ export const enApp: AppDictionary = {
   dashboard: {
     brandSubMerchant: '{name} dashboard',
     brandSubAdmin: 'Live shipments dashboard',
-    noAuthNotice: 'Live data from Supabase — there is no sign-in on this dashboard yet:',
-    noAuthNoticeSub: 'The role switch below only changes the view, it is not protection.',
+    roleSwitchNote: 'The role switch changes the view, not your permissions.',
     roleAdmin: 'Platform admin',
     roleMerchant: 'Merchant',
     noMerchantsOption: 'No merchants yet',
@@ -188,8 +187,6 @@ export const enApp: AppDictionary = {
     openMenu: 'Open menu',
     closeMenu: 'Close menu',
     noPlan: 'No subscription',
-    ownerConsole: 'Owner console',
-    noAuthNotice: 'No sign-in yet — this switches the view, it does not protect it',
     impersonating: 'You are viewing {name}’s workspace as platform owner — every entry is recorded in the audit log.',
   },
 
