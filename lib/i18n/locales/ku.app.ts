@@ -55,8 +55,7 @@ export const kuApp: AppDictionary = {
   dashboard: {
     brandSubMerchant: 'داشبۆردی {name}',
     brandSubAdmin: 'داشبۆردی ڕاستەقینەی بارەکان',
-    noAuthNotice: 'دراوەی ڕاستەقینە لە Supabase — هێشتا چوونە ژوورەوە لەسەر ئەم داشبۆردە نییە:',
-    noAuthNoticeSub: 'گۆڕەری ڕۆڵ لە خوارەوە تەنها نمایش دەگۆڕێت، پاراستن نییە.',
+    roleSwitchNote: 'گۆڕەری ڕۆڵ نمایش دەگۆڕێت نەک دەسەڵات.',
     roleAdmin: 'بەڕێوەبەری پلاتفۆرم',
     roleMerchant: 'بازرگان',
     noMerchantsOption: 'هێشتا بازرگان نییە',
@@ -186,8 +185,6 @@ export const kuApp: AppDictionary = {
     openMenu: 'کردنەوەی لیستە',
     closeMenu: 'داخستنی لیستە',
     noPlan: 'بەبێ بەشداری',
-    ownerConsole: 'داشبۆردی خاوەن',
-    noAuthNotice: 'هێشتا چوونە ژوورەوە نییە — گۆڕینی نمایشە نەک پاراستن',
     impersonating: 'بە دەسەڵاتی خاوەنی پلاتفۆرم شوێنی کاری {name} دەبینیت — هەر کردنەوەیەک لە تۆماری پشکنیندا دەنووسرێت.',
   },
 

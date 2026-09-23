@@ -4,8 +4,12 @@
  * لوحة تحكم الشحنات الحقيقية لمنصة "برق" — مربوطة فعلياً بجداول Supabase
  * (shipments / merchants / couriers)
  * ---------------------------------------------------------------------
- * ⚠️ لا يوجد تسجيل دخول على هذه اللوحة حالياً (بقرار صريح من المستخدم، مطابق
- * لوضع /operations الحالي) - محوّل الأدوار أدناه هو تبديل عرض فقط وليس حماية.
+ * الصفحة محروسة: app/dashboard/page.tsx يستدعي
+ * requireRole(['platform_owner', 'staff']) قبل أن يسلّم العرض إلى هنا.
+ *
+ * ⚠️ ومحوّل الأدوار في الشريط العلوي تبديل عرض لا تغيير صلاحية: يبدّل ما
+ * تعرضه هذه اللوحة (شحنات تاجر بعينه مقابل الكل)، ولا يُختبر به تحكّم
+ * الصلاحيات — ذاك يقع في requireRole و proxy.ts.
  */
 
 import { useMemo, useState } from 'react'
@@ -253,12 +257,14 @@ export default function DashboardClient({
         </div>
       )}
 
-      {/* شريط تنبيه: لا يوجد تسجيل دخول */}
-      <div className="bg-brand text-on-brand px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-[#1D2B50]">
+      {/* ⚠️ كان هنا تنبيه «لا يوجد تسجيل دخول على هذه اللوحة بعد». حُذف لأنه
+          صار كذباً: الصفحة محروسة بـ requireRole(['platform_owner','staff']).
+          وبقي التنويه عن محوّل الدور لأنه ما زال صحيحاً — المحوّل يغيّر ما
+          يُعرض لا ما يُسمح به، فلا يُختبر به تحكّم الصلاحيات. */}
+      <div className="bg-brand text-on-brand px-4 sm:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-brand-hover">
         <div className="flex items-center gap-2">
           <ShieldAlert size={15} className="text-amber-300" />
-          <span className="font-bold">{d.noAuthNotice}</span>
-          <span className="text-on-brand/70 hidden md:inline">{d.noAuthNoticeSub}</span>
+          <span className="text-on-brand/70">{d.roleSwitchNote}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-brand-hover p-0.5 rounded-lg border border-white/15">

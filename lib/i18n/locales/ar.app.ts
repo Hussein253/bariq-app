@@ -60,8 +60,7 @@ export const arApp = {
   dashboard: {
     brandSubMerchant: 'لوحة {name}',
     brandSubAdmin: 'لوحة الشحنات الحقيقية',
-    noAuthNotice: 'بيانات حقيقية من Supabase — لا يوجد تسجيل دخول على هذه اللوحة بعد:',
-    noAuthNoticeSub: 'محوّل الدور أدناه تبديل عرض فقط، وليس حماية أمنية.',
+    roleSwitchNote: 'محوّل الدور تبديل عرض لا تغيير صلاحية.',
     roleAdmin: 'مدير المنصة',
     roleMerchant: 'تاجر',
     noMerchantsOption: 'لا يوجد تجار بعد',
@@ -191,8 +190,6 @@ export const arApp = {
     openMenu: 'فتح القائمة',
     closeMenu: 'إغلاق القائمة',
     noPlan: 'بلا اشتراك',
-    ownerConsole: 'لوحة المالك',
-    noAuthNotice: 'لا يوجد تسجيل دخول بعد — تبديل عرض لا حماية',
     impersonating: 'تعرض مساحة {name} بصلاحية مالك المنصة — كل فتح مُقيَّد في سجل التدقيق.',
   },
 

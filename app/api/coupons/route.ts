@@ -8,7 +8,9 @@ export const dynamic = 'force-dynamic'
 
 /**
  * كوبونات الخصم لكل تاجر.
- * ⚠️ لا يوجد تسجيل دخول بعد: merchantId يصل من العميل ولا يمكن التحقق من ملكيته.
+ * ⚠️ merchantId في الرابط طلبٌ يُمحَّص لا هوية: requireMerchantScope
+ * (lib/api-session) يتجاهل ما أرسله التاجر ويستعمل تاجر جلسته، ولا يسمح
+ * بفتح تاجر آخر إلا لمالك المنصة — ويُقيَّد ذلك في سجل التدقيق.
  */
 
 /** GET /api/coupons?merchant=<uuid> */

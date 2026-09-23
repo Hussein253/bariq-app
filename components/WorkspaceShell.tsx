@@ -185,19 +185,13 @@ export default function WorkspaceShell({
 
   return (
     <div className="min-h-screen bg-page flex flex-col">
-      {/* شريط انعدام تسجيل الدخول */}
-      <div className="bg-brand text-on-brand px-4 py-2 flex items-center justify-between gap-3 text-[11px]">
-        <span className="flex items-center gap-1.5 min-w-0">
-          <ShieldAlert size={13} className="text-amber-300 shrink-0" />
-          <span className="font-bold truncate">{t.noAuthNotice}</span>
-        </span>
-        <Link
-          href="/admin"
-          className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 font-bold transition whitespace-nowrap shrink-0"
-        >
-          {t.ownerConsole}
-        </Link>
-      </div>
+      {/* ⚠️ كان هنا شريط يقول «لا يوجد تسجيل دخول بعد — تبديل عرض لا حماية».
+          حُذف لأنه صار كذباً: الدخول قائم (app/login)، و proxy.ts يحرس
+          /workspace وأخواتها، و requireRole يفحص الدور في كل صفحة. إبقاؤه
+          كان يُقلق التاجر بلا سبب ويُضعف ثقته بما يراه.
+          ورابط «لوحة المالك» الذي كان فيه لم يُفقد: شريط الجلسة في التخطيط
+          الجذري (components/SessionBar) يعرض رابطاً يعرف دور صاحبه فيذهب
+          بالمالك إلى /admin وبالتاجر إلى مساحته. */}
 
       {/* ترويسة الهاتف */}
       <header className="lg:hidden sticky top-0 z-40 bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">
