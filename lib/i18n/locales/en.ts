@@ -341,6 +341,8 @@ export const en: Dictionary = {
     support: 'Customer support',
     tracking: 'Shipment tracking',
     status: 'System status',
+    terms: 'Terms of Service',
+    privacy: 'Privacy Policy',
     rights: '© {year} Bariq — Al-Mandoob Express Delivery',
   },
 
@@ -367,6 +369,328 @@ export const en: Dictionary = {
     },
     legendNote:
       'These checks are real and run on every visit. "Configured" means the path has its required secret or URL set — not that an external event actually reached it this instant: this app has no visibility inside Meta’s network or n8n’s workflow.',
+  },
+
+  legal: {
+    eyebrow: 'Legal',
+    documents: 'Legal documents',
+    lastUpdated: 'Last updated',
+    onThisPage: 'On this page',
+    backToTop: 'Back to top',
+    company: 'Al-Mandoob Express Delivery',
+  },
+
+  terms: {
+    metaTitle: 'Terms of Service | Bariq',
+    title: 'Terms of Service',
+    intro:
+      'Welcome to Bariq. These Terms of Service (“Terms”) govern your access to and use of the Bariq website, products and services (together, the “Platform”) operated by Bariq (“we” or “us”). By accessing or using the Platform, you agree to be bound by these Terms. If you do not agree, you must not use the Platform.',
+    sections: [
+      {
+        id: 'use',
+        title: 'Use of the Platform',
+        body: [
+          'You may use the Platform only if:',
+          [
+            'You are at least {age} years old or the age of majority in your jurisdiction.',
+            'You have the legal capacity to enter into a binding agreement.',
+            'You comply with all applicable laws and these Terms.',
+          ],
+          'You agree to use the Platform only for lawful business or educational purposes. You may not use it for:',
+          [
+            'Personal, malicious, illegal or exploitative purposes',
+            'Activities that may harm individuals, businesses or society',
+            'Reverse engineering the Platform, distilling its models or replicating any of its features — including using its outputs to train, fine-tune or benchmark a competing AI system — or using the Platform in ways it was not designed for',
+          ],
+        ],
+      },
+      {
+        id: 'accounts',
+        title: 'User accounts',
+        body: [
+          'Certain features require you to create an account. You are responsible for:',
+          [
+            'Keeping your login credentials confidential',
+            'All activity that takes place under your account',
+            'Notifying us immediately of any unauthorized access or breach',
+          ],
+          'We reserve the right to suspend or delete accounts for violations of these Terms, misuse or security risks.',
+        ],
+      },
+      {
+        id: 'ai-agents',
+        title: 'AI agents and automation',
+        body: [
+          'Our Platform lets you create AI agents that automate communications, analytics or operations by integrating with services such as WhatsApp, Facebook, Instagram and internal tools. By using this functionality, you agree that:',
+          [
+            'You alone are responsible for the behavior and outputs of your AI agents.',
+            'You will not create AI agents that produce harmful, false, discriminatory or illegal content.',
+            'AI-generated content may not always be accurate and should be monitored by humans.',
+          ],
+          'We provide built-in oversight tools and safeguards to promote ethical use.',
+        ],
+      },
+      {
+        id: 'integrations',
+        title: 'Third-party integrations',
+        body: [
+          'When you connect external services (such as Meta, WhatsApp, Facebook Messenger, Instagram and Supabase):',
+          [
+            'You grant us permission to access, store and process the relevant data within the scope of your authorization.',
+            'You must comply with those third parties’ terms.',
+            'Revoking access may affect the Platform’s functionality.',
+          ],
+          'We will never use your data beyond your explicit consent.',
+        ],
+      },
+      {
+        id: 'payments',
+        title: 'Fees and payments',
+        body: [
+          [
+            'Some features require a paid subscription. All prices and renewal terms are stated clearly before payment.',
+            'Payments are collected in advance and are generally non-refundable unless required by law.',
+            'Non-payment may result in account suspension.',
+          ],
+        ],
+      },
+      {
+        id: 'intellectual-property',
+        title: 'Intellectual property',
+        body: [
+          'The Platform’s technology, trademark and content are owned by Bariq or its licensors. You may not:',
+          [
+            'Reverse engineer, copy or resell any part of the Platform',
+            'Use our trademark without written permission',
+          ],
+          'Your data, content and AI agent designs remain your property.',
+        ],
+      },
+      {
+        id: 'data',
+        title: 'Data and privacy',
+        body: [
+          [
+            'Use of the Platform is subject to our Privacy Policy, which describes how we handle your data.',
+            'We apply strong security measures but cannot guarantee absolute protection.',
+          ],
+          'You grant Bariq the right to use conversation data from your account, in anonymized and aggregated form, to improve AI models and the service. Identifying details are removed first, and one business’s data is never disclosed to another. See the Privacy Policy for what this covers.',
+        ],
+      },
+      {
+        id: 'liability',
+        title: 'Limitation of liability',
+        body: [
+          'To the maximum extent permitted by law, Bariq is not liable for:',
+          [
+            'Losses arising from the behavior of AI agents or third-party integrations',
+            'Business interruption, loss of profits or loss of data',
+            'Indirect or consequential damages',
+          ],
+          'The Platform is provided “as is”, without warranties of any kind.',
+        ],
+      },
+      {
+        id: 'termination',
+        title: 'Termination',
+        body: [
+          'We may suspend or terminate your account if:',
+          [
+            'You violate these Terms',
+            'You misuse AI in harmful or unethical ways',
+            'We have reasonable cause to protect our Platform or other users',
+          ],
+          'You may close your account at any time. Your data will be handled in accordance with our retention policy.',
+        ],
+      },
+      {
+        id: 'changes',
+        title: 'Changes',
+        body: [
+          'We may update these Terms from time to time and will notify you of material changes. Continuing to use the Platform after an update means you accept the revised Terms.',
+        ],
+      },
+    ],
+    contact: {
+      title: 'Contact us',
+      emailLine: 'Questions about these Terms? Email us at {email} and someone from our team will get back to you.',
+      operator: 'These Terms are entered into with {company}, the company that operates the Bariq platform.',
+    },
+  },
+
+  privacy: {
+    metaTitle: 'Privacy Policy | Bariq',
+    title: 'Privacy Policy',
+    intro:
+      'This Privacy Policy explains how Bariq (“we” or “us”) collects, uses, shares and protects personal data — whether you are a merchant using the Platform or a customer messaging a merchant who uses Bariq on WhatsApp, Instagram or Messenger. Read it together with the Terms of Service.',
+    sections: [
+      {
+        id: 'scope',
+        title: 'Scope of this policy',
+        body: [
+          'This policy applies to:',
+          [
+            'Merchants and members of their teams who have accounts on the Platform.',
+            'Merchants’ customers who message them through channels connected to the Platform, or whose orders and shipments are recorded in it.',
+            'Visitors to the Platform’s public pages.',
+          ],
+          'Merchants collect their customers’ data to serve them, and we process it to provide the Platform’s services to the merchant and to deliver their shipments. We process merchants’ account data to manage their account and subscription and to provide the service.',
+        ],
+      },
+      {
+        id: 'merchant-data',
+        title: 'Merchant and account data',
+        body: [
+          'When you create an account and use the Platform, we collect:',
+          [
+            'Account data: your email address and your role on the Platform. Your password is stored in encrypted form by our sign-in provider; we never store it as readable text.',
+            'Business details: store name and phone number, plus what you add for your customers to see, such as address, working hours, map link, offers and delivery rules.',
+            'Store content: products, prices, stock and discount codes, and your AI agents’ settings and instructions.',
+            'Connected accounts: the channel type (WhatsApp, Instagram or Messenger), its identifier, display name and connection status.',
+            'Subscription and settlement data: your plan, subscription status and period, and the balance owed to you from shipment settlements.',
+            'Ad campaign data, if you use it: the budgets and results recorded for each campaign.',
+          ],
+          'We also keep contact details for business partners we work with, such as marketers and couriers, to organize our work with them and calculate commissions where they apply.',
+        ],
+      },
+      {
+        id: 'customer-data',
+        title: 'Merchants’ customer data',
+        body: [
+          'When a customer messages a merchant through a channel connected to the Platform, or an order or shipment is recorded for them, we process:',
+          [
+            'Contact details: phone number and name as they appear in the conversation or the order, and the channel they used.',
+            'Conversation content: messages exchanged between the customer and the AI agent, the merchant’s team or our team.',
+            'Order details: products, quantities and prices, the address (governorate, district, nearest landmark and address details) and a contact phone number.',
+            'Shipment details: the recipient’s name, phone and address, the cash-on-delivery amount and delivery fee, the shipment’s status and stages, and any reasons for postponement or return.',
+            'Conversation state: whether the AI agent is replying or a person has taken over, and the times of the latest messages.',
+          ],
+          'This data reaches us from the channel the customer used, is entered by the merchant or their team, or is sent by the merchant’s own system through our API.',
+        ],
+      },
+      {
+        id: 'cookies',
+        title: 'Technical data and cookies',
+        body: [
+          'We only use cookies that are necessary to run the Platform:',
+          [
+            'Session cookies: keep you signed in, and end when you sign out or the session expires.',
+            'Language cookie (bariq_locale): remembers the interface language you chose, for one year.',
+            'Theme cookie (bariq_theme): remembers the light or dark appearance for one year; a copy is also kept in your browser as a fallback.',
+          ],
+          'We do not use advertising cookies, or third-party tracking or analytics tools.',
+          'We process your IP address temporarily in server memory to limit repeated sign-in attempts, without storing it in our database. Our hosting provider may log technical request data, such as IP address and the page requested, for security and operations.',
+        ],
+      },
+      {
+        id: 'use',
+        title: 'How we use data',
+        body: [
+          'We use data to:',
+          [
+            'Run the service: receive and reply to customer messages, record orders, and create, label, deliver and track shipments.',
+            'Settle payments: calculate cash-on-delivery amounts, delivery fees and what merchants are owed.',
+            'Provide customer service: authorized Bariq staff review conversations, orders and shipments to follow them up and resolve issues.',
+            'Manage accounts and subscriptions and apply plan limits.',
+            'Keep the Platform secure: protect accounts, limit repeated sign-in attempts, verify the source of data from connected systems, and investigate misuse.',
+            'Send service messages, such as email confirmation and password-change links.',
+            'Improve the Platform and AI models using anonymized, aggregated conversation data, after identifying details are removed and without disclosing one merchant’s data to another, as set out in the Terms of Service.',
+          ],
+          'We do not sell personal data, and we do not use it for advertising.',
+        ],
+      },
+      {
+        id: 'ai',
+        title: 'Automated AI replies',
+        body: [
+          'When a merchant activates an AI agent on a channel, customer messages are processed automatically to generate replies, record orders and apply discount codes. This runs through automation workflows that send the conversation text to AI model providers to generate the reply.',
+          'Automated replies can be wrong, so the merchant or their team can switch off automated replies in any conversation and take it over themselves at any time.',
+        ],
+      },
+      {
+        id: 'sharing',
+        title: 'Who we share data with',
+        body: [
+          'We share data only as far as needed to provide the service, with:',
+          [
+            'The merchant concerned: they see their own customers’ conversations, orders and shipments, and no other merchant’s data.',
+            'Couriers: they receive the recipient’s name, phone and address to deliver the shipment.',
+            'Meta platforms (WhatsApp, Instagram and Messenger): to receive and send messages through connected accounts, under Meta’s own policies.',
+            'Technical service providers: Supabase for the database and sign-in, Vercel for hosting the Platform, n8n for automation workflows, and AI model providers to generate replies.',
+            'Competent authorities: when the law requires it, or to protect our rights or users’ safety.',
+          ],
+          'Data may be processed on these providers’ servers outside Iraq.',
+          'We do not collect or store bank card numbers; any electronic payment is processed directly by the payment provider.',
+        ],
+      },
+      {
+        id: 'retention',
+        title: 'How long we keep data',
+        body: [
+          [
+            'Account data and content: for as long as the account exists.',
+            'Conversations, orders and shipments: for as long as they are needed to serve the merchant and follow up shipments.',
+            'Shipment, settlement and ended-subscription records: longer, because they are financial records we need for accounting and legal obligations.',
+            'The log of platform-owner access to merchant workspaces: kept even after an account is deleted, because it shows who viewed the store’s data and when.',
+          ],
+          'When you close your account, we delete your data or anonymize it within a reasonable period, except what we must keep as described above.',
+        ],
+      },
+      {
+        id: 'security',
+        title: 'How we protect data',
+        body: [
+          [
+            'The Platform is served over an encrypted connection (HTTPS), and data is stored with a database provider that encrypts it at rest.',
+            'Each merchant sees only their own store’s data, and these restrictions are enforced in both the database and the server.',
+            'Authorized Bariq staff access data only for customer service and operations, and every time the platform owner’s account opens a merchant workspace is logged: who opened it and when.',
+            'Phone numbers are masked in the Platform’s server logs, and message text is not recorded in them.',
+            'We verify the source of data arriving from connected systems, and we limit repeated sign-in attempts.',
+          ],
+          'Even so, no method of transmission or storage is completely secure, and we cannot guarantee absolute protection.',
+        ],
+      },
+      {
+        id: 'rights',
+        title: 'Your rights',
+        body: [
+          'You have the right to:',
+          [
+            'Access your data and request a copy of it.',
+            'Correct your data: merchants can edit most of their store data directly in their workspace, and request correction of the rest.',
+            'Request deletion of your data, subject to what we must keep (see “How long we keep data”).',
+            'Unlink your channels from the Platform at any time.',
+            'For merchants: know when your workspace was opened from the platform owner’s account, and by whom.',
+          ],
+          'If you are a customer who messaged a merchant using Bariq, the merchant decides how the data in your conversation with them is used, so contact them first. You can also contact us, and we will help or pass your request on to the merchant.',
+          'To exercise any of these rights, contact us through the last section of this page. We may ask for proof of identity before acting on a request.',
+        ],
+      },
+      {
+        id: 'deletion',
+        title: 'Data deletion',
+        body: [
+          'To delete your data from Bariq:',
+          [
+            'Merchants: request deletion of your account and its data through the last section of this page, from the email registered on the account. We verify the request, then delete the data or anonymize it, except what we must keep.',
+            'Connected Meta accounts: unlink the account from your Bariq workspace, or remove Bariq’s access in your Facebook or Instagram settings (Apps or Business integrations). Removing access stops our access to the account, but does not delete data stored before then unless you request deletion.',
+            'Merchants’ customers: ask the merchant you messaged to delete it, or ask us directly.',
+          ],
+        ],
+      },
+      {
+        id: 'changes',
+        title: 'Changes',
+        body: [
+          'We may update this policy from time to time, and we update the “Last updated” date at the top of the page with each change. We will notify you of material changes, and continuing to use the Platform afterwards means you accept the revised policy.',
+        ],
+      },
+    ],
+    contact: {
+      title: 'Contact us',
+      emailLine: 'Questions or requests about your data? Email us at {email} and someone from our team will get back to you.',
+      operator: 'The party responsible for processing data under this policy is {company}, the company that operates the Bariq platform.',
+    },
   },
 
   session: {

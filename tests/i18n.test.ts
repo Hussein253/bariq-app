@@ -122,6 +122,20 @@ describe('قواميس اللغات', () => {
     expect(kuMisses).toEqual([])
     expect(enMisses).toEqual([])
   })
+
+  it('معرّفات بنود المستندين القانونيين واحدة في اللغات الثلاث', () => {
+    // المعرّف رابط يُشارَك (/privacy#deletion يُسجَّل عند Meta) — ترجمته تكسر
+    // الرابط عند من يقرأ بلغة أخرى، واختبار الشكل أعلاه لا يرى ذلك لأنه يقارن
+    // الأنواع لا القيم. وتكراره داخل المستند، أو تسميته contact وهو معرّف
+    // البند الأخير في LegalPage، يجعل رابطين يقفزان إلى مكان واحد.
+    for (const doc of ['terms', 'privacy'] as const) {
+      const ids = (dict: typeof ar) => dict[doc].sections.map((section) => section.id)
+      expect(ids(ku)).toEqual(ids(ar))
+      expect(ids(en)).toEqual(ids(ar))
+      expect(new Set(ids(ar)).size).toBe(ids(ar).length)
+      expect(ids(ar)).not.toContain('contact')
+    }
+  })
 })
 
 describe('fill', () => {
