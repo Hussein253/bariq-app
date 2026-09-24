@@ -96,6 +96,7 @@ export default async function Home() {
           </div>
 
           <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-ink-muted">
+            <a href="#about" className="hover:text-brand-text transition">{t.nav.about}</a>
             <a href="#capabilities" className="hover:text-brand-text transition">{t.nav.capabilities}</a>
             <a href="#audience" className="hover:text-brand-text transition">{t.nav.audience}</a>
             <a href="#start" className="hover:text-brand-text transition">{t.nav.start}</a>
@@ -229,6 +230,36 @@ export default async function Home() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ===== من نحن ===== */}
+        <section id="about" className="max-w-7xl mx-auto px-6 py-20">
+          <div className="text-center mb-12">
+            <p className="text-xs font-black text-brand-text uppercase tracking-[0.2em] mb-3">
+              {t.about.eyebrow}
+            </p>
+            <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-ink max-w-3xl mx-auto leading-snug">
+              {t.about.title}
+            </h2>
+            <p className="mt-5 text-sm text-ink-muted max-w-2xl mx-auto leading-relaxed">
+              {t.about.body}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 text-start">
+            {t.about.items.map((item) => {
+              const Icon = ICONS[item.icon] ?? Sparkles
+              return (
+                <div key={item.title} className="p-6 rounded-2xl bg-surface border border-line shadow-sm">
+                  <div className="w-11 h-11 rounded-xl bg-brand-soft flex items-center justify-center text-brand-text mb-4">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="font-bold text-ink mb-2 text-sm">{item.title}</h3>
+                  <p className="text-xs text-ink-muted leading-relaxed">{item.body}</p>
+                </div>
+              )
+            })}
           </div>
         </section>
 

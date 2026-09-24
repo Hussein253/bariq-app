@@ -29,6 +29,7 @@ export const en: Dictionary = {
   },
 
   nav: {
+    about: 'About us',
     capabilities: 'Capabilities',
     audience: 'Who it is for',
     start: 'How to start',
@@ -79,6 +80,29 @@ export const en: Dictionary = {
     title: 'Why build an e-commerce app when your direct messages already are the app?',
     body: 'You do not need an online store, and you do not need to ask customers to download anything. Bariq turns the conversations you already have on Instagram and Facebook into both a storefront and a back office — selling at the front, running the shipping behind it.',
     points: ['No app to build', 'No app for your customer to install', 'Just the chat they already use'],
+  },
+
+  about: {
+    eyebrow: 'About us',
+    title: 'From a chat message to a shipment, with no step repeated',
+    body: 'Bariq was born inside Al-Mandoob Express Delivery — not a software team imagining how delivery ought to work from the outside, but a company that ships every day across every governorate of Iraq. We built it for ourselves first: to close the gap between a customer message on WhatsApp or Instagram and the shipment arriving at their door, without an order ever being re-typed or lost between the chat and the shipping log.',
+    items: [
+      {
+        icon: 'truck',
+        title: 'From a real delivery company',
+        body: 'Shipment status rules and financial reconciliation come from our own daily operations — not a desk-bound guess at how delivery is supposed to work.',
+      },
+      {
+        icon: 'activity',
+        title: 'From message to settlement, one step',
+        body: 'A confirmed order inside the chat becomes a shipment with a tracking number automatically, and its settlement is calculated with it — no manual copying between tools.',
+      },
+      {
+        icon: 'radar',
+        title: 'Our system status is public',
+        body: 'We publish our database and live services’ status in real time on a public page — not a promise of reliability, but a number you can check yourself.',
+      },
+    ],
   },
 
   capabilities: {
