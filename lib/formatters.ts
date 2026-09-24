@@ -128,3 +128,27 @@ export function formatNumberFor(
   if (value === undefined || value === null || isNaN(value)) return localizeDigits(0, locale)
   return localizeDigits(new Intl.NumberFormat('en-US').format(value), locale)
 }
+
+/** لغة تنسيق التاريخ لكل لغة واجهة — الكردية بـ ckb لتظهر أسماء الأشهر سورانية لا عربية. */
+export const DATE_LOCALE: Record<Locale, string> = { ar: 'ar-IQ', ku: 'ckb-IQ', en: 'en-US' }
+
+/**
+ * ⚠️ المنطقة الزمنية صريحة لا من الخادم: صفحات الخادم تُرسم على Vercel
+ * بتوقيت UTC، فيرى التاجر في بغداد وقت شحنته متأخراً ثلاث ساعات.
+ */
+const DISPLAY_TIME_ZONE = 'Asia/Baghdad'
+
+/** تاريخ ووقت مختصران بلغة الواجهة وأرقامها — «—» لقيمة غائبة أو غير صالحة. */
+export function formatDateTimeFor(locale: Locale, iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return '—'
+  return localizeDigits(
+    new Intl.DateTimeFormat(DATE_LOCALE[locale], {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: DISPLAY_TIME_ZONE,
+    }).format(date),
+    locale
+  )
+}

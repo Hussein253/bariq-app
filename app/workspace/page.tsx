@@ -291,13 +291,13 @@ function Workspace({
               sub: w.shortcuts.supportSub,
             },
             {
-              href: '/operations',
+              href: `/workspace/orders?merchant=${ent.merchant.id}`,
               icon: Package,
               label: w.shortcuts.orders,
               sub: w.shortcuts.ordersSub,
             },
             {
-              href: '/dashboard',
+              href: `/workspace/shipments?merchant=${ent.merchant.id}`,
               icon: Truck,
               label: w.shortcuts.tracking,
               sub: w.shortcuts.trackingSub,

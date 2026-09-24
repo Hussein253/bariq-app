@@ -79,6 +79,45 @@ export interface Courier {
   updated_at: string
 }
 
+/**
+ * شحنة كما يراها تاجرها (/workspace/shipments).
+ * مستثنى عمداً: courier_id و idempotency_key — تفاصيل تشغيل داخلية لبرق،
+ * و merchant_id — مقيَّد في الاستعلام نفسه.
+ * notes باقية: هي «ملاحظات للمندوب» تُكتب عند الحجز وتُطبع على الملصق الذي
+ * يطبعه التاجر نفسه.
+ */
+export type MerchantShipment = Pick<
+  Shipment,
+  | 'id'
+  | 'tracking_number'
+  | 'order_id'
+  | 'status'
+  | 'recipient_name'
+  | 'recipient_phone'
+  | 'governorate'
+  | 'district'
+  | 'nearest_landmark'
+  | 'full_address'
+  | 'cod_amount_iqd'
+  | 'delivery_fee_iqd'
+  | 'merchant_net_amount_iqd'
+  | 'settlement_status'
+  | 'settled_at'
+  | 'postponed_reason'
+  | 'returned_reason'
+  | 'notes'
+  | 'picked_up_at'
+  | 'in_transit_at'
+  | 'out_for_delivery_at'
+  | 'delivered_at'
+  | 'postponed_at'
+  | 'returned_at'
+  | 'created_at'
+> & {
+  /** من orders.order_content — نوع البضاعة، يُطبع على الملصق */
+  order_content: string | null
+}
+
 export const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'ORDER_RECEIVED',
   'PICKED_UP_SAME_DAY',
@@ -136,7 +175,16 @@ export const SETTLEMENT_COLORS: Record<SettlementStatus, { bg: string; text: str
   DEFERRED: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
 }
 
-export const TIMELINE_STEPS: { status: ShipmentStatus; atField: keyof Shipment }[] = [
+/** حقول التاريخ التي تُرسم منها مراحل الشحنة — كلها ضمن MerchantShipment أيضاً. */
+type TimelineField =
+  | 'created_at'
+  | 'picked_up_at'
+  | 'in_transit_at'
+  | 'out_for_delivery_at'
+  | 'delivered_at'
+  | 'settled_at'
+
+export const TIMELINE_STEPS: { status: ShipmentStatus; atField: TimelineField }[] = [
   { status: 'ORDER_RECEIVED', atField: 'created_at' },
   { status: 'PICKED_UP_SAME_DAY', atField: 'picked_up_at' },
   { status: 'IN_TRANSIT_HUB', atField: 'in_transit_at' },
@@ -144,6 +192,69 @@ export const TIMELINE_STEPS: { status: ShipmentStatus; atField: keyof Shipment }
   { status: 'DELIVERED', atField: 'delivered_at' },
   { status: 'SETTLED_FINANCIALLY', atField: 'settled_at' },
 ]
+
+/**
+ * «مسلَّمة» في كل حساب مالي: التسليم نفسه وما بعده (التسوية المالية).
+ * المؤجلة والمرتجعة خارجها — لم يُحصَّل ثمنها من الزبون.
+ */
+export const DELIVERED_STATUSES: ReadonlySet<ShipmentStatus> = new Set<ShipmentStatus>([
+  'DELIVERED',
+  'SETTLED_FINANCIALLY',
+])
+
+export interface MerchantSettlementSummary {
+  /** الشحنات المسلَّمة — وحدها تدخل المجاميع */
+  deliveredCount: number
+  /** Σ ثمن البضاعة المحصَّل من الزبائن */
+  codCollectedIqd: number
+  /** Σ أجور التوصيل */
+  deliveryFeesIqd: number
+  /** Σ صافي التاجر للمسلَّمة التي لم تُسوَّ بعد — المستحق له */
+  pendingPayoutIqd: number
+}
+
+type SettlementFields = Pick<
+  Shipment,
+  'status' | 'settlement_status' | 'cod_amount_iqd' | 'delivery_fee_iqd' | 'merchant_net_amount_iqd'
+>
+
+/**
+ * مبلغ numeric(12,2) مضروباً في مئة ومقرَّباً: عدد صحيح. الجمع على الأعداد
+ * الصحيحة دقيق، وجمع الكسور العشرية مباشرةً يتراكم فيه خطأ الفاصلة العائمة
+ * (١٠٫١ + ٢٠٫٢ = ٣٠٫٢٩٩٩…). و PostgREST قد يعيد numeric نصاً، فيُحوَّل أولاً.
+ */
+function toHundredths(value: number | string | null | undefined): number {
+  const n = Number(value ?? 0)
+  return Number.isFinite(n) ? Math.round(n * 100) : 0
+}
+
+/**
+ * مجاميع التسوية — المصدر الوحيد لها في لوحة فريق برق (/dashboard) وصفحة
+ * شحنات التاجر معاً، فلا يرى التاجر رقماً غير الذي يراه الفريق لمتجره.
+ */
+export function summarizeMerchantSettlement(
+  shipments: readonly SettlementFields[]
+): MerchantSettlementSummary {
+  let deliveredCount = 0
+  let cod = 0
+  let fees = 0
+  let pending = 0
+
+  for (const s of shipments) {
+    if (!DELIVERED_STATUSES.has(s.status)) continue
+    deliveredCount += 1
+    cod += toHundredths(s.cod_amount_iqd)
+    fees += toHundredths(s.delivery_fee_iqd)
+    if (s.settlement_status === 'PENDING') pending += toHundredths(s.merchant_net_amount_iqd)
+  }
+
+  return {
+    deliveredCount,
+    codCollectedIqd: cod / 100,
+    deliveryFeesIqd: fees / 100,
+    pendingPayoutIqd: pending / 100,
+  }
+}
 
 /** تنسيق تاريخ/وقت مقروء بالأرقام العربية (لا يوجد مكتبة تواريخ في المشروع بعد) */
 export function formatDateTime(value: string | null | undefined): string {

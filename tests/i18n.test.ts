@@ -4,7 +4,7 @@ import { fill, getDictionary } from '@/lib/i18n'
 import { ar } from '@/lib/i18n/locales/ar'
 import { ku } from '@/lib/i18n/locales/ku'
 import { en } from '@/lib/i18n/locales/en'
-import { localizeDigits, formatNumberFor } from '@/lib/formatters'
+import { localizeDigits, formatNumberFor, formatDateTimeFor } from '@/lib/formatters'
 
 /**
  * ⚠️ تطابق مفاتيح القواميس يحرسه المترجم (النوع Dictionary = typeof ar)،
@@ -169,5 +169,16 @@ describe('أرقام اللغة المعروضة', () => {
   it('القيم الغائبة تُعرض صفراً لا فراغاً', () => {
     expect(formatNumberFor('ar', null)).toBe('٠')
     expect(formatNumberFor('en', undefined)).toBe('0')
+  })
+
+  it('الوقت بتوقيت بغداد لا بتوقيت الخادم', () => {
+    // صفحات الخادم تُرسم على Vercel بتوقيت UTC: الساعة ٠٩:٠٠ هناك هي ١٢:٠٠ في بغداد
+    expect(formatDateTimeFor('en', '2026-09-24T09:00:00Z')).toContain('12:00')
+    expect(formatDateTimeFor('ar', '2026-09-24T09:00:00Z')).toContain('١٢:٠٠')
+  })
+
+  it('التاريخ الغائب أو غير الصالح يُعرض شَرطة', () => {
+    expect(formatDateTimeFor('ar', null)).toBe('—')
+    expect(formatDateTimeFor('en', 'not-a-date')).toBe('—')
   })
 })

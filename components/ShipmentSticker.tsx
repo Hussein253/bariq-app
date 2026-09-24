@@ -7,6 +7,25 @@ import type { Shipment } from '@/lib/shipments'
 import { formatArabicCurrency } from '@/lib/formatters'
 
 /**
+ * ما يقرؤه الملصق من الشحنة فعلاً — لا Shipment كاملاً، فتطبعه صفحة التاجر
+ * أيضاً بشحنتها المختصرة (MerchantShipment) التي لا تحمل حقول التشغيل الداخلية.
+ */
+export type StickerShipment = Pick<
+  Shipment,
+  | 'tracking_number'
+  | 'order_id'
+  | 'recipient_name'
+  | 'recipient_phone'
+  | 'governorate'
+  | 'district'
+  | 'nearest_landmark'
+  | 'full_address'
+  | 'cod_amount_iqd'
+  | 'notes'
+  | 'merchant_name'
+>
+
+/**
  * ستيكر شحنة برق — للطابعات الحرارية عرض 80mm
  * ==============================================
  * قواعد التصميم للطباعة الحرارية (وليست شاشة):
@@ -148,7 +167,7 @@ export function ShipmentSticker({
   merchantName,
   orderContent,
 }: {
-  shipment: Shipment
+  shipment: StickerShipment
   merchantName?: string | null
   /** محتوى الطلب من orders.order_content (مثال: تيشرتات، عطور) */
   orderContent?: string | null
@@ -394,7 +413,7 @@ export function PrintStickerButton({
   compact = false,
   autoPrint = false,
 }: {
-  shipment: Shipment
+  shipment: StickerShipment
   merchantName?: string | null
   /** محتوى الطلب من orders.order_content */
   orderContent?: string | null

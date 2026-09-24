@@ -61,8 +61,15 @@ export interface ConfirmedOrder {
   items: OrderItem[]
 }
 
-export function orderDisplayName(order: ConfirmedOrder): string {
-  return order.customer_name?.trim() || order.name?.trim() || 'بلا اسم'
+/**
+ * طلب كما يراه تاجره (/workspace/orders) — نفس ConfirmedOrder حرفياً: الحقول
+ * نفسها يعرضها التاجر، والتقييد بتاجره شرط في الاستعلام لا حقل في النوع.
+ */
+export type MerchantOrder = ConfirmedOrder
+
+/** @param fallback نصّ «بلا اسم» بلغة الواجهة — العربية افتراضاً لشاشات التشغيل. */
+export function orderDisplayName(order: ConfirmedOrder, fallback = 'بلا اسم'): string {
+  return order.customer_name?.trim() || order.name?.trim() || fallback
 }
 
 export function orderDisplayPhone(order: ConfirmedOrder): string {
@@ -90,9 +97,12 @@ function cleanSnapshot(value: string | null | undefined): string {
   return (value ?? '').replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-/** وصف مقروء للعنصر: الاسم (اللون) — القياس */
-export function itemLabel(item: OrderItem): string {
-  const name = cleanSnapshot(item.product_name_snapshot) || 'منتج بلا اسم'
+/**
+ * وصف مقروء للعنصر: الاسم (اللون) — القياس
+ * @param fallback نصّ «منتج بلا اسم» بلغة الواجهة — العربية افتراضاً.
+ */
+export function itemLabel(item: OrderItem, fallback = 'منتج بلا اسم'): string {
+  const name = cleanSnapshot(item.product_name_snapshot) || fallback
   const color = cleanSnapshot(item.color_snapshot)
   const size = cleanSnapshot(item.size_snapshot)
   const parts = [name]

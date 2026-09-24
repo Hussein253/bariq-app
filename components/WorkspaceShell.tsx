@@ -52,8 +52,8 @@ function buildNav(merchantId: string, t: NavCopy): Section[] {
       title: t.shortcutsSection,
       items: [
         { label: t.catalog, href: `/workspace/catalog${q}`, icon: Boxes },
-        { label: t.orders, href: '/operations', icon: Package },
-        { label: t.shipments, href: '/dashboard', icon: Truck },
+        { label: t.orders, href: `/workspace/orders${q}`, icon: Package },
+        { label: t.shipments, href: `/workspace/shipments${q}`, icon: Truck },
         { label: t.agents, href: `/workspace/agents${q}`, icon: Bot },
       ],
     },

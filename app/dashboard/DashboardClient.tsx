@@ -54,6 +54,7 @@ import {
   SETTLEMENT_COLORS,
   TIMELINE_STEPS,
   formatDateTime,
+  summarizeMerchantSettlement,
 } from '@/lib/shipments'
 import { fill, type Dictionary } from '@/lib/i18n'
 import type { Locale } from '@/lib/i18n/config'
@@ -163,7 +164,6 @@ export default function DashboardClient({
   // ===== مؤشرات الأداء اللوجستية =====
   const stats = useMemo(() => {
     const total = scopedShipments.length
-    const delivered = scopedShipments.filter((s) => s.status === 'DELIVERED' || s.status === 'SETTLED_FINANCIALLY')
     const outForDelivery = scopedShipments.filter((s) => s.status === 'OUT_FOR_DELIVERY').length
     const postponed = scopedShipments.filter((s) => s.status === 'POSTPONED').length
     const returned = scopedShipments.filter((s) => s.status === 'RETURNED').length
@@ -171,15 +171,23 @@ export default function DashboardClient({
       ['ORDER_RECEIVED', 'PICKED_UP_SAME_DAY', 'IN_TRANSIT_HUB', 'OUT_FOR_DELIVERY'].includes(s.status)
     ).length
 
-    const codCollected = delivered.reduce((sum, s) => sum + Number(s.cod_amount_iqd || 0), 0)
-    const deliveryFeesEarned = delivered.reduce((sum, s) => sum + Number(s.delivery_fee_iqd || 0), 0)
-    const pendingSettlement = scopedShipments
-      .filter((s) => s.settlement_status === 'PENDING' && (s.status === 'DELIVERED' || s.status === 'SETTLED_FINANCIALLY'))
-      .reduce((sum, s) => sum + Number(s.merchant_net_amount_iqd || 0), 0)
+    // الدالة نفسها تحسب مجاميع صفحة شحنات التاجر — فلا يفترق الرقمان
+    const settlement = summarizeMerchantSettlement(scopedShipments)
 
-    const successRate = total > 0 ? ((delivered.length / total) * 100).toFixed(1) : '0'
+    const successRate = total > 0 ? ((settlement.deliveredCount / total) * 100).toFixed(1) : '0'
 
-    return { total, active, outForDelivery, postponed, returned, codCollected, deliveryFeesEarned, pendingSettlement, successRate, deliveredCount: delivered.length }
+    return {
+      total,
+      active,
+      outForDelivery,
+      postponed,
+      returned,
+      codCollected: settlement.codCollectedIqd,
+      deliveryFeesEarned: settlement.deliveryFeesIqd,
+      pendingSettlement: settlement.pendingPayoutIqd,
+      successRate,
+      deliveredCount: settlement.deliveredCount,
+    }
   }, [scopedShipments])
 
   const activeMerchant = initialMerchants.find((m) => m.id === selectedMerchantId)
@@ -685,9 +693,7 @@ export default function DashboardClient({
                   )}
                   {initialMerchants.map((m) => {
                     const mShipments = initialShipments.filter((s) => s.merchant_id === m.id)
-                    const pending = mShipments
-                      .filter((s) => s.settlement_status === 'PENDING' && (s.status === 'DELIVERED' || s.status === 'SETTLED_FINANCIALLY'))
-                      .reduce((sum, s) => sum + Number(s.merchant_net_amount_iqd || 0), 0)
+                    const pending = summarizeMerchantSettlement(mShipments).pendingPayoutIqd
                     return (
                       <tr key={m.id} className="border-b border-line hover:bg-surface-2">
                         <td className="px-4 py-3 font-bold text-ink flex items-center gap-2">

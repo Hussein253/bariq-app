@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import InterfaceControls from '@/components/InterfaceControls'
 import LegalToc from '@/components/LegalToc'
-import { localizeDigits } from '@/lib/formatters'
+import { DATE_LOCALE, localizeDigits } from '@/lib/formatters'
 import { fill, type Dictionary } from '@/lib/i18n'
 import { LOCALE_DIR, type Locale } from '@/lib/i18n/config'
 
@@ -27,9 +27,6 @@ const MIN_AGE = 18
 
 /** معرّف البند الأخير — رابط يُشارَك، فهو ثابت بين اللغات كمعرّفات بقية البنود. */
 const CONTACT_ID = 'contact'
-
-/** أسماء الأشهر بلغة القارئ: ckb للكردية، وإلا ظهرت أشهر عربية في صفحة كردية. */
-const DATE_LOCALE: Record<Locale, string> = { ar: 'ar-IQ', ku: 'ckb-IQ', en: 'en-US' }
 
 export type LegalDoc = 'terms' | 'privacy'
 
