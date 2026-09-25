@@ -18,7 +18,9 @@ import type {
   REALTIME_SUBSCRIBE_STATES,
 } from '@supabase/supabase-js'
 import { getBrowserSupabase } from '@/lib/supabase/client'
-import { toArabicDigits } from '@/lib/formatters'
+import { localizeDigits } from '@/lib/formatters'
+import type { Dictionary } from '@/lib/i18n'
+import type { Locale } from '@/lib/i18n/config'
 import {
   type Conversation,
   type ConversationOverview,
@@ -40,7 +42,23 @@ const supabase = getBrowserSupabase()
 type BotFilter = 'all' | 'bot' | 'human'
 export type ChannelPlatform = 'whatsapp' | 'instagram' | 'messenger'
 
-interface Props {
+/**
+ * staff    → لوحة الفريق: اسم التاجر ظاهر، وسبب فشل الإرسال التقني ظاهر
+ * merchant → صفحة التاجر: محادثاته وحده، بلا اسم تاجر ولا تفاصيل تقنية
+ */
+export type ChatsVariant = 'staff' | 'merchant'
+
+export interface ChatsProps {
+  locale: Locale
+  /** ⚠️ خاصية لا استيراد: مكوّن عميل، واستيراد القاموس يجرّ اللغات الثلاث إلى المتصفّح */
+  t: Dictionary['app']['chats']
+  channels: Dictionary['app']['channels']
+  variant: ChatsVariant
+  /** مسار تحديث القائمة الاحتياطي — صفحة التاجر تمرّر نطاقها (?merchant=) */
+  listUrl?: string
+}
+
+interface Props extends ChatsProps {
   initialConversations: ConversationOverview[]
   loadError?: string | null
   /** القناة الثابتة لهذه اللوحة — التبويب الفعلي يُدار من الصفحة الأم */
@@ -51,7 +69,17 @@ function firstIdForPlatform(list: ConversationOverview[], platform: ChannelPlatf
   return list.find((c) => (c.platform || 'whatsapp').toLowerCase() === platform)?.id ?? null
 }
 
-export default function LiveConversations({ initialConversations, loadError, platform }: Props) {
+export default function LiveConversations({
+  initialConversations,
+  loadError,
+  platform,
+  locale,
+  t,
+  channels,
+  variant,
+  listUrl = '/api/conversations',
+}: Props) {
+  const withN = (template: string, n: number) => template.replace('{n}', localizeDigits(n, locale))
   const [conversations, setConversations] = useState<ConversationOverview[]>(initialConversations)
   const [selectedId, setSelectedId] = useState<string | null>(
     firstIdForPlatform(initialConversations, platform)
@@ -211,7 +239,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
   // ------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     try {
-      const res = await fetch('/api/conversations', { cache: 'no-store' })
+      const res = await fetch(listUrl, { cache: 'no-store' })
       const json = await res.json()
       if (json?.success) {
         setConversations(json.conversations as ConversationOverview[])
@@ -220,7 +248,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
     } catch (err: unknown) {
       console.error('[LIVE_CONVERSATIONS][REFRESH]', err)
     }
-  }, [])
+  }, [listUrl])
 
   useEffect(() => {
     refreshConversationsRef.current = refreshConversations
@@ -357,14 +385,14 @@ export default function LiveConversations({ initialConversations, loadError, pla
         body: JSON.stringify({ bot_active: next }),
       })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر تحديث حالة البوت')
+      if (!res.ok || !json.success) throw new Error(json.error || t.toggleFailed)
       setError(null)
     } catch (err: unknown) {
       // التراجع عند الفشل
       setConversations((prev) =>
         prev.map((c) => (c.id === selected.id ? { ...c, bot_active: !next } : c))
       )
-      const msg = err instanceof Error ? err.message : 'تعذر تحديث حالة البوت'
+      const msg = err instanceof Error ? err.message : t.toggleFailed
       console.error('[LIVE_CONVERSATIONS][TOGGLE_BOT]', msg)
       setError(msg)
     } finally {
@@ -386,7 +414,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
         body: JSON.stringify({ text }),
       })
       const json = await res.json()
-      if (!res.ok || !json.success) throw new Error(json.error || 'تعذر إرسال الرد')
+      if (!res.ok || !json.success) throw new Error(json.error || t.sendFailed)
 
       // إضافة فورية حتى لو تأخر حدث Realtime
       if (json.live_message) applyIncomingMessage(json.live_message as Message)
@@ -399,12 +427,17 @@ export default function LiveConversations({ initialConversations, loadError, pla
       setReplyText('')
 
       if (!json.channel_send_supported) {
-        setError('تم حفظ الرد داخلياً — لا يوجد تكامل فعلي لإرسال الرسائل عبر هذه القناة بعد.')
+        setError(t.savedChannelUnsupported)
+      } else if (!json.n8n_sent) {
+        // سبب فشل n8n التقني لفريق برق وحده — التاجر يكفيه أن الرد لم يصل
+        setError(
+          variant === 'staff' && json.n8n_error ? `${t.savedNotDelivered} (${json.n8n_error})` : t.savedNotDelivered
+        )
       } else {
-        setError(json.n8n_sent ? null : json.n8n_error || 'تم الحفظ لكن فشل الإرسال عبر n8n')
+        setError(null)
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'تعذر إرسال الرد'
+      const msg = err instanceof Error ? err.message : t.sendFailed
       console.error('[LIVE_CONVERSATIONS][SEND]', msg)
       setError(msg)
     } finally {
@@ -421,7 +454,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 flex items-center justify-between gap-3">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-amber-600 hover:text-amber-900 shrink-0">
-            إخفاء
+            {t.dismiss}
           </button>
         </div>
       )}
@@ -459,11 +492,11 @@ export default function LiveConversations({ initialConversations, loadError, pla
                   />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-[#0F172A]">{platformLabel(platform)}</h3>
+                  <h3 className="text-sm font-bold text-[#0F172A]">{platformLabel(platform, channels)}</h3>
                   <p className="text-[10px] text-slate-400">
-                    {toArabicDigits(platformConversations.length)} محادثة · {toArabicDigits(botActiveCount)} بالبوت
+                    {withN(t.conversationCount, platformConversations.length)} · {withN(t.botCount, botActiveCount)}
                     {totalUnread > 0 && (
-                      <span className="text-[#25D366] font-bold"> · {toArabicDigits(totalUnread)} جديدة</span>
+                      <span className="text-[#25D366] font-bold"> · {withN(t.unreadCount, totalUnread)}</span>
                     )}
                   </p>
                 </div>
@@ -480,7 +513,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
                     connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
                   }`}
                 />
-                {connected ? 'مباشر' : 'غير متصل'}
+                {connected ? t.live : t.offline}
               </span>
             </div>
 
@@ -489,7 +522,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="بحث برقم الزبون أو نص الرسالة..."
+                placeholder={t.searchPlaceholder}
                 className="bg-transparent outline-none text-xs text-slate-800 w-full placeholder:text-slate-400"
               />
             </div>
@@ -497,9 +530,9 @@ export default function LiveConversations({ initialConversations, loadError, pla
             {/* مرشّحات حالة البوت */}
             <div className="flex items-center gap-1.5">
               {([
-                ['all', 'الكل'],
-                ['bot', 'البوت مفعّل'],
-                ['human', 'بإدارة موظف'],
+                ['all', t.filterAll],
+                ['bot', t.filterBot],
+                ['human', t.filterHuman],
               ] as [BotFilter, string][]).map(([key, label]) => (
                 <button
                   key={key}
@@ -520,14 +553,14 @@ export default function LiveConversations({ initialConversations, loadError, pla
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-slate-300 gap-3">
                 <Inbox size={36} />
-                <p className="text-xs font-semibold text-slate-400">لا توجد محادثات مطابقة</p>
+                <p className="text-xs font-semibold text-slate-400">{t.noMatches}</p>
               </div>
             ) : (
               filtered.map((conv) => (
                 <button
                   key={conv.id}
                   onClick={() => selectConversation(conv.id)}
-                  className={`w-full text-right p-3.5 hover:bg-[#F8FAFC] transition flex items-start gap-3 ${
+                  className={`w-full text-start p-3.5 hover:bg-[#F8FAFC] transition flex items-start gap-3 ${
                     selectedId === conv.id ? 'bg-[#F1F5F9]' : ''
                   }`}
                 >
@@ -536,10 +569,10 @@ export default function LiveConversations({ initialConversations, loadError, pla
                       {phoneInitials(conv.customer_phone)}
                     </div>
                     <span
-                      className={`absolute -bottom-0.5 -left-0.5 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center ${
+                      className={`absolute -bottom-0.5 -end-0.5 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center ${
                         conv.bot_active ? 'bg-[#253765]' : 'bg-emerald-500'
                       }`}
-                      title={conv.bot_active ? 'البوت مفعّل' : 'بإدارة موظف'}
+                      title={conv.bot_active ? t.filterBot : t.filterHuman}
                     >
                       {conv.bot_active ? (
                         <Bot size={8} className="text-white" />
@@ -557,11 +590,11 @@ export default function LiveConversations({ initialConversations, loadError, pla
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(unread[conv.id] || 0) > 0 && (
                           <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#25D366] text-white text-[9px] font-black flex items-center justify-center">
-                            {toArabicDigits(unread[conv.id])}
+                            {localizeDigits(unread[conv.id], locale)}
                           </span>
                         )}
                         <span className="text-[9px] text-slate-400">
-                          {relativeTime(conv.last_message_at)}
+                          {relativeTime(conv.last_message_at, locale, t.time)}
                         </span>
                       </div>
                     </div>
@@ -569,14 +602,14 @@ export default function LiveConversations({ initialConversations, loadError, pla
                       {conv.last_sender_type && conv.last_sender_type !== 'customer' && (
                         <span className="text-slate-400">✓ </span>
                       )}
-                      {conv.last_message || 'لا توجد رسائل بعد'}
+                      {conv.last_message || t.noMessagesYet}
                     </p>
                     <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                       <span className="text-[9px] text-slate-400">
-                        {toArabicDigits(conv.message_count)} رسالة
+                        {withN(t.messageCount, conv.message_count)}
                       </span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold">
-                        {platformLabel(conv.platform)}
+                        {platformLabel(conv.platform, channels)}
                       </span>
                       <span
                         className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
@@ -585,7 +618,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
                             : 'bg-emerald-50 text-emerald-700'
                         }`}
                       >
-                        {conv.bot_active ? 'بوت' : 'موظف'}
+                        {conv.bot_active ? t.botTag : t.humanTag}
                       </span>
                     </div>
                   </div>
@@ -606,8 +639,8 @@ export default function LiveConversations({ initialConversations, loadError, pla
                 <MessageCircle size={36} className="text-slate-300" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-bold text-slate-400">اختر محادثة للعرض</p>
-                <p className="text-xs text-slate-300 mt-1">تصل الرسائل الجديدة هنا فوراً</p>
+                <p className="text-sm font-bold text-slate-400">{t.selectPrompt}</p>
+                <p className="text-xs text-slate-300 mt-1">{t.selectHint}</p>
               </div>
             </div>
           ) : (
@@ -623,8 +656,9 @@ export default function LiveConversations({ initialConversations, loadError, pla
                       {displayPhone(selected.customer_phone)}
                     </p>
                     <p className="text-[10px] text-slate-400">
-                      {selected.merchant_name || 'تاجر غير محدد'} ·{' '}
-                      {toArabicDigits(selected.message_count)} رسالة
+                      {/* التاجر يعرف متجره — اسمه يُعرض لفريق برق وحده */}
+                      {variant === 'staff' && `${selected.merchant_name || t.unknownMerchant} · `}
+                      {withN(t.messageCount, selected.message_count)}
                     </p>
                   </div>
                 </div>
@@ -643,22 +677,22 @@ export default function LiveConversations({ initialConversations, loadError, pla
                         selected.bot_active ? 'text-[#253765]' : 'text-emerald-700'
                       }`}
                     >
-                      {selected.bot_active ? 'البوت يرد تلقائياً' : 'المحادثة بإدارة موظف'}
+                      {selected.bot_active ? t.botOn : t.botOff}
                     </span>
                     <button
                       onClick={handleToggleBot}
                       disabled={togglingBot}
                       role="switch"
                       aria-checked={selected.bot_active}
-                      aria-label="تشغيل أو إيقاف الرد التلقائي للبوت"
-                      title={selected.bot_active ? 'إيقاف البوت وتسليم المحادثة للموظف' : 'إعادة تشغيل البوت'}
+                      aria-label={t.toggleAria}
+                      title={selected.bot_active ? t.turnOffTitle : t.turnOnTitle}
                       className={`relative w-11 h-6 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${
                         selected.bot_active ? 'bg-[#253765]' : 'bg-slate-300'
                       }`}
                     >
                       <span
                         className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center transition-all ${
-                          selected.bot_active ? 'right-0.5' : 'right-[22px]'
+                          selected.bot_active ? 'start-0.5' : 'start-[22px]'
                         }`}
                       >
                         {togglingBot ? (
@@ -678,7 +712,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[#25D366] hover:bg-[#25D366]/10 p-2 rounded-lg transition"
-                      title="فتح في واتساب"
+                      title={t.openWhatsapp}
                     >
                       <Phone size={16} />
                     </a>
@@ -691,12 +725,12 @@ export default function LiveConversations({ initialConversations, loadError, pla
                 {loadingMessages ? (
                   <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
                     <RefreshCw size={28} className="animate-spin text-[#253765]" />
-                    <p className="text-xs font-semibold">جارِ تحميل الرسائل...</p>
+                    <p className="text-xs font-semibold">{t.loadingMessages}</p>
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-2">
                     <Inbox size={32} />
-                    <p className="text-xs font-semibold text-slate-400">لا توجد رسائل في هذه المحادثة</p>
+                    <p className="text-xs font-semibold text-slate-400">{t.noMessages}</p>
                   </div>
                 ) : (
                   messages.map((msg, idx) => {
@@ -710,24 +744,25 @@ export default function LiveConversations({ initialConversations, loadError, pla
                         {showDate && (
                           <div className="flex justify-center my-3">
                             <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-3 py-1 rounded-full">
-                              {formatDayLabel(msg.created_at)}
+                              {formatDayLabel(msg.created_at, locale)}
                             </span>
                           </div>
                         )}
                         <div className={`flex flex-col ${fromCustomer ? 'items-start' : 'items-end'}`}>
                           <div
                             className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-sm ${
+                              // زوايا منطقية (es/ee) لا يمين/يسار: تنعكس مع اتجاه اللغة
                               fromCustomer
-                                ? 'bg-white text-slate-800 border border-slate-200 rounded-br-md'
+                                ? 'bg-white text-slate-800 border border-slate-200 rounded-es-md'
                                 : fromAgent
-                                  ? 'bg-[#25D366] text-white rounded-bl-md'
-                                  : 'bg-[#253765] text-white rounded-bl-md'
+                                  ? 'bg-[#25D366] text-white rounded-ee-md'
+                                  : 'bg-[#253765] text-white rounded-ee-md'
                             }`}
                           >
                             {!fromCustomer && (
                               <div className="flex items-center gap-1 mb-1 text-[9px] font-bold text-white/70">
                                 {fromAgent ? <UserRound size={9} /> : <Bot size={9} />}
-                                {senderLabel(msg.sender_type)}
+                                {senderLabel(msg.sender_type, t.senders)}
                               </div>
                             )}
                             <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -736,7 +771,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
                                 fromCustomer ? 'text-slate-400' : 'text-white/60'
                               }`}
                             >
-                              {formatTime(msg.created_at)}
+                              {formatTime(msg.created_at, locale)}
                             </div>
                           </div>
                         </div>
@@ -750,9 +785,7 @@ export default function LiveConversations({ initialConversations, loadError, pla
               {/* حقل الرد */}
               <div className="border-t border-[#E2E8F0] bg-white">
                 {selected.bot_active && (
-                  <p className="px-4 pt-2.5 text-[10px] text-slate-400">
-                    إرسال رد يدوي سيوقف البوت تلقائياً في هذه المحادثة.
-                  </p>
+                  <p className="px-4 pt-2.5 text-[10px] text-slate-400">{t.manualReplyNote}</p>
                 )}
                 <div className="p-3 flex items-center gap-2">
                   <input
@@ -764,14 +797,15 @@ export default function LiveConversations({ initialConversations, loadError, pla
                         void handleSend()
                       }
                     }}
-                    placeholder="اكتب ردك هنا..."
+                    placeholder={t.replyPlaceholder}
                     className="flex-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none focus:border-[#253765] transition"
                   />
                   <button
                     onClick={handleSend}
                     disabled={sending || !replyText.trim()}
                     className="p-2.5 rounded-xl bg-[#25D366] text-white hover:bg-[#1fb959] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="إرسال"
+                    title={t.send}
+                    aria-label={t.send}
                   >
                     {sending ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
                   </button>

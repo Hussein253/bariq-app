@@ -2,15 +2,17 @@
 
 import { useMemo, useState } from 'react'
 import { MessageCircle } from 'lucide-react'
-import LiveConversations, { type ChannelPlatform } from '@/components/LiveConversations'
-import { toArabicDigits } from '@/lib/formatters'
+import LiveConversations, { type ChannelPlatform, type ChatsProps } from '@/components/LiveConversations'
+import { localizeDigits } from '@/lib/formatters'
 import type { ConversationOverview } from '@/lib/conversations'
 
-interface Props {
+interface Props extends ChatsProps {
   initialConversations: ConversationOverview[]
   loadError?: string | null
   /** التبويب الأولي عند فتح الصفحة (مثلاً عبر رابط ?platform=instagram) — واتساب افتراضياً */
   initialTab?: ChannelPlatform
+  /** نصّ إضافي تحت «لا توجد محادثات بعد» — صفحة التاجر تشرح من أين تأتي المحادثات */
+  emptyHint?: string
 }
 
 const TABS: { key: ChannelPlatform; label: string; activeClass: string; dotClass: string }[] = [
@@ -24,9 +26,19 @@ const TABS: { key: ChannelPlatform; label: string; activeClass: string; dotClass
   { key: 'messenger', label: 'Messenger', activeClass: 'bg-[#0084FF] text-white', dotClass: 'bg-[#0084FF]' },
 ]
 
-/** لوحة "خدمة العملاء": تبويبات صريحة لكل قناة، مع لوحة محادثات حية واحدة تُعاد تصفيتها حسب التبويب */
-export default function ChatsTabsClient({ initialConversations, loadError, initialTab }: Props) {
+/**
+ * لوحة "خدمة العملاء": تبويبات صريحة لكل قناة، مع لوحة محادثات حية واحدة
+ * تُعاد تصفيتها حسب التبويب. تخدم لوحة الفريق وصفحة التاجر معاً (variant).
+ */
+export default function ChatsTabsClient({
+  initialConversations,
+  loadError,
+  initialTab,
+  emptyHint,
+  ...chatsProps
+}: Props) {
   const [activeTab, setActiveTab] = useState<ChannelPlatform>(initialTab || 'whatsapp')
+  const { locale, t } = chatsProps
 
   const counts = useMemo(() => {
     const byPlatform = (p: ChannelPlatform) =>
@@ -58,16 +70,17 @@ export default function ChatsTabsClient({ initialConversations, loadError, initi
                 activeTab === tab.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
               }`}
             >
-              {toArabicDigits(counts[tab.key])}
+              {localizeDigits(counts[tab.key], locale)}
             </span>
           </button>
         ))}
       </div>
 
       {initialConversations.length === 0 && !loadError ? (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] flex flex-col items-center justify-center py-16 text-slate-300 gap-3">
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] flex flex-col items-center justify-center py-16 text-slate-300 gap-3 px-6 text-center">
           <MessageCircle size={36} />
-          <p className="text-xs font-semibold text-slate-400">لا توجد محادثات بعد</p>
+          <p className="text-xs font-semibold text-slate-400">{t.empty}</p>
+          {emptyHint && <p className="text-[11px] text-slate-400 max-w-sm">{emptyHint}</p>}
         </div>
       ) : (
         <LiveConversations
@@ -75,6 +88,7 @@ export default function ChatsTabsClient({ initialConversations, loadError, initi
           initialConversations={initialConversations}
           loadError={loadError}
           platform={activeTab}
+          {...chatsProps}
         />
       )}
     </div>

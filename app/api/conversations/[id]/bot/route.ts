@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import type { Conversation } from '@/lib/conversations'
+import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
+import { apiMessages } from '@/lib/i18n/api'
+import { log, maskPhone } from '@/lib/log'
 
 /**
  * PATCH /api/conversations/:id/bot
@@ -13,14 +15,19 @@ import { requireSession } from '@/lib/api-session'
  * مصدر الحقيقة هو conversations.bot_active، ويُزامَن معه جدول
  * customer_sessions (bot_active / human_takeover) لأن مسارات n8n
  * الحالية تقرأ حالة التسليم البشري من هناك.
+ *
+ * يخدم لوحة الفريق (/operations/chats) وصفحة التاجر (/workspace/chats).
+ * ⚠️ صاحب المحادثة يُقرأ ويُفحص قبل أي كتابة: التاجر لا يمسّ محادثة تاجر آخر،
+ * والرفض ٤٠٤ لا ٤٠٣ فلا يُكشف وجودها (canActOnConversation).
  */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const guard = await requireSession(['platform_owner', 'staff'])
+  const guard = await requireSession(['platform_owner', 'staff', 'merchant'])
   if (!guard.ok) return guard.response
   const { id } = await params
+  const t = await apiMessages()
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -28,9 +35,26 @@ export async function PATCH(
 
     if (typeof botActive !== 'boolean') {
       return NextResponse.json(
-        { success: false, error: 'الحقل bot_active مطلوب ويجب أن يكون قيمة منطقية (true/false)' },
+        { success: false, error: t.conversations.botActiveInvalid },
         { status: 400 }
       )
+    }
+
+    // 0) المحادثة وصاحبها قبل أي كتابة
+    const { data: existing, error: readError } = await supabaseServer
+      .from('conversations')
+      .select('id, merchant_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (readError) {
+      console.error('[CONVERSATION_BOT][READ_ERROR]', readError.message)
+      return NextResponse.json({ success: false, error: t.conversations.updateFailed }, { status: 500 })
+    }
+
+    const owner = existing as Pick<Conversation, 'id' | 'merchant_id'> | null
+    if (!owner || !canActOnConversation(guard.profile.role, guard.profile.merchantId, owner.merchant_id)) {
+      return NextResponse.json({ success: false, error: t.conversations.notFound }, { status: 404 })
     }
 
     // 1) تحديث حالة البوت في جدول المحادثات (مصدر الحقيقة)
@@ -41,16 +65,9 @@ export async function PATCH(
       .select()
       .single()
 
-    if (error) {
-      console.error('[CONVERSATION_BOT][UPDATE_ERROR]', error.message)
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
-    }
-
-    if (!data) {
-      return NextResponse.json(
-        { success: false, error: 'المحادثة غير موجودة' },
-        { status: 404 }
-      )
+    if (error || !data) {
+      console.error('[CONVERSATION_BOT][UPDATE_ERROR]', error?.message)
+      return NextResponse.json({ success: false, error: t.conversations.updateFailed }, { status: 500 })
     }
 
     const conversation = data as Conversation
@@ -78,11 +95,13 @@ export async function PATCH(
       sessionSynced = true
     }
 
-    console.log('[CONVERSATION_BOT][UPDATED]', {
+    // الهاتف مُقنَّع: سجلات Vercel بلا RLS، وسياسة الخصوصية تَعِد بذلك (lib/log.ts)
+    log.info('CONVERSATION_BOT_UPDATED', {
       conversation_id: id,
-      phone: conversation.customer_phone,
+      phone: maskPhone(conversation.customer_phone),
       bot_active: botActive,
       session_synced: sessionSynced,
+      by_role: guard.profile.role,
     })
 
     return NextResponse.json({
@@ -95,8 +114,7 @@ export async function PATCH(
       session_error: sessionError,
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'خطأ داخلي في تحديث حالة البوت'
-    console.error('[CONVERSATION_BOT][ERROR]', message)
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    console.error('[CONVERSATION_BOT][ERROR]', error instanceof Error ? error.message : error)
+    return NextResponse.json({ success: false, error: t.conversations.updateFailed }, { status: 500 })
   }
 }

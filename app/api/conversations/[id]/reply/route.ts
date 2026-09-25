@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
-import type { Conversation } from '@/lib/conversations'
+import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
+import { apiMessages } from '@/lib/i18n/api'
 
 /**
  * POST /api/conversations/:id/reply — رد الموظف على محادثة واحدة (أي قناة)
@@ -14,21 +15,26 @@ import { requireSession } from '@/lib/api-session'
  * ⚠️ الإرسال الفعلي للعميل عبر Meta Graph API غير موصول بعد إلا لواتساب
  * (n8n webhook). لإنستغرام وماسنجر: الرد يُسجَّل في قاعدة البيانات ويوقف
  * البوت فوراً، لكن channel_send_supported=false — لا تخمين لتكامل غير موجود.
+ *
+ * يخدم لوحة الفريق (/operations/chats) وصفحة التاجر (/workspace/chats).
+ * ⚠️ صاحب المحادثة يُفحص قبل تسجيل أي رسالة: التاجر لا يردّ في محادثة تاجر
+ * آخر، والرفض ٤٠٤ لا ٤٠٣ فلا يُكشف وجودها (canActOnConversation).
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const guard = await requireSession(['platform_owner', 'staff'])
+  const guard = await requireSession(['platform_owner', 'staff', 'merchant'])
   if (!guard.ok) return guard.response
   const { id } = await params
+  const t = await apiMessages()
 
   try {
     const body = await req.json().catch(() => ({}))
     const text = String(body?.text || '').trim()
 
     if (!text) {
-      return NextResponse.json({ success: false, error: 'نص الرد مطلوب' }, { status: 400 })
+      return NextResponse.json({ success: false, error: t.conversations.replyRequired }, { status: 400 })
     }
 
     const { data: conversation, error: convError } = await supabaseServer
@@ -38,13 +44,14 @@ export async function POST(
       .maybeSingle()
 
     if (convError) {
-      return NextResponse.json({ success: false, error: convError.message }, { status: 500 })
-    }
-    if (!conversation) {
-      return NextResponse.json({ success: false, error: 'المحادثة غير موجودة' }, { status: 404 })
+      console.error('[CONVERSATION_REPLY][READ_ERROR]', convError.message)
+      return NextResponse.json({ success: false, error: t.conversations.replyFailed }, { status: 500 })
     }
 
-    const conv = conversation as Conversation
+    const conv = conversation as Conversation | null
+    if (!conv || !canActOnConversation(guard.profile.role, guard.profile.merchantId, conv.merchant_id)) {
+      return NextResponse.json({ success: false, error: t.conversations.notFound }, { status: 404 })
+    }
     const platform = conv.platform || 'whatsapp'
 
     // 1) تسجيل رد الموظف في نفس المحادثة (نفس رقم الزبون + نفس القناة)
@@ -58,7 +65,7 @@ export async function POST(
     if (!liveMessage) {
       console.error('[CONVERSATION_REPLY][RECORD_MESSAGE_FAILED]', { conversationId: id })
       return NextResponse.json(
-        { success: false, error: 'تعذر تسجيل الرسالة في قاعدة البيانات' },
+        { success: false, error: t.conversations.recordFailed },
         { status: 500 }
       )
     }
@@ -142,8 +149,7 @@ export async function POST(
       conversation: updatedConversation || conv,
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'خطأ داخلي في إرسال الرد'
-    console.error('[CONVERSATION_REPLY][ERROR]', message)
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    console.error('[CONVERSATION_REPLY][ERROR]', error instanceof Error ? error.message : error)
+    return NextResponse.json({ success: false, error: t.conversations.replyFailed }, { status: 500 })
   }
 }

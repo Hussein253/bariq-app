@@ -7,6 +7,7 @@ import { loadConversationsOverview } from '@/lib/conversations-server'
 import type { ConversationOverview } from '@/lib/conversations'
 import type { ChannelPlatform } from '@/components/LiveConversations'
 import { requireRole } from '@/lib/auth'
+import { getTranslations } from '@/lib/i18n/server'
 
 // بيانات حقيقية من Supabase — تُجلب في كل زيارة، بلا تخزين مؤقت
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,7 @@ export default async function ChatsPage({
   searchParams: Promise<{ platform?: string }>
 }) {
   await requireRole(['platform_owner', 'staff'])
+  const { locale, t } = await getTranslations()
 
   const { platform } = await searchParams
   const initialTab = VALID_TABS.includes(platform as ChannelPlatform)
@@ -57,7 +59,15 @@ export default async function ChatsPage({
 
         {/* تبويبات القنوات + المحادثات الحية */}
         <div className="mb-8">
-          <ChatsTabsClient initialConversations={conversations} loadError={loadError} initialTab={initialTab} />
+          <ChatsTabsClient
+            initialConversations={conversations}
+            loadError={loadError}
+            initialTab={initialTab}
+            locale={locale}
+            t={t.app.chats}
+            channels={t.app.channels}
+            variant="staff"
+          />
         </div>
 
         {/* الطلبات المؤكدة */}

@@ -149,13 +149,20 @@ export async function setBotActiveByPhone(params: {
 /**
  * يبني قائمة المحادثات المُثراة.
  * يستعمله كل من Server Component في صفحة العمليات ومسار GET /api/conversations.
+ *
+ * @param merchantId يقيّد القائمة بتاجر واحد (صفحة التاجر /workspace/chats).
+ *   دونه تُرجع كل المحادثات لفريق برق. ⚠️ الشرط `!== undefined` لا فحص
+ *   صدقٍ: معرّف فارغ يُطابق لا شيء، ولا يسقط إلى كل المحادثات.
  */
-export async function loadConversationsOverview(): Promise<ConversationOverview[]> {
+export async function loadConversationsOverview(merchantId?: string): Promise<ConversationOverview[]> {
+  let conversationsQuery = supabaseServer
+    .from('conversations')
+    .select('*')
+    .order('updated_at', { ascending: false })
+  if (merchantId !== undefined) conversationsQuery = conversationsQuery.eq('merchant_id', merchantId)
+
   const [conversationsRes, merchantsRes] = await Promise.all([
-    supabaseServer
-      .from('conversations')
-      .select('*')
-      .order('updated_at', { ascending: false }),
+    conversationsQuery,
     supabaseServer.from('merchants').select('id, name'),
   ])
 

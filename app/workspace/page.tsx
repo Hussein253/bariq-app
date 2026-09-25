@@ -285,7 +285,7 @@ function Workspace({
               }),
             },
             {
-              href: '/operations/chats',
+              href: `/workspace/chats?merchant=${ent.merchant.id}`,
               icon: MessageCircle,
               label: w.shortcuts.support,
               sub: w.shortcuts.supportSub,

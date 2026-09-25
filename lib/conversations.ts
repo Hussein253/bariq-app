@@ -1,8 +1,15 @@
+import type { Locale } from '@/lib/i18n/config'
+import type { AppRole } from '@/lib/roles'
+import { DATE_LOCALE, localizeDigits } from '@/lib/formatters'
+
 /**
  * طبقة الأنواع والمساعدات لنموذج المحادثات الحية
  * =================================================
  * المصدر الوحيد للحقيقة: جدولا public.conversations و public.messages في Supabase.
  * أي تغيير في أعمدة الجدولين يجب أن ينعكس هنا أولاً (Schema-First).
+ *
+ * ⚠️ يُستورد من مكوّن عميل (LiveConversations)، فلا يستورد '@/lib/i18n' —
+ * ذاك يجرّ القواميس الثلاثة إلى حزمة المتصفح. النصوص تصل الدوالَّ وسائطَ.
  */
 
 // ---------------------------------------------------------------------
@@ -52,41 +59,36 @@ export interface ConversationOverview extends Conversation {
 // مساعدات العرض
 // ---------------------------------------------------------------------
 
+/**
+ * من يحقّ له التصرف في محادثة (الرد وإيقاف البوت)؟
+ *   platform_owner و staff → كل المحادثات، فهذا عملهم (خدمة العملاء)
+ *   merchant               → محادثات تاجره وحده، ولا شيء بلا تاجر مربوط
+ * ⚠️ المسارات تردّ الرفض ٤٠٤ لا ٤٠٣: وجود محادثة تاجر آخر لا يُكشف.
+ */
+export function canActOnConversation(
+  role: AppRole,
+  sessionMerchantId: string | null,
+  conversationMerchantId: string | null
+): boolean {
+  if (role === 'platform_owner' || role === 'staff') return true
+  return role === 'merchant' && sessionMerchantId !== null && conversationMerchantId === sessionMerchantId
+}
+
 /** هل الرسالة صادرة من جهتنا (بوت أو موظف)؟ */
 export function isOutbound(senderType: string): boolean {
   return senderType !== 'customer'
 }
 
-/** تسمية عربية لمرسل الرسالة */
-export function senderLabel(senderType: string): string {
-  switch (senderType) {
-    case 'customer':
-      return 'الزبون'
-    case 'bot':
-      return 'البوت'
-    case 'agent':
-      return 'موظف'
-    case 'system':
-      return 'النظام'
-    default:
-      return senderType
-  }
+/** اسم المرسل بلغة الواجهة؛ نوع غير معروف يُعرض كما هو. */
+export function senderLabel(senderType: string, labels: Record<SenderType, string>): string {
+  return Object.prototype.hasOwnProperty.call(labels, senderType)
+    ? labels[senderType as SenderType]
+    : senderType
 }
 
-/** تسمية عربية للمنصة */
-export function platformLabel(platform: string): string {
-  switch (platform) {
-    case 'whatsapp':
-      return 'واتساب'
-    case 'messenger':
-      return 'ماسنجر'
-    case 'instagram':
-      return 'إنستغرام'
-    case 'telegram':
-      return 'تيليغرام'
-    default:
-      return platform
-  }
+/** اسم القناة بلغة الواجهة؛ قناة غير معروفة تُعرض كما هي. */
+export function platformLabel(platform: string, labels: Record<string, string>): string {
+  return Object.prototype.hasOwnProperty.call(labels, platform) ? labels[platform] : platform
 }
 
 /**
@@ -117,26 +119,27 @@ export function phoneInitials(phone: string): string {
   return digits.slice(-2) || '؟'
 }
 
-export function formatTime(iso: string | null): string {
+// الوقت والتاريخ هنا بتوقيت جهاز القارئ لا بتوقيت ثابت: تُرسم في المتصفّح بعد
+// تحميل الرسائل، و isSameDay أدناه يفصل الأيام بالتوقيت نفسه.
+
+export function formatTime(iso: string | null, locale: Locale): string {
   if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return ''
-  }
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return ''
+  return localizeDigits(
+    date.toLocaleTimeString(DATE_LOCALE[locale], { hour: '2-digit', minute: '2-digit' }),
+    locale
+  )
 }
 
-export function formatDayLabel(iso: string | null): string {
+export function formatDayLabel(iso: string | null, locale: Locale): string {
   if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleDateString('ar-IQ', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    })
-  } catch {
-    return ''
-  }
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return ''
+  return localizeDigits(
+    date.toLocaleDateString(DATE_LOCALE[locale], { day: 'numeric', month: 'long', year: 'numeric' }),
+    locale
+  )
 }
 
 export function isSameDay(a: string | null, b: string | null): boolean {
@@ -144,17 +147,27 @@ export function isSameDay(a: string | null, b: string | null): boolean {
   return new Date(a).toDateString() === new Date(b).toDateString()
 }
 
-/** فارق زمني مختصر بالعربية (منذ ٥ دقائق / أمس ...) */
-export function relativeTime(iso: string | null): string {
+/** نصوص الفارق الزمني — {n} عنصر نائب يُحقن بأرقام اللغة. */
+export interface RelativeTimeLabels {
+  now: string
+  minutes: string
+  hours: string
+  yesterday: string
+  days: string
+}
+
+/** فارق زمني مختصر بلغة الواجهة (منذ ٥ د / أمس …)، وما بعد ٣٠ يوماً تاريخ كامل. */
+export function relativeTime(iso: string | null, locale: Locale, labels: RelativeTimeLabels): string {
   if (!iso) return ''
   const diffMs = Date.now() - new Date(iso).getTime()
+  const withN = (template: string, n: number) => template.replace('{n}', localizeDigits(n, locale))
   const mins = Math.floor(diffMs / 60000)
-  if (mins < 1) return 'الآن'
-  if (mins < 60) return `منذ ${mins} د`
+  if (mins < 1) return labels.now
+  if (mins < 60) return withN(labels.minutes, mins)
   const hours = Math.floor(mins / 60)
-  if (hours < 24) return `منذ ${hours} س`
+  if (hours < 24) return withN(labels.hours, hours)
   const days = Math.floor(hours / 24)
-  if (days === 1) return 'أمس'
-  if (days < 30) return `منذ ${days} يوم`
-  return formatDayLabel(iso)
+  if (days === 1) return labels.yesterday
+  if (days < 30) return withN(labels.days, days)
+  return formatDayLabel(iso, locale)
 }

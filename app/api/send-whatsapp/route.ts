@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
 import { requireSession } from '@/lib/api-session'
+import { maskPhone, maskText } from '@/lib/log'
 
 /**
  * API Route لإرسال رسالة واتساب يدوياً من لوحة التحكم
@@ -49,7 +50,11 @@ export async function POST(req: NextRequest) {
 
         if (n8nResponse.ok) {
           n8nSent = true
-          console.log('[SEND_WHATSAPP][N8N_SUCCESS]', { phone_number, message_text })
+          // مُقنَّعان: سجلات Vercel بلا RLS، وسياسة الخصوصية تَعِد بذلك (lib/log.ts)
+          console.log('[SEND_WHATSAPP][N8N_SUCCESS]', {
+            phone: maskPhone(phone_number),
+            text: maskText(message_text),
+          })
         } else {
           n8nError = `n8n responded with status ${n8nResponse.status}`
           console.error('[SEND_WHATSAPP][N8N_ERROR]', n8nError)
@@ -74,7 +79,10 @@ export async function POST(req: NextRequest) {
 
     // فشل التسجيل خطأ فعلي: الرسالة قد تكون أُرسلت للزبون دون أثر في النظام
     if (!liveMessage) {
-      console.error('[SEND_WHATSAPP][RECORD_MESSAGE_FAILED]', { phone_number, n8n_sent: n8nSent })
+      console.error('[SEND_WHATSAPP][RECORD_MESSAGE_FAILED]', {
+        phone: maskPhone(phone_number),
+        n8n_sent: n8nSent,
+      })
       return NextResponse.json(
         {
           success: false,

@@ -60,7 +60,7 @@ function buildNav(merchantId: string, t: NavCopy): Section[] {
     {
       title: t.operationsSection,
       items: [
-        { label: t.chats, href: '/operations/chats', icon: MessageCircle },
+        { label: t.chats, href: `/workspace/chats${q}`, icon: MessageCircle },
         { label: t.customers, icon: Users, soon: true },
         { label: t.team, icon: UserCog, soon: true },
       ],

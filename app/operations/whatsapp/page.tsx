@@ -4,12 +4,14 @@ import LiveConversations from '@/components/LiveConversations'
 import { loadConversationsOverview } from '@/lib/conversations-server'
 import type { ConversationOverview } from '@/lib/conversations'
 import { requireRole } from '@/lib/auth'
+import { getTranslations } from '@/lib/i18n/server'
 
 // بيانات حقيقية من Supabase — تُجلب في كل زيارة، بلا تخزين مؤقت
 export const dynamic = 'force-dynamic'
 
 export default async function WhatsAppPage() {
   await requireRole(['platform_owner', 'staff'])
+  const { locale, t } = await getTranslations()
 
   let conversations: ConversationOverview[] = []
   let loadError: string | null = null
@@ -47,7 +49,15 @@ export default async function WhatsAppPage() {
 
       {/* المحتوى */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-[1600px] mx-auto w-full">
-        <LiveConversations initialConversations={conversations} loadError={loadError} platform="whatsapp" />
+        <LiveConversations
+          initialConversations={conversations}
+          loadError={loadError}
+          platform="whatsapp"
+          locale={locale}
+          t={t.app.chats}
+          channels={t.app.channels}
+          variant="staff"
+        />
       </main>
     </div>
   )
