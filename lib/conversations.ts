@@ -28,12 +28,16 @@ export type ConversationPlatform = 'whatsapp' | 'messenger' | 'instagram' | 'tel
 /** صف من جدول public.conversations */
 export interface Conversation {
   id: string
+  /** null = حساب غير مربوط أو غير معتمد: يراها فريق برق وحده (الترحيل ٠١٩) */
   merchant_id: string | null
   customer_phone: string
   platform: string
   bot_active: boolean
   created_at: string | null
   updated_at: string | null
+  /** حساب الأعمال الذي تدور عليه المحادثة؛ null = مسار لا يرسل الحساب بعد */
+  account_external_id: string | null
+  social_account_id: string | null
 }
 
 /** صف من جدول public.messages */

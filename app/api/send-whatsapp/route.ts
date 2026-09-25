@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
+import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { requireSession } from '@/lib/api-session'
 import { maskPhone, maskText } from '@/lib/log'
 
@@ -69,7 +69,9 @@ export async function POST(req: NextRequest) {
     }
 
     // تسجيل الرد في نموذج المحادثات (conversations / messages) — المصدر الوحيد
-    // sender_type = 'agent' لأن الرد صادر من موظف عبر لوحة التحكم
+    // sender_type = 'agent' لأن الرد صادر من موظف عبر لوحة التحكم.
+    // ⚠️ بالرقم وحده بلا حساب أعمال: يمرّ بالقاعدة القديمة (الترحيل ٠١٩).
+    // الرد على محادثة بعينها مساره /api/conversations/:id/reply
     const { message: liveMessage, conversation } = await recordMessage({
       customerPhone: phone_number,
       content: message_text,
@@ -98,10 +100,10 @@ export async function POST(req: NextRequest) {
     let botDisabled = false
     let botDisableError: string | null = null
 
-    const updatedConversation = await setBotActiveByPhone({
+    const updatedConversation = await setBotActive({
       customerPhone: phone_number,
-      botActive: false,
       platform: 'whatsapp',
+      botActive: false,
     })
     botDisabled = updatedConversation?.bot_active === false
 

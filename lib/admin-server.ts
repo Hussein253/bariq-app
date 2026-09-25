@@ -45,6 +45,44 @@ export interface PlatformOverview {
   merchants: MerchantRow[]
 }
 
+export interface PendingSocialAccount {
+  id: string
+  merchantName: string
+  platform: string
+  externalId: string
+  displayName: string | null
+}
+
+/**
+ * حسابات تواصل ربطها تجار ولم يعتمدها مالك المنصة بعد. لا تُوجَّه إليها أي
+ * محادثة حتى الاعتماد (الترحيل ٠١٩) — الأقدم أولاً، فهو ينتظر أطول.
+ */
+export async function loadPendingSocialAccounts(): Promise<PendingSocialAccount[]> {
+  const { data, error } = await supabaseServer
+    .from('social_accounts')
+    .select('id, platform, external_id, display_name, merchants(name)')
+    .is('verified_at', null)
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(error.message)
+
+  const rows = (data || []) as unknown as {
+    id: string
+    platform: string
+    external_id: string
+    display_name: string | null
+    merchants: { name: string } | null
+  }[]
+
+  return rows.map((row) => ({
+    id: row.id,
+    merchantName: row.merchants?.name ?? '—',
+    platform: row.platform,
+    externalId: row.external_id,
+    displayName: row.display_name,
+  }))
+}
+
 type ShipmentRow = {
   merchant_id: string | null
   status: string

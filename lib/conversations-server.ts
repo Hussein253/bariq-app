@@ -14,62 +14,61 @@ import type {
  */
 
 /**
- * يجلب محادثة الزبون أو ينشئها إن لم تكن موجودة.
- * الاعتماد على القيد الفريد (customer_phone, platform) يجعل العملية آمنة
- * عند وصول عدة Webhooks متزامنة لنفس الرقم (Idempotency).
+ * أين تُكتب الرسالة أو يُضبط البوت:
+ *   { conversation }  — محادثة معروفة، كالرد من اللوحة على محادثة مفتوحة.
+ *                       تُكتب فيها بعينها، لا في أول محادثة لرقم الزبون.
+ *   { customerPhone } — تُحسم من الزبون والقناة وحساب الأعمال الذي وصلت عبره.
+ */
+export type ConversationTarget =
+  | { conversation: Conversation }
+  | { customerPhone: string; platform?: string; accountExternalId?: string | null }
+
+/**
+ * يجلب محادثة الزبون أو ينشئها.
+ *
+ * النسبة إلى التاجر كلها في دالة القاعدة resolve_conversation (الترحيل ٠١٩)،
+ * وهي نفسها التي يستدعيها محفّز رسائل البوت الحي — لا منطق نسبة هنا، فلا
+ * يفترق طريقان مع الوقت. التاجر يُعرف من حساب الأعمال المربوط والمعتمد،
+ * والرسالة بلا حساب تمرّ بالقاعدة القديمة مؤقتاً. والدالة آمنة عند وصول عدة
+ * Webhooks متزامنة لنفس الزبون (Idempotency).
  */
 export async function getOrCreateConversation(params: {
   customerPhone: string
   platform?: string
-  merchantId?: string | null
+  /** phone_number_id لواتساب، ومعرّف الصفحة أو الحساب المهني لماسنجر وإنستغرام */
+  accountExternalId?: string | null
 }): Promise<Conversation | null> {
-  const { customerPhone } = params
-  const platform = params.platform || 'whatsapp'
+  if (!params.customerPhone) return null
 
-  if (!customerPhone) return null
+  const { data: conversationId, error } = await supabaseServer.rpc('resolve_conversation', {
+    p_customer_phone: params.customerPhone,
+    p_platform: params.platform || 'whatsapp',
+    p_account_external_id: params.accountExternalId || null,
+  })
 
-  // 1) محاولة الجلب المباشر (المسار الشائع)
-  const { data: existing } = await supabaseServer
-    .from('conversations')
-    .select('*')
-    .eq('customer_phone', customerPhone)
-    .eq('platform', platform)
-    .maybeSingle()
-
-  if (existing) return existing as Conversation
-
-  // 2) الإنشاء — مع تعيين تاجر افتراضي إن لم يُمرَّر
-  let merchantId = params.merchantId ?? null
-  if (!merchantId) {
-    const { data: merchant } = await supabaseServer
-      .from('merchants')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    merchantId = (merchant as { id: string } | null)?.id ?? null
-  }
-
-  const { data: created, error } = await supabaseServer
-    .from('conversations')
-    .upsert(
-      {
-        customer_phone: customerPhone,
-        platform,
-        merchant_id: merchantId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'customer_phone,platform' }
-    )
-    .select()
-    .single()
-
-  if (error) {
-    console.error('[CONVERSATIONS][CREATE_ERROR]', error.message)
+  if (error || typeof conversationId !== 'string') {
+    console.error('[CONVERSATIONS][RESOLVE_ERROR]', error?.message ?? 'no conversation id')
     return null
   }
 
-  return created as Conversation
+  const { data, error: readError } = await supabaseServer
+    .from('conversations')
+    .select('*')
+    .eq('id', conversationId)
+    .single()
+
+  if (readError) {
+    console.error('[CONVERSATIONS][READ_ERROR]', readError.message)
+    return null
+  }
+
+  return data as Conversation
+}
+
+function resolveTarget(target: ConversationTarget): Promise<Conversation | null> {
+  return 'conversation' in target
+    ? Promise.resolve(target.conversation)
+    : getOrCreateConversation(target)
 }
 
 /**
@@ -77,26 +76,16 @@ export async function getOrCreateConversation(params: {
  * محفّز trg_touch_conversation_on_message يتكفّل بتحديث updated_at
  * وبالتالي بإطلاق حدث Realtime على جدول conversations أيضاً.
  */
-export async function recordMessage(params: {
-  customerPhone: string
-  content: string
-  senderType: SenderType
-  platform?: string
-  messageType?: MessageType
-  merchantId?: string | null
-}): Promise<{ message: Message | null; conversation: Conversation | null }> {
-  const { customerPhone, content, senderType } = params
-
-  if (!customerPhone || !content) {
-    return { message: null, conversation: null }
+export async function recordMessage(
+  params: ConversationTarget & {
+    content: string
+    senderType: SenderType
+    messageType?: MessageType
   }
+): Promise<{ message: Message | null; conversation: Conversation | null }> {
+  if (!params.content) return { message: null, conversation: null }
 
-  const conversation = await getOrCreateConversation({
-    customerPhone,
-    platform: params.platform,
-    merchantId: params.merchantId,
-  })
-
+  const conversation = await resolveTarget(params)
   if (!conversation) return { message: null, conversation: null }
 
   // .select() ضروري ليصل الصف كاملاً في حدث Realtime
@@ -104,9 +93,9 @@ export async function recordMessage(params: {
     .from('messages')
     .insert({
       conversation_id: conversation.id,
-      sender_type: senderType,
+      sender_type: params.senderType,
       message_type: params.messageType || 'text',
-      content,
+      content: params.content,
     })
     .select()
     .single()
@@ -119,16 +108,11 @@ export async function recordMessage(params: {
   return { message: data as Message, conversation }
 }
 
-/** يضبط حالة البوت لمحادثة زبون معيّن (يُنشئ المحادثة إن لزم). */
-export async function setBotActiveByPhone(params: {
-  customerPhone: string
-  botActive: boolean
-  platform?: string
-}): Promise<Conversation | null> {
-  const conversation = await getOrCreateConversation({
-    customerPhone: params.customerPhone,
-    platform: params.platform,
-  })
+/** يضبط حالة البوت لمحادثة واحدة (تُنشأ إن لزم حين تُحسم من الزبون). */
+export async function setBotActive(
+  params: ConversationTarget & { botActive: boolean }
+): Promise<Conversation | null> {
+  const conversation = await resolveTarget(params)
   if (!conversation) return null
 
   const { data, error } = await supabaseServer

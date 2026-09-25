@@ -31,6 +31,8 @@ interface Account {
   status: string
   ai_agent_id: string | null
   ai_agents: { id: string; name: string } | null
+  /** null = بانتظار اعتماد فريق برق: لا تُوجَّه إليه أي محادثة (الترحيل ٠١٩) */
+  verified_at: string | null
 }
 
 type AgentsCopy = Dictionary['app']['agents']
@@ -475,6 +477,11 @@ export default function AgentsAndAccounts({
                     >
                       {statusLabel}
                     </span>
+                    {!acc.verified_at && (
+                      <span className="px-2 py-0.5 rounded-full bg-warn-bg text-warn-ink text-[10px] font-bold">
+                        {t.verificationPending}
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-ink-muted mt-1">
                     <span className="font-mono" dir="ltr">
@@ -485,6 +492,11 @@ export default function AgentsAndAccounts({
                       ? fill(t.answeredBy, { name: acc.ai_agents.name })
                       : t.noAgentOnAccount}
                   </p>
+                  {!acc.verified_at && (
+                    <p className="text-[11px] text-warn-ink mt-1 leading-relaxed">
+                      {t.verificationPendingHint}
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() =>

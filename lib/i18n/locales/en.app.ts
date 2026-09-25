@@ -941,6 +941,7 @@ export const enApp: AppDictionary = {
       invalidStatus: 'Invalid status',
       notFound: 'The account was not found',
       updateFailed: 'The account could not be updated',
+      verifyFailed: 'The account could not be approved',
     },
     booking: {
       merchantRequired: 'A merchant is required — choose the merchant this order belongs to',
@@ -1016,6 +1017,9 @@ export const enApp: AppDictionary = {
     noAccounts: 'No account linked yet — link WhatsApp or Instagram so customers can reach you.',
     answeredBy: 'Answered by: {name}',
     noAgentOnAccount: 'No AI agent',
+    verificationPending: 'Awaiting Bariq approval',
+    verificationPendingHint:
+      'This account’s conversations won’t reach your page until the Bariq team confirms you own it and approves it.',
     idHints: {
       whatsapp: 'phone_number_id from the WhatsApp Cloud API',
       instagram: 'ig_user_id from the business account',
@@ -1124,6 +1128,16 @@ export const enApp: AppDictionary = {
       conversations: 'Conversations',
       cod: 'Collected (COD)',
       pending: 'Pending settlement',
+    },
+    pendingAccounts: {
+      title: 'Accounts awaiting your approval ({n})',
+      hint: 'Merchants linked these by typing the ID by hand. Approve an account once you have confirmed the merchant really owns it: its conversations will then go to that merchant’s page, along with any that arrived before approval.',
+      verify: 'Approve',
+      verifying: 'Approving…',
+      confirm: 'Approve account {account} for “{merchant}”?\nThis account’s conversations will go to their page.',
+      verified: 'Account approved.',
+      verifiedAttached: 'Account approved, and {n} waiting conversations were attached to it.',
+      failed: 'The account could not be approved',
     },
   },
 

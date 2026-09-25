@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
+import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { createOrderWithShipment } from '@/lib/order-intake'
 import { verifySignature } from '@/lib/webhook-signature'
 import { normalizeIraqiPhone } from '@/lib/phone'
@@ -87,9 +87,15 @@ export async function POST(req: Request) {
     )
   }
 
+  // حساب الأعمال الذي وصلت عبره الرسالة — منه يُعرف التاجر (الترحيل ٠١٩).
+  // غيابه = القاعدة القديمة مؤقتاً (docs/n8n-webhook-setup.md)
+  const accountExternalId = str(data.account_external_id) || null
+  const target = { customerPhone, platform: channel, accountExternalId }
+
   log.info('BOT_WEBHOOK_IN', {
     event,
     channel,
+    account_external_id: accountExternalId,
     customer_phone: maskPhone(customerPhone),
     text: maskText(str(data.text) || str(data.message)),
   })
@@ -104,10 +110,9 @@ export async function POST(req: Request) {
     }
 
     const { message } = await recordMessage({
-      customerPhone,
+      ...target,
       content: text,
       senderType: event === 'message_received' ? 'customer' : 'bot',
-      platform: channel,
     })
 
     if (!message) {
@@ -186,14 +191,10 @@ export async function POST(req: Request) {
     // لأن الزبون يدفع مجموعهما عند الاستلام ويحق له معرفة تفصيلهما.
     const reply = `تم تأكيد طلبك ✅\nرقم التتبع: ${shipment.tracking_number}\nثمن الطلب: ${formatArabicCurrency(cod)}\nأجرة التوصيل: ${formatArabicCurrency(fee)}\nالمطلوب عند الاستلام: ${formatArabicCurrency(cod + fee)}\nسنُشعرك عند خروج المندوب للتسليم.`
 
+    // المحادثة تُنسب من الحساب الذي وصلت عبره كسائر الرسائل، لا من
+    // data.merchant_id: منطق نسبة واحد في القاعدة (resolve_conversation)
     if (!duplicate) {
-      await recordMessage({
-        customerPhone,
-        content: reply,
-        senderType: 'bot',
-        platform: channel,
-        merchantId: merchant.id,
-      })
+      await recordMessage({ ...target, content: reply, senderType: 'bot' })
     }
 
     return botReply(reply, { duplicate, shipment })
@@ -227,7 +228,7 @@ export async function POST(req: Request) {
       const notFound = trackingNumber
         ? `لم نجد شحنة برقم ${trackingNumber} مرتبطة برقمك. تأكّد من الرقم أو راسلنا لنتحقق.`
         : 'لا توجد شحنة مسجّلة على رقمك حالياً.'
-      await recordMessage({ customerPhone, content: notFound, senderType: 'bot', platform: channel })
+      await recordMessage({ ...target, content: notFound, senderType: 'bot' })
       return NextResponse.json(
         { success: false, bot_response: { reply: notFound } },
         { status: 404 }
@@ -238,7 +239,7 @@ export async function POST(req: Request) {
     const total = (Number(shipment.cod_amount_iqd) || 0) + (Number(shipment.delivery_fee_iqd) || 0)
     const reply = `شحنتك ${shipment.tracking_number}\nالحالة: ${label}\nالمطلوب عند الاستلام: ${formatArabicCurrency(total)}`
 
-    await recordMessage({ customerPhone, content: reply, senderType: 'bot', platform: channel })
+    await recordMessage({ ...target, content: reply, senderType: 'bot' })
     return botReply(reply, { shipment })
   }
 
@@ -248,14 +249,14 @@ export async function POST(req: Request) {
   if (event === 'human_handover') {
     const text = str(data.text)
     if (text) {
-      await recordMessage({ customerPhone, content: text, senderType: 'customer', platform: channel })
+      await recordMessage({ ...target, content: text, senderType: 'customer' })
     }
 
     // إيقاف البوت فعلياً — بدونه يظل يردّ فوق الموظف في نفس المحادثة
-    await setBotActiveByPhone({ customerPhone, botActive: false, platform: channel })
+    await setBotActive({ ...target, botActive: false })
 
     const reply = 'حوّلنا محادثتك إلى أحد موظفي خدمة العملاء، وسيردّ عليك خلال دقائق.'
-    await recordMessage({ customerPhone, content: reply, senderType: 'system', platform: channel })
+    await recordMessage({ ...target, content: reply, senderType: 'system' })
 
     return botReply(reply)
   }

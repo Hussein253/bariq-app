@@ -945,6 +945,7 @@ export const arApp = {
       invalidStatus: 'حالة غير صالحة',
       notFound: 'الحساب غير موجود',
       updateFailed: 'تعذّر تحديث الحساب',
+      verifyFailed: 'تعذّر اعتماد الحساب',
     },
     booking: {
       merchantRequired: 'التاجر مطلوب — اختر التاجر الذي يخصّه هذا الطلب',
@@ -1020,6 +1021,9 @@ export const arApp = {
     noAccounts: 'لا حساب مربوط بعد — اربط واتساب أو إنستغرام ليصل الزبائن إليك.',
     answeredBy: 'يرد عليه: {name}',
     noAgentOnAccount: 'بلا موظف ذكي',
+    verificationPending: 'بانتظار اعتماد برق',
+    verificationPendingHint:
+      'لن تصل محادثات هذا الحساب إلى صفحتك حتى يتأكد فريق برق أنك تملكه ويعتمده.',
     idHints: {
       whatsapp: 'phone_number_id من WhatsApp Cloud API',
       instagram: 'ig_user_id من حساب الأعمال',
@@ -1128,6 +1132,16 @@ export const arApp = {
       conversations: 'محادثات',
       cod: 'محصّل (COD)',
       pending: 'قيد التسوية',
+    },
+    pendingAccounts: {
+      title: 'حسابات بانتظار اعتمادك ({n})',
+      hint: 'ربطها تجار بكتابة معرّفها يدوياً. اعتمد الحساب بعد أن تتأكد أن التاجر يملكه فعلاً: عندها تُوجَّه محادثاته إلى صفحة التاجر، ومعها المحادثات التي وصلت قبل الاعتماد.',
+      verify: 'اعتماد',
+      verifying: 'جارٍ الاعتماد…',
+      confirm: 'اعتماد الحساب {account} للتاجر «{merchant}»؟\nستُوجَّه محادثات هذا الحساب إلى صفحته.',
+      verified: 'اعتُمد الحساب.',
+      verifiedAttached: 'اعتُمد الحساب، وأُلحقت به {n} محادثة كانت بانتظاره.',
+      failed: 'تعذّر اعتماد الحساب',
     },
   },
 

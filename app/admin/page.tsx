@@ -12,7 +12,14 @@ import {
   UserCog,
   Wallet,
 } from 'lucide-react'
-import { loadPlatformOverview, type MerchantRow, type PlatformOverview } from '@/lib/admin-server'
+import {
+  loadPendingSocialAccounts,
+  loadPlatformOverview,
+  type MerchantRow,
+  type PendingSocialAccount,
+  type PlatformOverview,
+} from '@/lib/admin-server'
+import PendingAccounts from './PendingAccounts'
 import { STATUS_COLORS, type ShipmentStatus } from '@/lib/shipments'
 import { formatNumberFor, localizeDigits } from '@/lib/formatters'
 import { requireRole } from '@/lib/auth'
@@ -389,10 +396,16 @@ export default async function AdminPage() {
   const Back = LOCALE_DIR[locale] === 'rtl' ? ArrowLeft : ArrowRight
 
   let data: PlatformOverview | null = null
+  let pending: PendingSocialAccount[] = []
   let loadError: string | null = null
 
   try {
-    data = await loadPlatformOverview()
+    const [overview, pendingAccounts] = await Promise.all([
+      loadPlatformOverview(),
+      loadPendingSocialAccounts(),
+    ])
+    data = overview
+    pending = pendingAccounts
   } catch (err: unknown) {
     loadError = err instanceof Error ? err.message : a.loadError
     console.error('[ADMIN][LOAD_ERROR]', loadError)
@@ -442,12 +455,20 @@ export default async function AdminPage() {
           </div>
         ) : (
           data && (
-            <Overview
-              data={data}
-              locale={locale}
-              t={t.app}
-              currency={t.pricing.price.currency}
-            />
+            <>
+              <PendingAccounts
+                accounts={pending}
+                locale={locale}
+                t={a.pendingAccounts}
+                channels={t.app.channels}
+              />
+              <Overview
+                data={data}
+                locale={locale}
+                t={t.app}
+                currency={t.pricing.price.currency}
+              />
+            </>
           )
         )}
       </main>

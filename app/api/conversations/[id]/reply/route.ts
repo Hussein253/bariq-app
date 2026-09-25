@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import { recordMessage, setBotActiveByPhone } from '@/lib/conversations-server'
+import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
 import { apiMessages } from '@/lib/i18n/api'
@@ -54,12 +54,12 @@ export async function POST(
     }
     const platform = conv.platform || 'whatsapp'
 
-    // 1) تسجيل رد الموظف في نفس المحادثة (نفس رقم الزبون + نفس القناة)
+    // 1) تسجيل رد الموظف في المحادثة نفسها بمعرّفها — لا بالرقم والقناة: زبون
+    //    يراسل متجرين له محادثتان على القناة نفسها (الترحيل ٠١٩)
     const { message: liveMessage } = await recordMessage({
-      customerPhone: conv.customer_phone,
+      conversation: conv,
       content: text,
       senderType: 'agent',
-      platform,
     })
 
     if (!liveMessage) {
@@ -89,6 +89,9 @@ export async function POST(
               message_text: text,
               channel: 'whatsapp',
               source: 'bariq-dashboard',
+              // الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت.
+              // null = محادثة من المسار القديم (docs/n8n-webhook-setup.md)
+              account_external_id: conv.account_external_id,
             }),
           })
 
@@ -109,11 +112,7 @@ export async function POST(
     }
 
     // 3) إيقاف البوت لهذه المحادثة عند الرد اليدوي
-    const updatedConversation = await setBotActiveByPhone({
-      customerPhone: conv.customer_phone,
-      botActive: false,
-      platform,
-    })
+    const updatedConversation = await setBotActive({ conversation: conv, botActive: false })
 
     // 4) مزامنة customer_sessions (لا تُفشل الطلب إن تعذّرت)
     let sessionError: string | null = null

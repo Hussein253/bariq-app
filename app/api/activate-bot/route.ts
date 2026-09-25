@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import { setBotActiveByPhone } from '@/lib/conversations-server'
+import { setBotActive } from '@/lib/conversations-server'
 import { requireSession } from '@/lib/api-session'
 
 /**
@@ -25,11 +25,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 1) تفعيل البوت في نموذج المحادثات (مصدر الحقيقة)
-    const conversation = await setBotActiveByPhone({
+    // 1) تفعيل البوت في نموذج المحادثات (مصدر الحقيقة). بالرقم وحده بلا حساب
+    //    أعمال: يمرّ بالقاعدة القديمة (الترحيل ٠١٩)؛ محادثة بعينها مسارها
+    //    PATCH /api/conversations/:id/bot
+    const conversation = await setBotActive({
       customerPhone: phone_number,
-      botActive: true,
       platform: 'whatsapp',
+      botActive: true,
     })
 
     // 2) مزامنة customer_sessions
