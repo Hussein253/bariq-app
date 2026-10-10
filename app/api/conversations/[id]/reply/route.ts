@@ -4,6 +4,7 @@ import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
 import { apiMessages } from '@/lib/i18n/api'
+import { sendDashboardReply } from '@/lib/n8n-outbound'
 
 /**
  * POST /api/conversations/:id/reply — رد الموظف على محادثة واحدة (أي قناة)
@@ -77,37 +78,21 @@ export async function POST(
 
     if (platform === 'whatsapp') {
       channelSendSupported = true
-      const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL
+      const result = await sendDashboardReply({
+        phone_number: conv.customer_phone,
+        message_text: text,
+        channel: 'whatsapp',
+        source: 'bariq-dashboard',
+        // الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت.
+        // null = محادثة من المسار القديم (docs/n8n-webhook-setup.md)
+        account_external_id: conv.account_external_id,
+      })
 
-      if (n8nWebhookUrl) {
-        try {
-          const n8nResponse = await fetch(n8nWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              phone_number: conv.customer_phone,
-              message_text: text,
-              channel: 'whatsapp',
-              source: 'bariq-dashboard',
-              // الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت.
-              // null = محادثة من المسار القديم (docs/n8n-webhook-setup.md)
-              account_external_id: conv.account_external_id,
-            }),
-          })
-
-          if (n8nResponse.ok) {
-            n8nSent = true
-          } else {
-            n8nError = `n8n responded with status ${n8nResponse.status}`
-            console.error('[CONVERSATION_REPLY][N8N_ERROR]', n8nError)
-          }
-        } catch (err: unknown) {
-          n8nError = err instanceof Error ? err.message : 'فشل الاتصال بـ n8n'
-          console.error('[CONVERSATION_REPLY][N8N_EXCEPTION]', n8nError)
-        }
+      if (result.sent) {
+        n8nSent = true
       } else {
-        n8nError = 'N8N_WEBHOOK_URL غير مضبوط في متغيرات البيئة'
-        console.warn('[CONVERSATION_REPLY][N8N_NOT_CONFIGURED]', n8nError)
+        n8nError = result.error
+        console.error('[CONVERSATION_REPLY][N8N_ERROR]', n8nError)
       }
     }
 
