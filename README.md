@@ -45,6 +45,7 @@ npm run build       # next build
 | `BARIQ_BOT_WEBHOOK_SECRET` | سرّ توقيع `/api/webhooks/bot` |
 | `BARIQ_DELIVERY_SYNC_SECRET` | سرّ توقيع `/api/delivery/sync` |
 | `N8N_WEBHOOK_URL` | نقطة إرسال ردود اللوحة إلى واتساب عبر n8n |
+| `BARIQ_N8N_OUTBOUND_SECRET` | السرّ المُرسل مع كل رد إلى n8n — [`docs/n8n-dashboard-reply.md`](docs/n8n-dashboard-reply.md) |
 
 الأسرار إلزامية: المسار الذي يغيب سرّه يردّ ٥٠٣ ولا يقبل شيئاً. نسيان الضبط
 يجب أن يوقف المسار لا أن يفتحه.

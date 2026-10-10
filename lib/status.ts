@@ -53,7 +53,11 @@ export async function getPlatformStatus(): Promise<PlatformStatus> {
   })
   components.push({
     key: 'aiBrain',
-    state: process.env.N8N_WEBHOOK_URL ? 'configured' : 'not_configured',
+    // الرابط بلا سرّ لا يكفي: مسار n8n يرفض بـ 401 (lib/n8n-outbound.ts)
+    state:
+      process.env.N8N_WEBHOOK_URL && process.env.BARIQ_N8N_OUTBOUND_SECRET
+        ? 'configured'
+        : 'not_configured',
   })
 
   const overall = components.every((c) => HEALTHY_STATES.has(c.state)) ? 'operational' : 'degraded'

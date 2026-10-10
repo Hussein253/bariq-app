@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { requireSession } from '@/lib/api-session'
 import { maskPhone, maskText } from '@/lib/log'
+import { sendDashboardReply } from '@/lib/n8n-outbound'
 
 /**
  * API Route لإرسال رسالة واتساب يدوياً من لوحة التحكم
@@ -27,45 +28,27 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL
-
     // إرسال الرسالة إلى n8n Webhook
     let n8nSent = false
     let n8nError: string | null = null
 
-    if (n8nWebhookUrl) {
-      try {
-        const n8nResponse = await fetch(n8nWebhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            phone_number,
-            message_text,
-            channel: 'whatsapp',
-            source: 'bariq-dashboard',
-          }),
-        })
+    const result = await sendDashboardReply({
+      phone_number,
+      message_text,
+      channel: 'whatsapp',
+      source: 'bariq-dashboard',
+    })
 
-        if (n8nResponse.ok) {
-          n8nSent = true
-          // مُقنَّعان: سجلات Vercel بلا RLS، وسياسة الخصوصية تَعِد بذلك (lib/log.ts)
-          console.log('[SEND_WHATSAPP][N8N_SUCCESS]', {
-            phone: maskPhone(phone_number),
-            text: maskText(message_text),
-          })
-        } else {
-          n8nError = `n8n responded with status ${n8nResponse.status}`
-          console.error('[SEND_WHATSAPP][N8N_ERROR]', n8nError)
-        }
-      } catch (err: unknown) {
-        n8nError = err instanceof Error ? err.message : 'فشل الاتصال بـ n8n'
-        console.error('[SEND_WHATSAPP][N8N_EXCEPTION]', n8nError)
-      }
+    if (result.sent) {
+      n8nSent = true
+      // مُقنَّعان: سجلات Vercel بلا RLS، وسياسة الخصوصية تَعِد بذلك (lib/log.ts)
+      console.log('[SEND_WHATSAPP][N8N_SUCCESS]', {
+        phone: maskPhone(phone_number),
+        text: maskText(message_text),
+      })
     } else {
-      n8nError = 'N8N_WEBHOOK_URL غير مضبوط في متغيرات البيئة'
-      console.warn('[SEND_WHATSAPP][N8N_NOT_CONFIGURED]', n8nError)
+      n8nError = result.error
+      console.error('[SEND_WHATSAPP][N8N_ERROR]', n8nError)
     }
 
     // تسجيل الرد في نموذج المحادثات (conversations / messages) — المصدر الوحيد
