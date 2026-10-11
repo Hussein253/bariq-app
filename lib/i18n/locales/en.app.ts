@@ -942,6 +942,7 @@ export const enApp: AppDictionary = {
       notFound: 'The account was not found',
       updateFailed: 'The account could not be updated',
       verifyFailed: 'The account could not be approved',
+      agentNotFound: 'This AI agent does not exist in your store',
     },
     booking: {
       merchantRequired: 'A merchant is required — choose the merchant this order belongs to',
