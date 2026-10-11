@@ -43,3 +43,20 @@ export function isPlatformOwnerEmail(email: string | null | undefined): boolean 
   if (!normalized) return false
   return configuredOwnerEmails().includes(normalized)
 }
+
+/**
+ * هل يثبت التسجيلُ ملكيةَ البريد؟ يُقرأ من `GET /auth/v1/settings` في Supabase.
+ *
+ * ⚠️ مطابقة البريد وحدها لا تكفي لمنح دور المالك: «Confirm email» مُطفأ
+ * (mailer_autoconfirm: true — docs/supabase-auth-urls.md)، فأي زائر يسجّل
+ * ببريد في PLATFORM_OWNER_EMAILS لم يُسجَّل بعد يصير أدمِناً يرى أرصدة كل
+ * التجار. فالمنح الآلي مشروط بأن يكون التسجيل نفسه قد مرّ برابط بريد، وما
+ * عدا ذلك يُمنح الدور من /admin/users.
+ *
+ * أي قيمة غير `false` صريحة — غياب الحقل، أو ردّ تالف، أو فشل الطلب — تُعدّ
+ * «لا يثبت»: الفشل يُغلق المنح ولا يفتحه.
+ */
+export function signupsProveEmailOwnership(authSettings: unknown): boolean {
+  if (!authSettings || typeof authSettings !== 'object') return false
+  return (authSettings as { mailer_autoconfirm?: unknown }).mailer_autoconfirm === false
+}

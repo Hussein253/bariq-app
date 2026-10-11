@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { isPlatformOwnerEmail } from '@/lib/platform-owner'
+import { isPlatformOwnerEmail, signupsProveEmailOwnership } from '@/lib/platform-owner'
 
 /**
  * من يصير أدمِن ومن يصير مشتركاً — الفرق سطر واحد، وكسره صامت
@@ -53,5 +53,23 @@ describe('تمييز بريد مالك المنصة', () => {
     // لصار أول دخول للمالك دخولَ مشترك، والدور يُمنح مرة واحدة.
     process.env.PLATFORM_OWNER_EMAILS = '  ,  '
     expect(isPlatformOwnerEmail('hus4561990@gmail.com')).toBe(true)
+  })
+})
+
+describe('منح دور المالك آلياً مشروط بإثبات البريد', () => {
+  // «Confirm email» مُطفأ في الإنتاج: أي زائر يسجّل بأي بريد بلا رابط.
+  it('التأكيد التلقائي مُفعّل ⇒ التسجيل لا يثبت البريد', () => {
+    expect(signupsProveEmailOwnership({ mailer_autoconfirm: true })).toBe(false)
+  })
+
+  it('التأكيد بالبريد إلزامي ⇒ التسجيل يثبت البريد', () => {
+    expect(signupsProveEmailOwnership({ mailer_autoconfirm: false })).toBe(true)
+  })
+
+  it('فشل قراءة الإعدادات أو ردّ تالف يُغلق المنح', () => {
+    expect(signupsProveEmailOwnership(null)).toBe(false)
+    expect(signupsProveEmailOwnership({})).toBe(false)
+    expect(signupsProveEmailOwnership({ mailer_autoconfirm: 'false' })).toBe(false)
+    expect(signupsProveEmailOwnership('oops')).toBe(false)
   })
 })

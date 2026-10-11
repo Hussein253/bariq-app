@@ -1,6 +1,6 @@
 import { supabaseServer } from '@/lib/supabase-server'
 import { isAppRole, type AppRole } from '@/lib/roles'
-import { isPlatformOwnerEmail } from '@/lib/platform-owner'
+import { isPlatformOwnerEmail, signupsProveEmailOwnership } from '@/lib/platform-owner'
 import { log } from '@/lib/log'
 
 /**
@@ -43,6 +43,7 @@ export type OnboardErrorCode =
   | 'verify'
   | 'unexpectedState'
   | 'ownerProvision'
+  | 'ownerUnverified'
   | 'missingFreePlan'
   | 'merchantCreate'
   | 'subscription'
@@ -96,11 +97,40 @@ function fallbackStoreName(email: string | null): string {
   return local ? `متجر ${local}` : 'متجري'
 }
 
+/**
+ * إعدادات المصادقة العامة من Supabase — نفس ما يقرؤه أي متصفّح بمفتاح anon.
+ * تُطلب في مسار المالك وحده (أول دخول لبريد المالك)، فلا أثر لها على تسجيل
+ * التجار. الفشل يُعيد null فيُرفض المنح (signupsProveEmailOwnership).
+ */
+async function fetchAuthSettings(): Promise<unknown> {
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '' },
+      cache: 'no-store',
+    })
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
 /** صفّ صلاحية مالك المنصة: بلا تاجر وبلا اشتراك — ليس مشتركاً. */
 async function provisionPlatformOwner(
   userId: string,
   email: string | null
 ): Promise<OnboardResult> {
+  // بريد المالك بلا تأكيد بريد لا يُثبت شيئاً: من سجّل به قد لا يملكه.
+  // يُرفض هنا ولا يسقط إلى تزويد تاجر — البريد محجوز لدور المالك.
+  if (!signupsProveEmailOwnership(await fetchAuthSettings())) {
+    log.error('ONBOARD_OWNER_EMAIL_UNPROVEN', { user_id: userId })
+    return {
+      ok: false,
+      status: 403,
+      error: 'بريد المالك لم يُثبَت برابط بريد — يُمنح الدور من /admin/users',
+      code: 'ownerUnverified',
+    }
+  }
+
   const { error } = await supabaseServer
     .from('profiles')
     .insert({ user_id: userId, role: 'platform_owner', merchant_id: null, store_name: 'برق' })
