@@ -940,6 +940,7 @@ export const kuApp: AppDictionary = {
       notFound: 'هەژمارەکە بوونی نییە',
       updateFailed: 'نوێکردنەوەی هەژمار سەرکەوتوو نەبوو',
       verifyFailed: 'پەسەندکردنی هەژمار سەرکەوتوو نەبوو',
+      agentNotFound: 'ئەم کارمەندە زیرەکە لە فرۆشگاکەتدا بوونی نییە',
     },
     booking: {
       merchantRequired: 'بازرگان پێویستە — ئەو بازرگانە هەڵبژێرە کە ئەم داواکارییەی بۆیەتی',

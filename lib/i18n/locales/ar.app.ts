@@ -946,6 +946,7 @@ export const arApp = {
       notFound: 'الحساب غير موجود',
       updateFailed: 'تعذّر تحديث الحساب',
       verifyFailed: 'تعذّر اعتماد الحساب',
+      agentNotFound: 'الموظف الذكي غير موجود في متجرك',
     },
     booking: {
       merchantRequired: 'التاجر مطلوب — اختر التاجر الذي يخصّه هذا الطلب',

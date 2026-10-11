@@ -766,6 +766,7 @@ export const en: Dictionary = {
       verify: 'We could not verify your account — try again shortly',
       unexpectedState: 'Unexpected account state — contact the platform owner',
       ownerProvision: 'The owner account could not be completed',
+      ownerUnverified: 'This owner email has not been proven through an email link, so the owner role is not granted automatically — grant it from /admin/users or the bootstrap seed',
       missingFreePlan: 'The free starter plan is not configured — contact the platform owner',
       merchantCreate: 'The store could not be created',
       subscription: 'The subscription could not be activated',

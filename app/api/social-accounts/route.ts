@@ -17,6 +17,22 @@ export const dynamic = 'force-dynamic'
 const PLATFORMS = ['whatsapp', 'instagram', 'messenger']
 const STATUSES = ['connected', 'needs_reauth', 'disconnected']
 
+/**
+ * الموظف الذكي المُسنَد إلى الحساب يجب أن يكون من متجر الطالب نفسه.
+ * ⚠️ بدون هذا الفحص يُسند التاجر معرّف موظف تاجر آخر، فيكشف GET اسمه عبر
+ * الربط ai_agents(id, name) ويُربط حسابه بإعداد لا يملكه. معرّف ليس UUID
+ * يُرجع خطأً من القاعدة، فيُعامل معاملة «غير موجود».
+ */
+async function agentBelongsTo(agentId: string, merchantId: string): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from('ai_agents')
+    .select('id')
+    .eq('id', agentId)
+    .eq('merchant_id', merchantId)
+    .maybeSingle()
+  return !error && Boolean(data)
+}
+
 export async function GET(request: Request) {
   const t = await apiMessages()
   const scope = await requireMerchantScope(new URL(request.url).searchParams.get('merchant_id'))
@@ -69,6 +85,11 @@ export async function POST(request: Request) {
       )
     }
 
+    const aiAgentId = body.ai_agent_id || null
+    if (aiAgentId && !(await agentBelongsTo(aiAgentId, merchantId))) {
+      return NextResponse.json({ success: false, error: t.accounts.agentNotFound }, { status: 422 })
+    }
+
     const { data, error } = await supabaseServer
       .from('social_accounts')
       .insert({
@@ -77,7 +98,7 @@ export async function POST(request: Request) {
         external_id: externalId,
         display_name: body.display_name?.trim() || null,
         handle: body.handle?.trim() || null,
-        ai_agent_id: body.ai_agent_id || null,
+        ai_agent_id: aiAgentId,
       })
       .select()
       .single()
@@ -138,7 +159,13 @@ export async function PATCH(request: Request) {
 
     if (body.display_name !== undefined) patch.display_name = text(body.display_name)
     if (body.handle !== undefined) patch.handle = text(body.handle)
-    if (body.ai_agent_id !== undefined) patch.ai_agent_id = body.ai_agent_id || null
+    if (body.ai_agent_id !== undefined) {
+      const aiAgentId = body.ai_agent_id || null
+      if (aiAgentId && !(await agentBelongsTo(aiAgentId, merchantId))) {
+        return NextResponse.json({ success: false, error: t.accounts.agentNotFound }, { status: 422 })
+      }
+      patch.ai_agent_id = aiAgentId
+    }
 
     if (body.status !== undefined) {
       if (!STATUSES.includes(body.status)) {
