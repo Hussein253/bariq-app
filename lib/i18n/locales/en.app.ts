@@ -198,7 +198,7 @@ export const enApp: AppDictionary = {
       liveChatsNew: 'New ⚡',
       trackingLink: 'Field shipment tracking',
       paymentGatewaysTitle: 'Payment gateways',
-      gatewayActive: 'Active',
+      gatewaySoon: 'Coming soon',
       connectedMerchant: 'Connected: {name}',
       connectedAdmin: 'System connected to admin',
       version: 'Version {n}',

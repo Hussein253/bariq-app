@@ -931,14 +931,14 @@ export default function OperationsClient({
                     <span className="w-2 h-2 rounded-full bg-purple-600" />
                     <span className="font-semibold text-slate-800">Zain Cash Iraq</span>
                   </div>
-                  <span className="text-[10px] text-emerald-600 font-bold">{o.sidebar.gatewayActive}</span>
+                  <span className="text-[10px] text-[#64748B] font-bold">{o.sidebar.gatewaySoon}</span>
                 </div>
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-rose-600" />
                     <span className="font-semibold text-slate-800">Qi Card & Master</span>
                   </div>
-                  <span className="text-[10px] text-emerald-600 font-bold">{o.sidebar.gatewayActive}</span>
+                  <span className="text-[10px] text-[#64748B] font-bold">{o.sidebar.gatewaySoon}</span>
                 </div>
               </div>
             </div>

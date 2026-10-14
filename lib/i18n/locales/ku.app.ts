@@ -196,7 +196,7 @@ export const kuApp: AppDictionary = {
       liveChatsNew: 'نوێ ⚡',
       trackingLink: 'بەدواداچوونی مەیدانیی بارەکان',
       paymentGatewaysTitle: 'دەروازەکانی پارەدانی ئەلیکترۆنی',
-      gatewayActive: 'چالاک',
+      gatewaySoon: 'بەم زووانە',
       connectedMerchant: 'پەیوەستە: {name}',
       connectedAdmin: 'سیستەم پەیوەستە بە بەڕێوەبردن',
       version: 'وەشانی {n}',
