@@ -1,0 +1,21 @@
+# اختبار هلوسة بوت واتساب «علاء» — 25 حالة من أصعب ما ظهر في bot_reply_audit
+# التشغيل:  npx promptfoo@latest eval -c tests/bot-eval/promptfooconfig.yaml
+# العرض:    npx promptfoo@latest view
+description: 'برق — اختبار هلوسة بوت واتساب (25 حالة)'
+
+prompts:
+  - '{{turns}}'
+
+providers:
+  - id: file://provider.mjs
+    label: bariq-whatsapp-bot
+
+tests: file://tests.mjs
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://assertions.mjs:globalChecks
+
+evaluateOptions:
+  maxConcurrency: 1

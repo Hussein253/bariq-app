@@ -48,9 +48,9 @@ export const en: Dictionary = {
     ctaSecondary: 'See live conversations',
     note: 'Free forever plan · No credit card · Set up in {n} minutes',
     trust: [
-      { label: 'Official Meta APIs', sub: 'Approved' },
+      { label: 'Official Meta APIs', sub: 'Approval coming soon' },
       { label: 'Local dialect', sub: 'Replies in market language' },
-      { label: 'ZainCash & Qi Card', sub: 'Local payment in IQD' },
+      { label: 'ZainCash & Qi Card', sub: 'Coming soon' },
       { label: 'Same-day delivery', sub: 'All governorates' },
     ],
   },
@@ -206,7 +206,7 @@ export const en: Dictionary = {
       {
         icon: 'card',
         title: 'Local payments',
-        body: 'ZainCash, Qi Card and Mastercard, plus cash on delivery in every governorate.',
+        body: 'Cash on delivery in every governorate, with ZainCash, Qi Card and Mastercard coming soon.',
       },
       {
         icon: 'mapPin',

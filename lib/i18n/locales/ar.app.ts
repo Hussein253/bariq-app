@@ -200,7 +200,7 @@ export const arApp = {
       liveChatsNew: 'جديد ⚡',
       trackingLink: 'تتبع الشحنات الميداني',
       paymentGatewaysTitle: 'بوابات الدفع الإلكتروني',
-      gatewayActive: 'نشط',
+      gatewaySoon: 'قريباً',
       connectedMerchant: 'متصل: {name}',
       connectedAdmin: 'النظام متصل بالإدارة',
       version: 'الإصدار {n}',
