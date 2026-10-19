@@ -1014,7 +1014,7 @@ export const kuApp: AppDictionary = {
     accountUnlinked: 'بەستنەوەکە پچڕا و شوێنەکەی ئازاد بوو',
     unlink: 'پچڕاندنی بەستنەوە',
     noAccounts: 'هێشتا هیچ هەژمارێک نەبەستراوە — واتسئاپ یان ئینستاگرام ببەستەوە تا کڕیاران پێت بگەن.',
-    answeredBy: 'وەڵامی دەداتەوە: {name}',
+    agentAssigned: 'کارمەندی بەرپرسی هەژمارەکە نوێکرایەوە',
     noAgentOnAccount: 'بەبێ کارمەندی زیرەک',
     verificationPending: 'چاوەڕوانی پەسەندکردنی بەرق',
     verificationPendingHint:

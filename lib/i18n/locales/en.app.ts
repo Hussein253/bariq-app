@@ -1016,7 +1016,7 @@ export const enApp: AppDictionary = {
     accountUnlinked: 'Unlinked and its seat freed',
     unlink: 'Unlink',
     noAccounts: 'No account linked yet — link WhatsApp or Instagram so customers can reach you.',
-    answeredBy: 'Answered by: {name}',
+    agentAssigned: 'Responsible agent updated',
     noAgentOnAccount: 'No AI agent',
     verificationPending: 'Awaiting Bariq approval',
     verificationPendingHint:

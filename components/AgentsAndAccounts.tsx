@@ -104,11 +104,16 @@ export default function AgentsAndAccounts({
     setTimeout(() => setNotice(null), 4000)
   }
 
-  const submit = async (url: string, body: Record<string, unknown>, okText: string) => {
+  const submit = async (
+    url: string,
+    body: Record<string, unknown>,
+    okText: string,
+    method: 'POST' | 'PATCH' = 'POST'
+  ) => {
     setBusy(true)
     try {
       const res = await fetch(url, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, merchant_id: merchantId }),
       })
@@ -487,11 +492,31 @@ export default function AgentsAndAccounts({
                     <span className="font-mono" dir="ltr">
                       {acc.external_id}
                     </span>
-                    {' • '}
-                    {acc.ai_agents
-                      ? fill(t.answeredBy, { name: acc.ai_agents.name })
-                      : t.noAgentOnAccount}
                   </p>
+                  {/* الإسناد بعد الربط — PATCH يتحقق أن الموظف من متجر الطالب نفسه */}
+                  <label className="mt-2 flex items-center gap-2 text-[11px] text-ink-muted">
+                    <span className="font-bold">{t.responsibleAgent}</span>
+                    <select
+                      value={acc.ai_agent_id ?? ''}
+                      disabled={busy}
+                      onChange={(e) =>
+                        submit(
+                          '/api/social-accounts',
+                          { id: acc.id, ai_agent_id: e.target.value || null },
+                          t.agentAssigned,
+                          'PATCH'
+                        )
+                      }
+                      className="bg-surface border border-line rounded-lg px-2 py-1 outline-none focus:border-brand text-ink disabled:opacity-50"
+                    >
+                      <option value="">{t.noAgentOnAccount}</option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   {!acc.verified_at && (
                     <p className="text-[11px] text-warn-ink mt-1 leading-relaxed">
                       {t.verificationPendingHint}
