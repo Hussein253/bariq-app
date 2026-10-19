@@ -1020,7 +1020,7 @@ export const arApp = {
     accountUnlinked: 'فُكّ الربط وتحرّر مقعده',
     unlink: 'فكّ الربط',
     noAccounts: 'لا حساب مربوط بعد — اربط واتساب أو إنستغرام ليصل الزبائن إليك.',
-    answeredBy: 'يرد عليه: {name}',
+    agentAssigned: 'حُدّث الموظف المسؤول عن الحساب',
     noAgentOnAccount: 'بلا موظف ذكي',
     verificationPending: 'بانتظار اعتماد برق',
     verificationPendingHint:
