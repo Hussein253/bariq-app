@@ -40,6 +40,16 @@ export interface Conversation {
   social_account_id: string | null
 }
 
+/** حاوية Storage الخاصة لملفات الرسائل (الترحيل ٠٢٨) — تُقرأ بروابط موقّعة فقط */
+export const CONVERSATION_MEDIA_BUCKET = 'conversation-media'
+
+/** ملف واحد من messages.media — path نسبي داخل CONVERSATION_MEDIA_BUCKET، أول مقطع فيه التاجر */
+export interface MessageMedia {
+  type: string
+  path: string
+  mime_type?: string
+}
+
 /** صف من جدول public.messages */
 export interface Message {
   id: string
@@ -48,6 +58,8 @@ export interface Message {
   message_type: string
   content: string
   created_at: string | null
+  /** ملفات الرسالة بترتيب رسائل الدفعة؛ null = بلا ملف (كل ما قبل الترحيل ٠٢٨) */
+  media?: MessageMedia[] | null
 }
 
 /** محادثة مُثراة ببيانات العرض (تُبنى في الخادم، لا تُخزَّن) */
@@ -81,6 +93,18 @@ export function canActOnConversation(
 /** هل الرسالة صادرة من جهتنا (بوت أو موظف)؟ */
 export function isOutbound(senderType: string): boolean {
   return senderType !== 'customer'
+}
+
+/**
+ * مسارات الرسائل الصوتية في الرسالة، بترتيبها في الدفعة.
+ * العمود يكتبه n8n عبر المحفّز، فلا يُوثق بشكله: ما ليس مصفوفة أو عنصراً
+ * صوتياً بمسار نصي يُتجاهل بدل أن يكسر عرض المحادثة.
+ */
+export function voiceNotePaths(message: Pick<Message, 'media'>): string[] {
+  if (!Array.isArray(message.media)) return []
+  return message.media
+    .filter((m): m is MessageMedia => !!m && m.type === 'audio' && typeof m.path === 'string' && m.path !== '')
+    .map((m) => m.path)
 }
 
 /** اسم المرسل بلغة الواجهة؛ نوع غير معروف يُعرض كما هو. */
