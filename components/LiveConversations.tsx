@@ -33,8 +33,10 @@ import {
   platformLabel,
   relativeTime,
   senderLabel,
+  voiceNotePaths,
   waLink,
 } from '@/lib/conversations'
+import VoiceNote from '@/components/VoiceNote'
 // عميل مربوط بجلسة المستخدم: اشتراك Realtime صار مُصادَقاً، فتحكمه سياسة
 // conversations_select_scoped (ترحيل ٠١٢) ويرى التاجر محادثاته وحده.
 const supabase = getBrowserSupabase()
@@ -765,6 +767,15 @@ export default function LiveConversations({
                                 {senderLabel(msg.sender_type, t.senders)}
                               </div>
                             )}
+                            {/* الصوت نفسه فوق تفريغه — التفريغ قد يخطئ في اسم منطقة أو رقم */}
+                            {voiceNotePaths(msg).map((path) => (
+                              <VoiceNote
+                                key={path}
+                                path={path}
+                                label={t.voiceNote}
+                                unavailableLabel={t.voiceNoteUnavailable}
+                              />
+                            ))}
                             <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                             <div
                               className={`flex items-center justify-end gap-1 mt-1 text-[9px] ${
