@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sendDashboardReply, type DashboardReplyPayload } from '@/lib/n8n-outbound'
+import { dashboardReplyChannel, sendDashboardReply, type DashboardReplyPayload } from '@/lib/n8n-outbound'
 
 const WEBHOOK_URL = 'https://n8n.example.test/webhook/bariq-dashboard-reply'
 const SECRET = 'test-outbound-secret'
@@ -89,5 +89,67 @@ describe('sendDashboardReply', () => {
     fetchMock.mockRejectedValue(new Error('fetch failed'))
 
     expect(await sendDashboardReply(PAYLOAD)).toEqual({ sent: false, error: 'fetch failed' })
+  })
+})
+
+describe('ماسنجر: نفس العقد بقناة وصفحة', () => {
+  const fetchMock = vi.fn()
+  const MESSENGER: DashboardReplyPayload = {
+    phone_number: '28386991107651965', // PSID، 17 رقم
+    message_text: 'تم',
+    channel: 'messenger',
+    source: 'bariq-dashboard',
+    account_external_id: '1321149431082632', // معرّف الصفحة
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('N8N_WEBHOOK_URL', WEBHOOK_URL)
+    vi.stubEnv('BARIQ_N8N_OUTBOUND_SECRET', SECRET)
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('يرسل channel وPSID ومعرّف الصفحة كما هي', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, message_id: 'm_X' }))
+
+    expect(await sendDashboardReply(MESSENGER)).toEqual({ sent: true, messageId: 'm_X' })
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(MESSENGER)
+  })
+
+  it('رفض n8n لصفحة ناقصة يوصل اللوحة بسببه (ما نخمّن صفحة)', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(400, { ok: false, error: 'missing_account_external_id' }))
+
+    expect(await sendDashboardReply({ ...MESSENGER, account_external_id: null })).toEqual({
+      sent: false,
+      error: 'n8n 400: missing_account_external_id',
+    })
+  })
+
+  it('فشل Meta (502) يظهر بسببه', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(502, { ok: false, error: 'messenger_send_failed', detail: '(#10) outside window' }))
+
+    expect(await sendDashboardReply(MESSENGER)).toEqual({ sent: false, error: 'n8n 502: messenger_send_failed' })
+  })
+})
+
+describe('dashboardReplyChannel — منصة المحادثة ← قناة الإرسال', () => {
+  it.each([
+    ['whatsapp', 'whatsapp'],
+    ['messenger', 'messenger'],
+    [null, 'whatsapp'], // محادثة قديمة بلا منصة
+    [undefined, 'whatsapp'],
+    ['', 'whatsapp'],
+  ])('%s ← %s', (platform, channel) => {
+    expect(dashboardReplyChannel(platform as string | null | undefined)).toBe(channel)
+  })
+
+  it('إنستغرام وغيره ما إله إرسال فعلي', () => {
+    expect(dashboardReplyChannel('instagram')).toBeNull()
+    expect(dashboardReplyChannel('telegram')).toBeNull()
   })
 })

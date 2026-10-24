@@ -1,7 +1,10 @@
-# رد اللوحة → واتساب (n8n)
+# رد اللوحة → واتساب وماسنجر (n8n)
 
-حين يرد موظف أو تاجر على محادثة واتساب من اللوحة، يحفظ التطبيق الرسالة ثم
+حين يرد موظف أو تاجر على محادثة واتساب أو ماسنجر من اللوحة، يحفظ التطبيق الرسالة ثم
 يرسلها إلى مسار n8n **«رد اللوحة → واتساب»** ليوصلها للزبون.
+
+> ماسنجر كان يُحفظ رده باللوحة ويوقف البوت بلا ما يوصل للزبون (التطبيق ما كان يستدعي المسار إلا لواتساب،
+> والمسار يرفض غير واتساب). وُصّل بـ `n8n/dashboard-reply-messenger.mjs`. إنستغرام للحين «حُفظ داخلياً» بلا إرسال.
 
 قبل هذا المسار كان `N8N_WEBHOOK_URL` في الإنتاج يشير إلى مساحة n8n Cloud
 محذوفة: الرد يُحفظ ويظهر في اللوحة، ويُطفأ البوت للمحادثة، ولا يصل للزبون
@@ -18,21 +21,21 @@ Authorization: Bearer {BARIQ_N8N_OUTBOUND_SECRET}
 ```ts
 // lib/n8n-outbound.ts — DashboardReplyPayload
 {
-  phone_number: string            // أرقام فقط، 8–15 رقماً (E.164 بلا +) كما يحفظها واتساب: 964…
-  message_text: string            // غير فارغ، 4096 حرفاً كحدّ أقصى (حدّ واتساب)
-  channel: 'whatsapp'             // غيرها يُرفض
+  phone_number: string            // واتساب: أرقام فقط، 8–15 رقماً (E.164 بلا +): 964…. ماسنجر: PSID، 8–25 رقماً
+  message_text: string            // غير فارغ، 4096 حرفاً لواتساب و2000 لماسنجر (حدّ كل منصة)
+  channel: 'whatsapp' | 'messenger'  // غيرها يُرفض (unsupported_channel)
   source: 'bariq-dashboard'       // للتتبّع فقط، لا يُفحص
-  account_external_id?: string | null  // phone_number_id للرقم المُرسِل. null/غائب = الرقم القديم
+  account_external_id?: string | null  // واتساب: phone_number_id للرقم المُرسِل، null/غائب = الرقم القديم. ماسنجر: معرّف الصفحة، إلزامي
 }
 ```
 
 | الحالة | الجسم | المعنى |
 |---|---|---|
 | 200 | `{ ok: true, message_id }` | قبِل واتساب الرسالة (`wamid`) |
-| 400 | `{ ok: false, error }` | `unsupported_channel` / `invalid_phone_number` / `empty_message_text` / `message_text_too_long` / `invalid_account_external_id` |
+| 400 | `{ ok: false, error }` | `unsupported_channel` / `invalid_phone_number` / `empty_message_text` / `message_text_too_long` / `invalid_account_external_id` / (ماسنجر) `missing_account_external_id` / `unknown_account` |
 | 401 | `{ ok: false, error: 'unauthorized' }` | السرّ غائب أو خاطئ |
-| 409 | `{ ok: false, error: 'outside_24h_window', last_incoming_at }` | لم يراسل الزبون خلال 24 ساعة |
-| 502 | `{ ok: false, error: 'whatsapp_send_failed', detail }` | رفض Meta الإرسال |
+| 409 | `{ ok: false, error: 'outside_24h_window', last_incoming_at }` | لم يراسل الزبون خلال 24 ساعة (على منصة القناة نفسها) |
+| 502 | `{ ok: false, error: '<channel>_send_failed', detail }` | رفض Meta الإرسال (`whatsapp_send_failed` أو `messenger_send_failed`) |
 
 أي حالة غير 2xx تظهر في اللوحة «حُفظ الرد، لكن تعذّر إيصاله إلى الزبون»،
 ويرى فريق برق رمز السبب بجانبها (`n8n 409: outside_24h_window` مثلاً).
@@ -48,11 +51,16 @@ Authorization: Bearer {BARIQ_N8N_OUTBOUND_SECRET}
 5. **فحص نافذة 24 ساعة** — آخر رسالة واردة من الرقم في `conversation_log`.
    خارج النافذة ← 409. **إن تعذّر الفحص يُرسل على أي حال**: عطل في القاعدة
    لا يوقف ردود الموظفين.
-6. **إرسال الرد عبر واتساب** — بحساب `WhatsApp account`، ومن
-   `account_external_id` أو الرقم القديم `1245317385330588`. ← 200 أو 502.
+6. **قناة الرد** — توجّه حسب `channel`:
+   - **واتساب:** بحساب `WhatsApp account`، ومن `account_external_id` أو الرقم القديم `1245317385330588`.
+   - **ماسنجر:** **صفحة ماسنجر** تختار توكن الصفحة من `account_external_id` (ستايل بغداد `1321149431082632`، المميز
+     `615262431673775`، نفس اعتمادات بوت ماسنجر)، ثم Graph API ‏`/me/messages` بـ `messaging_type: RESPONSE`.
+     الصفحة الناقصة أو المجهولة تنرفض قبل الإرسال (ما نخمّن).
+   ← 200 أو 502.
 
 ### لماذا فحص الـ 24 ساعة
 
+ماسنجر نفس القيد: `RESPONSE` ما تُقبل خارج 24 ساعة من آخر رسالة للزبون (تحتاج وسم Human Agent، غير مفعّل هنا).
 واتساب لا يسمح بالرسائل الحرة إلا خلال 24 ساعة من آخر رسالة للزبون. خارجها
 **يقبل الطلب ويرد 200 بمعرّف رسالة، ثم يُسقطها لاحقاً** (حالة `failed` تصل
 بـ webhook منفصل). بدون الفحص كانت اللوحة ستقول «أُرسل» والزبون لم يستلم شيئاً.
