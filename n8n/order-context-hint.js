@@ -166,6 +166,38 @@ export function singleProductNote({ productNames = '', message = '', needsItems 
 }
 // </single-product>
 
+// <own-voice>
+// الزبون كال «رايد قطعه من منتجك» والبوت رد «تدلل، رايد وحدة من غسالة…!» (ماسنجر 2026-10-24، التنفيذ 1577؛ ونفسه بالتنفيذ 1573): رجّع كلمة الزبون
+// بلسانه كأنه هو الي يطلب، فطلع الرد حوار مع النفس قدام الزبون. التنبيه يخلي الرد كلام موظف مبيعات عراقي خبير ويا الزبون: ترحيب دافي،
+// وطلبه بجملة اسمية بدون فعل «رايد». الحارس الحتمي بعقدة الحارس (n8n/own-voice.js) هو الطبقة الثانية لو النموذج ما التزم.
+// وبعد توجيه صاحب المتجر: الرد «تم عزيزي، تم تأكيد طلبك» (استلام أولي مو تثبيت: الطلب ما ينحجز إلا بموافقة الزبون) ويا سؤال العنوان،
+// وإذا عنده عنوان سابق يأكده («نعتمد عنوانك السابق بـ … لو تغير؟»).
+const OWN_ADDRESS_ASK = ' وبنفس الرد اسأله عن عنوانه: إذا اكو سطر «عنوان سابق للزبون» بالبيانات الداخلية اسأله «نعتمد عنوانك السابق بـ [العنوان] لو تغير؟» حتى يأكده،'
+  + ' وإذا ماكو اطلب اسمه وعنوانه الكامل (المحافظة والمنطقة وأقرب نقطة دالة) ورقم التليفون.'
+const OWN_BOOKED = '«تم عزيزي، تم تأكيد طلبك» (للزبونة: «تم عزيزتي، تم تأكيد طلبك»)'
+
+// المتجر عنده منتج واحد والزبون كال «قطعة/وحدة/حبة»: المنتج والعدد معروفين من الرسالة نفسها، ما نحتاج نسأل عن البنود
+export function itemsKnownFromMessage({ productNames = '', message = '' } = {}) {
+  return Boolean(singleProductOf(productNames)) && ONE_UNIT.test(norm(message))
+}
+
+export function ownVoiceNote({ message = '', productNames = '', needsItems = false } = {}) {
+  if (!(needsItems || BUY_INTENT.test(norm(message)))) return ''
+  const name = singleProductOf(productNames)
+  const known = itemsKnownFromMessage({ productNames, message })
+  return '\n\n[أسلوب الرد — موظف مبيعات عراقي خبير: «رايد/اريد/ابي» بكلام الزبون كلمته هو مو كلمتك، فممنوع تردد طلبه بصيغة المتكلم («رايد وحدة من…»، «أريد…»، «ابي…») كأن إنت الي تطلب،'
+    + ' وممنوع تفكّر بصوت عالي («خليني أشوف»، «لحظة أتأكد») أو تسأل سؤال وتجاوبه بنفسك. ردك كلام ويا الزبون مباشرة.'
+    + (known
+      ? ' البند معروف من رسالته (' + name + '، وحدة): ابدي بـ ' + OWN_BOOKED + ' وبعدها البند بجملة اسمية: «' + name + '، وحدة.»،' + OWN_ADDRESS_ASK
+        + ' خزّن البند بصمت بـ update_session_data.'
+      : ' إذا البنود (المنتج والعدد) لسه ناقصة: ابدي بـ «تدلل عزيزي،» (للزبونة: «تدللين عزيزتي،») واسأل عن الناقص بس.'
+        + ' وإذا اكتملت البنود بهذا الرد: ابدي بـ ' + OWN_BOOKED + ' وبعدها البنود بجملة اسمية بدون فعل «رايد»،' + OWN_ADDRESS_ASK)
+    + ' «تم تأكيد طلبك» استلام أولي بس: الطلب ما ينحجز (create_order) إلا بموافقة الزبون الصريحة على ردك الي بيه المبلغ الكلي،'
+    + ' وممنوع «تم تثبيت طلبك» ولا رقم طلب ولا «المندوب يتصل» قبل create_order.'
+    + ' كلمة «رايد» تنكتب بس بسؤال للزبون («شكم قطعة رايد؟»).]'
+}
+// </own-voice>
+
 /**
  * @param {object}   [input]
  * @param {string}   [input.combinedMessage]  رسائل الزبون الجديدة بهذا الدور
@@ -191,7 +223,9 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   const askedToOrder = WANTS_ORDER.test(current) || recentMessages.some((t) => WANTS_ORDER.test(bare(t)));
   const confirmed = confirmedOnce({ combinedMessage, botReplies });
   // الزبون وافق على بنود ومبلغ البوت عرضهم بردّه السابق: البنود معروفة حتى لو السلة فاضية
-  const needsItems = !confirmed && cart.length === 0 && (askedToOrder || orderingNow === true);
+  // الزبون سمّى العدد بنفسه والمتجر عنده منتج واحد («رايد قطعه»): البند معروف، فلا سؤال بنود ولا منع للعنوان
+  const itemsFromMessage = itemsKnownFromMessage({ productNames, message: combinedMessage });
+  const needsItems = !confirmed && !itemsFromMessage && cart.length === 0 && (askedToOrder || orderingNow === true);
 
   let hint = '';
   if (earlier.length) {
@@ -217,6 +251,9 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   const single = singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
   hint += single;
+
+  // التأكيد الواصل له تنبيهه الخاص (ثبّت وبس)، والاستفسار جواب وبس: أسلوب «تدلل حبيبي» يخص استقبال طلب الزبون
+  if (!confirmed && !browsing) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
 
   return { hint, orderContext: { itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length } };
 }

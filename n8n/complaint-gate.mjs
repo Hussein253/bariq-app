@@ -60,6 +60,13 @@ const swap = (text, from, to, label) => {
 const CUES_FROM = 'const ORDER_CUES = /طلب[كچ] (?:هس[ةه] )?صار|'
 const CUES_TO = 'const ORDER_CUES = /شكم وحدة|شنو المنتج|يا منتج|طلب[كچ] (?:هس[ةه] )?صار|'
 const CUES_MARKER = 'شكم وحدة|شنو المنتج|يا منتج'
+// ردّ الاستلام الأولي «تم عزيزي، تم تأكيد طلبك… ونعتمد عنوانك السابق بـ … لو تغير؟» ما بيه «طلبك هسة صار»، فبدون هالإشارتين
+// الفاحص يظن البوت مو بنص طلب وجواب الزبون («نفسه»، «لا غيّر») يتصنّف غلط.
+const CUES2_FROM = 'const ORDER_CUES = /شكم وحدة|'
+const CUES2_TO = 'const ORDER_CUES = /تم تأكيد طلب[كچ]|عنوان[كچ] السابق|شكم وحدة|'
+const CUES2_MARKER = 'تم تأكيد طلب[كچ]'
+// النسخة الي نزلت قبل (كانت «تم حجز طلبك»): تنبدّل بالحي
+const CUES2_OLD = 'تم حجز طلب[كچ]|'
 
 const ORDER_BULLET = '- asking to place, confirm or book an order ("أريد تثبيت الطلب", "ثبتلي الطلب", "احجزلي", "قم بتثبيت الطلب"), or giving their name when the bot asked for it, with or without a warm word ("حبيبي", "عزيزي", "أخوي", "غالي")'
 const BUY_BULLET = ORDER_BULLET
@@ -105,6 +112,15 @@ const patch = async (channel) => {
   } else {
     b = swap(b, CUES_FROM, CUES_TO, `${channel}/order-cues`)
     mark(true, 'ORDER_CUES (سياق الفاحص)')
+  }
+  if (b.includes(CUES2_MARKER)) {
+    mark(false, 'ORDER_CUES: «تم تأكيد طلبك» و«عنوانك السابق»')
+  } else if (b.includes(CUES2_OLD)) {
+    b = swap(b, CUES2_OLD, CUES2_MARKER + '|', `${channel}/order-cues-booked-rename`)
+    mark(true, 'ORDER_CUES: «تم حجز طلبك» ← «تم تأكيد طلبك»')
+  } else {
+    b = swap(b, CUES2_FROM, CUES2_TO, `${channel}/order-cues-booked`)
+    mark(true, 'ORDER_CUES: «تم تأكيد طلبك» و«عنوانك السابق»')
   }
   if (b.includes(BUY_MARKER)) {
     mark(false, 'فقرة «طلب الشراء مو شكوى» ببرومت الفاحص')

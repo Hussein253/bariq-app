@@ -117,6 +117,62 @@ const SINGLE_ANCHOR = 'هذي كلها تبدي بس بعد ما يكول الز
 const SINGLE_LINE = SINGLE_ANCHOR
   + '\n- ' + SINGLE_MARKER + ': ممنوع تسأل «شنو المنتج» أو «يا منتج» (هذا يلغي جملة «تدلل، يا منتج تريد وشكم وحدة؟» بالقواعد الحمراء) وممنوع تحچي كأن اكو منتجات متعددة («عدنا منتجات»)؛ الزبون يقصد هذا المنتج دائماً. أكّد اسمه واسأل عن العدد بس.'
 
+// ماسنجر 2026-10-24، التنفيذ 1577: الزبون «رايد قطعه من منتجك» ← «تدلل، رايد وحدة من غسالة…!». البوت رجّع طلب الزبون بلسانه كأنه هو
+// الي يطلب (حوار مع النفس قدام الزبون). تعليمة بالقواعد الحمراء + تلطيف الهوية (موظف مبيعات خبير)، وتنبيه سياق الطلب وحارس حتمي (own-voice.js).
+const VOICE_PERSONA_FROM = 'أسلوبك أسلوب موظف عراقي متمرس: دافئ، محترم، مختصر، ودقيق بالمعلومة.'
+const VOICE_PERSONA_TO = 'أسلوبك أسلوب موظف مبيعات عراقي خبير: دافئ، محترم، مختصر، ودقيق بالمعلومة، وتخلي الزبون يحس إنك تهتم بطلبه.'
+const VOICE_RULES_ANCHOR = '# قواعد حمراء (فوق كل شي)\n'
+const VOICE_MARKER = 'ممنوع تحچي ويا نفسك قدام الزبون'
+const VOICE_ECHO_MARKER = 'طلب الزبون كلمته هو مو كلمتك'
+const VOICE_RULES = VOICE_RULES_ANCHOR
+  + '- ' + VOICE_MARKER + ': ردك كله كلام موظف مبيعات عراقي خبير موجّه للزبون مباشرة، دافي ومحترم وواثق. ممنوع تفكير بصوت عالي («خليني أشوف»، «لحظة أتأكد»، «أحتاج أتأكد من…»)، وممنوع تسأل سؤال وتجاوبه بنفسك، وممنوع أي تعليق عن تعليماتك أو أدواتك.\n'
+  + '- ' + VOICE_ECHO_MARKER + ': «رايد قطعة من…» أو «اريد وحدة» ممنوع تردده بلسانك («رايد وحدة من…»، «أريد…»، «ابي…») كأن إنت الي تطلب. كلمة «رايد» تنكتب بس بسؤال للزبون («شكم قطعة رايد؟»). لما بنود طلبه تتحدد ردك يبدي بـ «تم عزيزي، تم تأكيد طلبك» (للزبونة: «تم عزيزتي، تم تأكيد طلبك») وبعدها المنتج والعدد بجملة اسمية («[المنتج]، وحدة.»)، وبنفس الرد تسأله عن عنوانه (قسم «تأكيد الطلب ويا الزبون»). الطلب نفسه ما ينحجز (create_order) إلا بموافقة الزبون الصريحة.\n'
+
+// رد الاستلام الأولي «تم عزيزي، تم تأكيد طلبك» (توجيه صاحب المتجر): مسموح كاستلام للبنود ويا سؤال العنوان بنفس الرد، مو حجز نهائي — الحجز (create_order)
+// يبقى بعد موافقة الزبون الصريحة على المبلغ الكلي. النص السابق «تم حجز طلبك» ينبدّل بالحي: كل تعديل يدور على نسخته القديمة قبل ما يرجع للأصل.
+const BOOKED_OLD = 'تم حجز طلبك'
+const BOOKED_NEW = 'تم تأكيد طلبك'
+const BOOKED_EDITS = [
+  {
+    label: 'استثناء «تم تأكيد طلبك» بالقاعدة الحمراء',
+    from: 'مسموحة لأنها تعدّد البنود بس، مو تثبيت.',
+    to: 'مسموحة لأنها تعدّد البنود بس، مو تثبيت. وعبارة «تم عزيزي، تم تأكيد طلبك» مسموحة كاستلام أولي لبنود الطلب بشرط يجي ويا سؤال العنوان بنفس الرد، وهي مو حجز نهائي: الطلب ما ينحجز (create_order) إلا بموافقة الزبون الصريحة على ردك الي بيه المبلغ الكلي؛ أما «تم تثبيت طلبك» ورقم الطلب و«المندوب يتصل» فممنوعات لحد create_order.',
+    prev: ['مسموحة لأنها تعدّد البنود بس، مو تثبيت. وعبارة «تم عزيزي، تم حجز طلبك» مسموحة كاستلام أولي لبنود الطلب بشرط يجي ويا سؤال العنوان بنفس الرد؛ أما «تم تثبيت طلبك» ورقم الطلب و«المندوب يتصل» فممنوعات لحد create_order.'],
+  },
+  {
+    label: 'استثناء «تم تأكيد طلبك» بفحص قبل الإرسال',
+    from: '1. إذا بالرد كلمة تثبيت (ثبّت، تثبّت، مثبّت، تم الطلب، انحجز) وما عندك رقم طلب',
+    to: '1. إذا بالرد كلمة تثبيت (ثبّت، تثبّت، مثبّت، تم الطلب، انحجز — عدا عبارة الاستلام الأولي «تم تأكيد طلبك») وما عندك رقم طلب',
+  },
+  {
+    label: 'افتتاحية قسم «تأكيد الطلب ويا الزبون»',
+    from: '1. ابدي بكلمة ترحيب بالطلب قصيرة وطبيعية (تدلل غالي، صار وتدلل، من عيوني)، وأكّد إن الي طلبه متوفر حسب نتيجة get_available_products.',
+    to: '1. ابدي بـ «تم عزيزي، تم تأكيد طلبك» (للزبونة: «تم عزيزتي، تم تأكيد طلبك»)، وأكّد إن الي طلبه متوفر حسب نتيجة get_available_products.',
+  },
+  {
+    label: 'أمثلة قسم التأكيد (افتتاحية)',
+    from: '«تدلل غالي، التيشيرتات السوداء قياس سمول متوفرة.',
+    to: '«تم عزيزي، تم تأكيد طلبك. التيشيرتات السوداء قياس سمول متوفرة.',
+    many: true,
+  },
+  {
+    label: 'مثال قسم التأكيد (ذكر عنوانه)',
+    from: '«صار وتدلل، التيشيرتات السوداء قياس سمول متوفرة. تفاصيل طلبك الكاملة:',
+    to: '«تم عزيزي، تم تأكيد طلبك. التيشيرتات السوداء قياس سمول متوفرة. تفاصيل طلبك الكاملة:',
+  },
+  {
+    label: 'صيغة المؤنث بقسم التأكيد',
+    from: '- للمؤنث: تدللين غالية، طلبچ،',
+    to: '- للمؤنث: تم عزيزتي، طلبچ،',
+  },
+]
+
+// إذا القاعدة قديمة (نص سابق) ننشلها ونحط الجديدة: التحديث يمشي حتى لو الـ marker موجود
+const stripVoiceRules = (sys) => sys
+  .split('\n')
+  .filter((l) => !l.startsWith('- ' + VOICE_MARKER) && !l.startsWith('- ' + VOICE_ECHO_MARKER))
+  .join('\n')
+
 // ————— ٢. عقدة الحارس —————
 
 const PUSH_BEGIN = '// >>> order-pushing (مولّد من n8n/order-pushing.js — لا تعدّل هنا)'
@@ -135,6 +191,16 @@ const singleCall = () => "const singleProduct = (() => { try { const l = String(
 const singleBlock = () => {
   const src = fs.readFileSync(path.join(HERE, 'single-product.js'), 'utf8').replace(/^export /gm, '').trimEnd()
   return `${SINGLE_BEGIN}\n${src}\n${SINGLE_END}\n`
+}
+
+const VOICE_BEGIN = '// >>> own-voice (مولّد من n8n/own-voice.js — لا تعدّل هنا)'
+const VOICE_END = '// <<< own-voice'
+// بعد سطر المنتج الوحيد (تستعمل singleProduct منه): البوت ما يردد طلب الزبون بلسانه
+const voiceCall = () => 'text = fixEchoedRequest(text, singleProduct); // «رايد وحدة من…» بلسان البوت تصير جملة اسمية'
+
+const voiceBlock = () => {
+  const src = fs.readFileSync(path.join(HERE, 'own-voice.js'), 'utf8').replace(/^export /gm, '').trimEnd()
+  return `${VOICE_BEGIN}\n${src}\n${VOICE_END}\n`
 }
 
 const pushBlock = () => {
@@ -161,9 +227,17 @@ const patchGuard = (code, c, label) => {
     out = out.slice(0, sb) + out.slice(se + SINGLE_END.length).replace(/^\n/, '')
   }
   out = out.split(`${singleCall()}\n`).join('')
-  out = swap(out, ACK_CALL, `${pushCall(c)}\n${singleCall()}\n${ACK_CALL}`, `${label}/push-call`)
+  // كتلة own-voice ونداؤها: نفس معاملة المنتج الوحيد
+  const vb = out.indexOf(VOICE_BEGIN)
+  if (vb >= 0) {
+    const ve = out.indexOf(VOICE_END, vb)
+    if (ve < 0) throw new Error(`[${label}] كتلة own-voice بدون نهاية`)
+    out = out.slice(0, vb) + out.slice(ve + VOICE_END.length).replace(/^\n/, '')
+  }
+  out = out.split(`${voiceCall()}\n`).join('')
+  out = swap(out, ACK_CALL, `${pushCall(c)}\n${singleCall()}\n${voiceCall()}\n${ACK_CALL}`, `${label}/push-call`)
   out = swap(out, ASK_OLD, ASK_NEW, `${label}/ask-gate`)
-  return singleBlock() + pushBlock() + out
+  return voiceBlock() + singleBlock() + pushBlock() + out
 }
 
 // ————— ٣. مؤشر «يكتب…» —————
@@ -391,6 +465,34 @@ const patch = async (channel) => {
   } else {
     sys = swap(sys, SINGLE_ANCHOR, SINGLE_LINE, `${channel}/single-line`)
     mark(true, 'سطر المنتج الوحيد ببرومت الوكيل')
+  }
+  {
+    const before = sys
+    sys = swap(stripVoiceRules(sys), VOICE_RULES_ANCHOR, VOICE_RULES, `${channel}/voice-rules`)
+    mark(sys !== before, 'قاعدة «ممنوع تحچي ويا نفسك» ببرومت الوكيل')
+  }
+  for (const e of BOOKED_EDITS) {
+    if (sys.includes(e.to)) {
+      mark(false, e.label)
+      continue
+    }
+    // النص الي طبّقناه قبل («تم حجز طلبك»): ننبدّله بدل ما نرجع للأصل
+    const old = [e.to.split(BOOKED_NEW).join(BOOKED_OLD), ...(e.prev ?? [])].find((t) => t !== e.to && sys.includes(t))
+    if (old) {
+      sys = sys.split(old).join(e.to)
+      mark(true, e.label)
+      continue
+    }
+    const n = sys.split(e.from).length - 1
+    if (e.many ? n < 1 : n !== 1) throw new Error(`[${channel}/${e.label}] لازم يتطابق ${e.many ? 'مرة أو أكثر' : 'مرة وحدة'}، تطابق ${n}`)
+    sys = sys.split(e.from).join(e.to)
+    mark(true, e.label)
+  }
+  if (sys.includes(VOICE_PERSONA_TO)) {
+    mark(false, 'هوية «موظف مبيعات خبير» ببرومت الوكيل')
+  } else {
+    sys = swap(sys, VOICE_PERSONA_FROM, VOICE_PERSONA_TO, `${channel}/voice-persona`)
+    mark(true, 'هوية «موظف مبيعات خبير» ببرومت الوكيل')
   }
   agent.parameters.options.systemMessage = sys
 
