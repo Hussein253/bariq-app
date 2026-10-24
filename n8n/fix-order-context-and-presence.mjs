@@ -28,6 +28,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ASKS_LINE, nodeCode } from './order-context-node.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const API = process.env.N8N_API ?? 'http://localhost:5678/api/v1'
@@ -52,6 +53,7 @@ const CHANNELS = {
     build: 'Build Complaint Check',
     prompt: 'Build User Prompt',
     recent: 'Load Recent Customer Messages',
+    bot: 'Load Recent Bot Replies',
     node: 'Order Context Hint',
     itemsAnchor: ITEMS_ANCHOR_META,
     lastCheck: 15,
@@ -63,6 +65,7 @@ const CHANNELS = {
     build: 'Build Complaint Check',
     prompt: 'Build User Prompt',
     recent: 'Load Recent Customer Messages',
+    bot: 'Load Recent Bot Replies',
     node: 'Order Context Hint',
     itemsAnchor:
       '- إذا الزبون كتب رقم تواصل ثاني ناقص أو غلط، ممنوع تكتب الملخص أو "أثبّتلك الطلب؟" قبل ما تنبّهه وتاخذ منه الرقم الصحيح (أو يكتفي برقم الواتساب).',
@@ -75,6 +78,7 @@ const CHANNELS = {
     build: 'تجهيز فحص الشكوى',
     prompt: 'تجهيز رسالة الوكيل',
     recent: 'تحميل رسائل الزبون السابقة',
+    bot: 'تحميل ردود البوت الأخيرة',
     node: 'سياق الطلب',
     itemsAnchor: ITEMS_ANCHOR_META,
     lastCheck: 15,
@@ -138,34 +142,7 @@ const CLASSIFIER_NOT = `- praise or thanks after delivery ("وصلني الطل�
 
 // ————— ٣. كود العقدة والحارس، مولّدين من n8n/order-context-hint.js (المصدر المختبَر) —————
 
-const MODULE = fs.readFileSync(path.join(HERE, 'order-context-hint.js'), 'utf8')
-
-// نفس التعبير المستعمل بالاختبارات، ينقرا من المصدر حتى ما ينفرز نسختين منه
-const ASKS_LINE = (MODULE.match(/^export const ASKS_FOR_HUMAN = .*$/m) ?? [])[0]?.replace(/^export /, '')
-if (!ASKS_LINE) throw new Error('ما لگيت ASKS_FOR_HUMAN بـ n8n/order-context-hint.js')
-
-const nodeCode = (c) => MODULE.replace(/^export /gm, '').trimEnd() + `
-
-// ---- n8n: المدخلات من عقد هذا المسار (مولّد من n8n/order-context-hint.js — لا تعدّل هنا) ----
-const NODES = ${JSON.stringify({ prompt: c.prompt, recent: c.recent })};
-const j = $json;
-const base = (() => { try { return $(NODES.prompt).first().json || {}; } catch (e) { return {}; } })();
-const recent = (() => {
-  try { return $(NODES.recent).all().map((i) => String((i.json || {}).message_text || '')); } catch (e) { return []; }
-})();
-try {
-  const res = orderContextHint({
-    combinedMessage: base.combinedMessage,
-    sessionData: base.sessionData,
-    recentMessages: recent,
-    orderingNow: (j.complaintCheck || {}).ordering_now === true,
-  });
-  return [{ json: { ...j, userPrompt: String(j.userPrompt || '') + res.hint, orderContext: res.orderContext }, pairedItem: { item: 0 } }];
-} catch (e) {
-  // التنبيه ما يوقف الرد أبداً: أي خطأ هنا يمرّر البرومت مثل ما هو ويُسجَّل السبب
-  return [{ json: { ...j, orderContext: { error: String((e && e.message) || e) } }, pairedItem: { item: 0 } }];
-}
-`
+// كود العقدة ينبني من المصدر المشترك (n8n/order-context-node.mjs) مع سكربت harden-order-flow
 
 const GUARD_ANCHOR = '\nconst errorText = (() => {'
 

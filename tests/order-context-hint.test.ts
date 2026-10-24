@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ASKS_FOR_HUMAN, orderContextHint } from '@/n8n/order-context-hint.js'
+import { ASKS_FOR_HUMAN, confirmedOnce, orderContextHint } from '@/n8n/order-context-hint.js'
 
 // محادثة ماسنجر 2026-10-22 (الزبون 28960616086881740) — رسائل الزبون، الأحدث أول مثل ما ترجّعها
 // عقدة Load Recent Customer Messages من conversation_log
@@ -106,5 +106,85 @@ describe('ASKS_FOR_HUMAN — «موجود؟» مو طلب موظف', () => {
     'خلي مديركم يرد عليّ',
   ])('يحوّل: %s', (msg) => {
     expect(ASKS_FOR_HUMAN.test(bare(msg))).toBe(true)
+  })
+})
+
+// ماسنجر 2026-10-22 12:08–12:11 (الزبون 28960616086881740): ردود البوت الأخيرة، الأحدث أول
+const QUOTE_WITH_TOTAL = [
+  'الغسالة الأوتوماتيكية LG 8 كيلو سعرها 350,000 دينار.\n\nوبما إنه أول طلب إلك، يصير سعرها 297,500 دينار بعد خصم 15%.\n\nأجور التوصيل لبغداد راح تكون 3,000 دينار.\n\nالمجموع الكلي يصير 300,500 دينار كاش عند الاستلام.\n\nتمام هيج؟ ما عندك شي ثاني تحب تضيفه بعد؟',
+  'إي موجود عزيزي، لكن أحتاج منك بعد شوية تفاصيل للتثبيت.',
+]
+const ASKED_TO_CONFIRM = [
+  'أحتاج فقط تأكيد على التفاصيل قبل التثبيت:\n\n- المجموع الكلي: 300,500 دينار كاش عند الاستلام\n\nإذا كل شي تمام، آخد الإذن وأثبت الطلب!',
+]
+const ITEMS_ONLY = ['طلبك هسة صار: ١ غسالة أوتوماتيك أل جي 8 كيلو. تمام هيج؟ ما عندك شي ثاني تحب تضيفه بعد؟ وياريت تدزلي اسمك وعنوانك.']
+const PLACED = ['طلبك تثبّت بنجاح، رقم الطلب هو 43.\n- المجموع الكلي: 300,500 دينار كاش عند الاستلام\nالمندوب يتصل بيك قبل لا يوصل.']
+
+describe('confirmedOnce — التأكيد مرة وحدة بس', () => {
+  it.each([
+    ['اوك ثبت طلب', QUOTE_WITH_TOTAL],
+    ['ثبت', ASKED_TO_CONFIRM],
+    ['ثبّت', QUOTE_WITH_TOTAL],
+    ['إي', QUOTE_WITH_TOTAL],
+    ['تمام', QUOTE_WITH_TOTAL],
+    ['أكيد ثبتلي الطلب', QUOTE_WITH_TOTAL],
+    ['ماكو شي ثاني', QUOTE_WITH_TOTAL],
+    ['اريد تثبيت الطلب', QUOTE_WITH_TOTAL],
+  ])('موافقة صريحة: %s', (msg, bot) => {
+    expect(confirmedOnce({ combinedMessage: msg, botReplies: bot })).toBe(true)
+  })
+
+  it.each([
+    ['لا', QUOTE_WITH_TOTAL],
+    ['ثبت بس غير العنوان', QUOTE_WITH_TOTAL],
+    ['شكد يصير مع التوصيل؟', QUOTE_WITH_TOTAL],
+    ['ثبت؟', QUOTE_WITH_TOTAL],
+    ['مو هذا اريد ثاني', QUOTE_WITH_TOTAL],
+    ['سلطان\nبغداد التاجي قرب المعسكر\n07823454035', QUOTE_WITH_TOTAL],
+    ['(ستيكر 👍)', QUOTE_WITH_TOTAL],
+    ['[رسالة صوتية]: حجي، تمام', QUOTE_WITH_TOTAL],
+  ])('مو موافقة: %s', (msg, bot) => {
+    expect(confirmedOnce({ combinedMessage: msg, botReplies: bot })).toBe(false)
+  })
+
+  it('رد البوت الأخير ما بيه مبلغ كلي ← مو تأكيد (الزبون ما شاف المبلغ)', () => {
+    expect(confirmedOnce({ combinedMessage: 'تمام', botReplies: ITEMS_ONLY })).toBe(false)
+  })
+
+  it('الطلب تثبّت أصلاً ← «تمام شكراً» مو تأكيد جديد (ماكو طلب مكرر)', () => {
+    expect(confirmedOnce({ combinedMessage: 'تمام شكراً', botReplies: PLACED })).toBe(false)
+  })
+
+  it('بلا ردود سابقة للبوت ← مو تأكيد', () => {
+    expect(confirmedOnce({ combinedMessage: 'ثبت', botReplies: [] })).toBe(false)
+    expect(confirmedOnce({ combinedMessage: 'ثبت' })).toBe(false)
+  })
+})
+
+describe('orderContextHint — التأكيد مرة وحدة', () => {
+  it('الإخفاق الحقيقي: «اوك ثبت طلب» بعد المبلغ الكلي والسلة فاضية ← تثبيت مباشر مو سؤال بنود', () => {
+    const r = orderContextHint({
+      combinedMessage: 'اوك ثبت طلب',
+      sessionData: {},
+      recentMessages: ['اوك ثبت طلب', 'فقط وحدة\nمع التوصيل شكد ؟', 'سلطان\nبغداد التاجي قرب المعسكر\n07823454035', 'اريد تثبيت الطلب'],
+      botReplies: QUOTE_WITH_TOTAL,
+    })
+    expect(r.orderContext.confirmedOnce).toBe(true)
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).not.toContain('ماكو ولا بند محفوظ')
+    expect(r.hint).toContain('ممنوع تطلب تأكيد ثاني')
+    expect(r.hint).toContain('create_order مرة وحدة بس')
+    expect(r.hint).toContain('variant_id حرفياً')
+  })
+
+  it('بلا موافقة ← ماكو تنبيه تثبيت', () => {
+    const r = orderContextHint({
+      combinedMessage: 'شكد يصير مع التوصيل؟',
+      sessionData: { cart: [{ variant_id: '29', quantity: 1 }] },
+      recentMessages: ['شكد يصير مع التوصيل؟'],
+      botReplies: QUOTE_WITH_TOTAL,
+    })
+    expect(r.orderContext.confirmedOnce).toBe(false)
+    expect(r.hint).not.toContain('تأكيد الزبون واصل')
   })
 })

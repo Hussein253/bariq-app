@@ -14,6 +14,12 @@
  *      كان يأخذ تفاصيل الطلب) وماكو ولا بند محفوظ بالسلة، التنبيه يخلي البند هو الشي الوحيد الي يسأل
  *      عنه الوكيل بهذا الرد، ويخزنه بـ update_session_data قبل أي معلومة توصيل.
  *
+ *   ٣. التأكيد مرة وحدة (ماسنجر 2026-10-22 الساعة 12:09، الزبون 28960616086881740): البوت عرض عليه
+ *      البنود والمبلغ الكلي (300,500)، الزبون كال «اوك ثبت طلب»، والبوت رجع طلب تأكيد ثاني («أحتاج فقط
+ *      تأكيد على التفاصيل… آخد الإذن»)، وبعد «ثبت» الثانية كتب ورا 3 create_order وids مخمّنة (order_id 0 وvariant 1).
+ *      إذا رد البوت الأخير عرض المبلغ الكلي (أو «أثبّتلك الطلب؟») ورسالة الزبون موافقة قصيرة بدون سؤال ولا تعديل
+ *      ولا نفي، التنبيه يلزم الوكيل ينفّذ التثبيت هسة بترتيب أدوات ثابت بدون ما يطلب تأكيد ثاني.
+ *
  * ASKS_FOR_HUMAN تخص الحارس الحتمي بعقدة Complaint Hint: فاحص الشكاوى صنّف «ألو هل أنتم موجود أريد
  * تثبيت الطلب» و«حبيبي مرتضى» على إنهن wants_human ووقف المحادثة بنص الطلب. التحويل هسة يحتاج الزبون
  * يذكر بكلامه موظف أو إنسان أو إدارة… وإلا ينمسك.
@@ -32,9 +38,133 @@ const clip = (s, n) => {
 // «ثبتلي الطلب»، «أريد تثبيت الطلب»، «احجزلي»: الزبون يطلب يثبّت الطلب — هسة أو بأي رسالة من اليوم.
 const WANTS_ORDER = /ثبتل|ثبت الطلب|تثبيت|اثبت|احجزل|احجز|اطلبل|اريد اطلب|رايد اطلب|اريد الطلب|رايد الطلب|كمل الطلب|نكمل الطلب|سجلل|سجل الطلب/;
 
+// للمطابقة بس (مو للعرض): بلا تشكيل، وهمزات وياء وتاء مربوطة موحّدة.
+const norm = (s) => bare(s).toLowerCase().replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+
+// موافقة صريحة قصيرة على الي عرضه البوت: «ثبت»، «اوك ثبت طلب»، «إي»، «تمام»، «يلا».
+const AFFIRM = new Set([
+  'ثبت', 'ثبتها', 'ثبته', 'ثبتلي', 'ثبتيه', 'ثبتوا', 'اثبت', 'اثبتها', 'اثبته', 'تثبيت',
+  'اوك', 'اوكي', 'اوكيه', 'ok', 'okay', 'اي', 'ايه', 'ايوه', 'ايوا', 'نعم', 'اكيد', 'تمام', 'موافق',
+  'يلا', 'ماشي', 'زين', 'حاضر', 'اكد', 'اكدها', 'اكدلي', 'كمل', 'نكمل', 'صح', 'صحيح', 'خلص',
+]);
+// كلمة وحدة من هاي تلغي الموافقة: نفي، تعديل، أو سؤال («ثبت بس غير العنوان»، «شكد يصير؟»).
+const NOT_A_CONFIRM = new Set([
+  'لا', 'لاء', 'مو', 'ما', 'غير', 'غيري', 'بدل', 'بدلي', 'الغ', 'الغي', 'الغاء', 'عدل', 'عدلي',
+  'اضيف', 'اضف', 'ضيف', 'زيد', 'زيدلي', 'شكد', 'شكم', 'ليش', 'شلون', 'شنو', 'وين', 'متى', 'شوكت', 'هل',
+]);
+// جواب «ما عندك شي ثاني تحب تضيفه؟»: ماكو إضافة، يعني كمّل.
+const NO_MORE = /ماكو شي|ماكو غير|ما عندي شي|ما اريد شي|بس هيج|هيج بس|هذا بس|كافي|لا شكرا/;
+// رد البوت الأخير عرض المبلغ الكلي أو سأل «أثبّتلك الطلب؟»: هذا الي الزبون يوافق عليه.
+const SHOWED_TOTAL = /المجموع الكلي|كاش عند الاستلام|اثبتلك الطلب/;
+// الطلب تثبّت أصلاً: «تمام شكراً» بعده مو تأكيد جديد (وإلا ينعمل طلب مكرر).
+const ALREADY_PLACED = /رقم الطلب|تم تثبيت|تثبت بنجاح|طلبك تثبت|طلبك انحجز|المندوب يتصل/;
+
+/**
+ * الزبون وافق صراحة على رد البوت الأخير الي بيه المبلغ الكلي؟ (التأكيد المطلوب مرة وحدة بس)
+ * @param {object}   [input]
+ * @param {string}   [input.combinedMessage]  رسائل الزبون الجديدة بهذا الدور
+ * @param {string[]} [input.botReplies]       ردود البوت الأخيرة، الأحدث أول
+ */
+export function confirmedOnce({ combinedMessage = '', botReplies = [] } = {}) {
+  const msg = norm(combinedMessage);
+  const last = norm(Array.isArray(botReplies) ? botReplies[0] : '');
+  if (!msg || !last) return false;
+  if (!SHOWED_TOTAL.test(last) || ALREADY_PLACED.test(last)) return false;
+  // البصمة تفريغها ممكن يغلط: تمشي بمسارها (Voice Confirm Guard) وما نفرض عليها تثبيت
+  if (/رساله صوتيه|\[/.test(msg)) return false;
+  if (/[?؟]/.test(msg)) return false;
+  const tokens = msg.split(/[\s,.،؛!:\-_/\\()]+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 8) return false;
+  if (NO_MORE.test(msg)) return true;
+  if (tokens.some((t) => NOT_A_CONFIRM.has(t))) return false;
+  return tokens.some((t) => AFFIRM.has(t));
+}
+
+const CONFIRM_ONCE_HINT = '\n\n[تأكيد الزبون واصل: رسالته هذي موافقة صريحة على ردك السابق (البنود والمبلغ الكلي)، وهذا هو التأكيد الوحيد المطلوب.'
+  + ' ممنوع تطلب تأكيد ثاني، وممنوع تعيد الملخص، وممنوع «أحتاج تأكيد» و«آخذ الإذن» و«تمام هيج؟».'
+  + ' إذا الاسم والمحافظة والعنوان وأقرب نقطة دالة معروفة بالمحادثة، ثبّت الطلب هسة بنفس هذا الرد، أداة وحدة كل مرة وانتظر نتيجتها قبل الي بعدها:'
+  + ' (١) get_available_products وخذ variant_id حرفياً من نتيجتها (البنود مثل ما ذكرتها بردك السابق، حتى لو السلة فاضية)'
+  + ' (٢) create_order مرة وحدة بس، والمبالغ أرقام بدون فواصل (مثل 300500)'
+  + ' (٣) add_order_item لكل بند بـ order_id من نتيجة create_order حرفياً'
+  + ' (٤) get_customer_orders وانقل أرقام الطلب الأحدث حرفياً برسالة التثبيت (ممنوع تحسبها من جديد)'
+  + ' (٥) update_session_data بسلة فارغة.'
+  + ' إذا ناقص شي من معلومات التوصيل، اطلب الناقص بس بدون ما تعيد طلب التأكيد.]';
+
 // كلام الزبون الي يعني فعلاً «أريد موظف». «ألو، موجود؟» أو اسمه أو كلمة ودّ (حبيبي) ماكو بيها ولا وحدة،
 // فتحويل wants_human بدونها ينمسك. القائمة واسعة عن قصد: تمرير تحويل حقيقي أهون من إيقاف تحويل مستحق.
 export const ASKS_FOR_HUMAN = /موظف|مشرف|مسؤول|مسئول|مدير|ادار|إدار|صاحب|مالك|انسان|إنسان|بشر|ادمي|آدمي|شخص|روبوت|بوت|حول|اتكلم|اكلم|احچي|احجي|خدمة العملاء|خدمه العملاء/;
+
+// <browsing>
+// الزبون يستفسر بس («عندك غسالة؟»، «شكد سعرها؟»، «شنو أيام الدوام؟») وما قال إنه يريد يطلب: الرد جواب وبس. بدون هالفصل
+// البوت يعامل «عندك منتجات غسالة؟» كطلب، فيكتب «تمام هيج؟» ويقترح عنوان الطلب السابق (ماسنجر 2026-10-24، التنفيذ 864).
+// القائمتان واسعتان عن قصد من جهة النية: أي كلمة شراء (حتى «أريد أعرف شكد سعرها») تطلّع الرسالة من «استفسار»،
+// فالخطأ يرجع لسلوك البوت القديم مو لمنع طلب حقيقي.
+const INQUIRY = /عندك|عندكم|عدكم|عدك|اكو|ماكو|موجود|متوفر|تتوفر|توفر|شنو|شكد|بكم|سعر|اسعار|دوام|ساعات|توصيل|توصلون|هل |[?؟]/;
+const BUY_INTENT = /اريد|رايد|ابي|ابغ|احتاج|اطلب|اشتري|اشتريلي|اخذ|خذ|احجز|ثبت|سجل|دزلي|ابعثلي|عطيني|انطيني|ودي|كمل/;
+// رد البوت الأخير عرض المبلغ الكلي أو طلب معلومات توصيل: الزبون بنص الطلب حتى لو رسالته الحالية سؤال («وين توصلون؟»).
+// «تمام هيج؟» و«نعتمد عنوانك السابق» و«ما عندك شي ثاني» مو هنا عمداً: البوت نفسه كتبهن بغلط على سؤال استفسار (ماسنجر 2026-10-24،
+// التنفيذ 1156) وبقاؤهن بالسجل خلّى السؤال اللاحق («شكد سعر الغسالة؟») يتصنّف «طلب جاري». البنود المحفوظة (cartLength) والفاحص
+// (orderingNow) هم الي يعرّفون الطلب الحقيقي.
+const ORDER_PROMPT = /اثبتلك الطلب|المجموع الكلي|اسمك وعنوانك|رقم الهاتف|رقم التليفون|رقم تليفونك/
+
+export const BROWSING_HINT = '\n\n[الزبون هسة يستفسر بس (سؤال عن توفر أو سعر أو دوام أو توصيل) وما قال إنه يريد يطلب: جاوب على سؤاله بس بجملة أو جملتين.'
+  + ' إذا سأل عن منتج اذكر المتوفر وسعره من get_available_products.'
+  + ' ممنوع بهذا الرد «تمام هيج؟» و«ما عندك شي ثاني تحب تضيفه؟»، وممنوع تذكر أو تقترح عنوانه أو اسمه أو رقمه من طلب سابق،'
+  + ' وممنوع تطلب معلومات توصيل أو تكتب ملخص طلب، وممنوع STAGE أكبر من 1.'
+  + ' التأكيد وعنوان الطلب السابق يبدون بس بعد ما يقول إنه يريد يطلب.]';
+
+/**
+ * @param {object}   [input]
+ * @param {string}   [input.message]        رسالة الزبون الحالية
+ * @param {number}   [input.cartLength]     عدد بنود السلة المحفوظة
+ * @param {boolean}  [input.orderingNow]    رد البوت الأخير كان يأخذ تفاصيل الطلب (من فاحص الشكاوى)
+ * @param {boolean}  [input.askedToOrder]   طلب تثبيت بهذه الرسالة أو برسائل اليوم
+ * @param {boolean}  [input.confirmed]      موافقة صريحة على الملخص
+ * @param {string}   [input.lastBotReply]   آخر رد للبوت
+ */
+export function isBrowsing({ message = '', cartLength = 0, orderingNow = false, askedToOrder = false, confirmed = false, lastBotReply = '' } = {}) {
+  if (cartLength > 0 || orderingNow === true || askedToOrder || confirmed) return false
+  if (ORDER_PROMPT.test(norm(lastBotReply))) return false
+  const msg = norm(message).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '')
+  return INQUIRY.test(msg) && !BUY_INTENT.test(msg)
+}
+// </browsing>
+
+// <single-product>
+// المتجر عنده منتج واحد بس (أسماء المنتجات المتوفرة من عقدة «تحديد التاجر»، مفصولة بـ «،»): «تدلل، يا منتج تريد وشكم وحدة؟» الجاهزة
+// ببرومت الوكيل وتنبيه البنود تسأل الزبون عن منتج وما اكو غير واحد (ماسنجر 2026-10-24، التنفيذ 1565: «تمام احجزلي الطلب» ← «شنو المنتج
+// الي تريد تحجزه؟»). هالتنبيه يلغيها لهالمتاجر ويقول للوكيل ينطق باسم المنتج بالمفرد.
+// «قطعة» أو «وحدة» أو «حبة» لحالها (بدون رقم قبلها): العدد 1. «3 قطع» و«قطعتين» ما تنطبق.
+const ONE_UNIT = /(?:^|\s)(?:قطعه|وحده|حبه)(?=\s|$|[؟?.,،!])/
+
+export function singleProductOf(productNames) {
+  const list = String(productNames ?? '').split('،').map((s) => s.trim()).filter(Boolean)
+  return list.length === 1 ? list[0] : ''
+}
+
+/**
+ * @param {object} [input]
+ * @param {string} [input.productNames]   أسماء المنتجات المتوفرة («أ، ب»)
+ * @param {string} [input.message]        رسالة الزبون الحالية
+ * @param {boolean} [input.needsItems]    طلب جاري وماكو بنود محفوظة
+ * @param {boolean} [input.askedToOrder]
+ * @param {boolean} [input.orderingNow]
+ * @returns {string} التنبيه، أو '' إذا المتجر عنده أكثر من منتج أو الزبون ما يريد يطلب
+ */
+export function singleProductNote({ productNames = '', message = '', needsItems = false, askedToOrder = false, orderingNow = false } = {}) {
+  const name = singleProductOf(productNames)
+  if (!name) return ''
+  if (!(needsItems || askedToOrder || orderingNow === true || BUY_INTENT.test(norm(message)))) return ''
+  // «رايد قطعه من منتجكم» (ماسنجر 2026-10-24، التنفيذ 1573): «قطعة/وحدة/حبة» بكلام الزبون = العدد 1، والوكيل رجع سأله «شكم وحدة تريد؟»
+  const oneUnit = ONE_UNIT.test(norm(message))
+  return '\n\n[المتجر عنده منتج واحد بس: «' + name + '». هذا التنبيه يلغي أي تعليمة ثانية تقول اسأل الزبون «شنو المنتج» أو «يا منتج»:'
+    + ' الزبون يقصد هذا المنتج دائماً، فممنوع تسأله أي منتج يريد وممنوع تحچي كأن اكو خيارات أو منتجات (ممنوع «عدنا منتجات»، كل «عدنا ' + name + '»).'
+    + (oneUnit
+      ? ' الزبون كال «قطعة/وحدة/حبة» يعني العدد = 1: ممنوع تسأله شكم وحدة؛ أكّد «' + name + '، وحدة» وكمّل بالخطوة الجاية حسب قسم «خطوات الطلب».'
+      : ' أكّد اسمه بالرد واسأله عن العدد بس (واللون والقياس إذا للمنتج لون وقياس).')
+    + ']'
+}
+// </single-product>
 
 /**
  * @param {object}   [input]
@@ -42,8 +172,10 @@ export const ASKS_FOR_HUMAN = /موظف|مشرف|مسؤول|مسئول|مدير|
  * @param {object}   [input.sessionData]      session_data للزبون (السلة بيها cart)
  * @param {string[]} [input.recentMessages]   رسائل الزبون آخر 24 ساعة، الأحدث أول (conversation_log)
  * @param {boolean}  [input.orderingNow]      رد البوت الأخير كان يأخذ تفاصيل الطلب (من Complaint Hint)
+ * @param {string[]} [input.botReplies]       ردود البوت الأخيرة، الأحدث أول (Load Recent Bot Replies)
+ * @param {string}   [input.productNames]     أسماء المنتجات المتوفرة مفصولة بـ «،» (product_names من عقدة تحديد التاجر)
  */
-export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false } = {}) {
+export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false, botReplies = [], productNames = '' } = {}) {
   const current = bare(combinedMessage);
 
   // الدور الحالي ينلوگ بفرع ثاني، فممكن يكون أو ما يكون بالسجل لهسة: أي رسالة موجودة أصلاً بالرسائل
@@ -57,7 +189,9 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   const cart = sessionData && Array.isArray(sessionData.cart) ? sessionData.cart : [];
   const askedToOrder = WANTS_ORDER.test(current) || recentMessages.some((t) => WANTS_ORDER.test(bare(t)));
-  const needsItems = cart.length === 0 && (askedToOrder || orderingNow === true);
+  const confirmed = confirmedOnce({ combinedMessage, botReplies });
+  // الزبون وافق على بنود ومبلغ البوت عرضهم بردّه السابق: البنود معروفة حتى لو السلة فاضية
+  const needsItems = !confirmed && cart.length === 0 && (askedToOrder || orderingNow === true);
 
   let hint = '';
   if (earlier.length) {
@@ -73,5 +207,16 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
       + ' ممنوع بهذا الرد تطلب الاسم أو العنوان أو رقم الهاتف، وممنوع تكتب «طلبك هسة صار» أو ملخص أو «أثبّتلك الطلب؟».]';
   }
 
-  return { hint, orderContext: { itemsKnown: cart.length > 0, needsItems, askedToOrder, history: earlier.length } };
+  if (confirmed) hint += CONFIRM_ONCE_HINT;
+
+  const browsing = isBrowsing({
+    message: combinedMessage, cartLength: cart.length, orderingNow, askedToOrder, confirmed,
+    lastBotReply: Array.isArray(botReplies) ? botReplies[0] : '',
+  });
+  if (browsing) hint += BROWSING_HINT;
+
+  const single = singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
+  hint += single;
+
+  return { hint, orderContext: { itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length } };
 }
