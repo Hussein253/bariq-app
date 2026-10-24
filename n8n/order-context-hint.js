@@ -80,7 +80,18 @@ export function confirmedOnce({ combinedMessage = '', botReplies = [] } = {}) {
   return tokens.some((t) => AFFIRM.has(t));
 }
 
-const CONFIRM_ONCE_HINT = '\n\n[تأكيد الزبون واصل: رسالته هذي موافقة صريحة على ردك السابق (البنود والمبلغ الكلي)، وهذا هو التأكيد الوحيد المطلوب.'
+// ردك السابق سأل الزبون عن عنوانه السابق («نعتمد عنوانك السابق بـ … لو تغير؟») وهو يجاوب
+const PREV_ADDRESS_ASKED = /نعتمد عنوان[كچ] السابق/;
+
+const ADDRESS_ANSWER_HINT = '\n\n[الزبون يرد على سؤالك «نعتمد عنوانك السابق … لو تغير؟»: ممنوع تعيد «تم تأكيد طلبك» أو سؤال العنوان من جديد، والبنود هي الي ذكرتها بردك السابق (خزّنها بـ update_session_data إذا السلة فاضية).'
+  + ' إذا وافق (إي، نفسه، اعتمد، تمام) اعتمد العنوان السابق والاسم ورقم التواصل بذاك الطلب وكمّل بملخص الطلب (البنود، أجور التوصيل، المبلغ الكلي كاش عند الاستلام) وبآخره «أثبّتلك الطلب؟».'
+  + ' ممنوع create_order بهذا الرد: الزبون لسه ما شاف المبلغ الكلي، وموافقته على العنوان مو موافقة على الطلب.'
+  + ' إذا كال تغيّر أو دز عنوان جديد اعتمد الجديد بس واطلب الناقص.]';
+
+const NO_ORDER_YET_HINT = '\n\n[ممنوع create_order بهذا الرد: ردك السابق ما عرض المبلغ الكلي والزبون ما وافق عليه بعد، والطلب ما ينحجز إلا بموافقته الصريحة.'
+  + ' إذا معلومات التوصيل كاملة اعرض الملخص (البنود، أجور التوصيل، المبلغ الكلي) وبآخره «أثبّتلك الطلب؟»، وإذا ناقصة اطلب الناقص بس.]';
+
+const CONFIRM_ONCE_HINT ='\n\n[تأكيد الزبون واصل: رسالته هذي موافقة صريحة على ردك السابق (البنود والمبلغ الكلي)، وهذا هو التأكيد الوحيد المطلوب.'
   + ' ممنوع تطلب تأكيد ثاني، وممنوع تعيد الملخص، وممنوع «أحتاج تأكيد» و«آخذ الإذن» و«تمام هيج؟».'
   + ' إذا الاسم والمحافظة والعنوان وأقرب نقطة دالة معروفة بالمحادثة، ثبّت الطلب هسة بنفس هذا الرد، أداة وحدة كل مرة وانتظر نتيجتها قبل الي بعدها:'
   + ' (١) get_available_products وخذ variant_id حرفياً من نتيجتها (البنود مثل ما ذكرتها بردك السابق، حتى لو السلة فاضية)'
@@ -106,9 +117,15 @@ const BUY_INTENT = /اريد|رايد|ابي|ابغ|احتاج|اطلب|اشتر
 // التنفيذ 1156) وبقاؤهن بالسجل خلّى السؤال اللاحق («شكد سعر الغسالة؟») يتصنّف «طلب جاري». البنود المحفوظة (cartLength) والفاحص
 // (orderingNow) هم الي يعرّفون الطلب الحقيقي.
 const ORDER_PROMPT = /اثبتلك الطلب|المجموع الكلي|اسمك وعنوانك|رقم الهاتف|رقم التليفون|رقم تليفونك/
+// «بعدين اشوف»، «ما ادري»: الزبون يأجّل (حتى لو البوت كان بنص أسئلة الطلب والسلة فاضية): رد لطيف بدون دفع للعنوان أو العدد
+// (ماسنجر 2026-10-24، التنفيذ 1652: «ما ادري بعدين اشوف» ← «شكم وحدة تريد؟»)
+const DEFER = /بعدين|لاحقا|ما ادري|خليني اشوف|اشوف بعدين|مو الان|مو هسه|ارجع لك|ارجعلك|افكر/
 
 export const BROWSING_HINT = '\n\n[الزبون هسة يستفسر بس (سؤال عن توفر أو سعر أو دوام أو توصيل) وما قال إنه يريد يطلب: جاوب على سؤاله بس بجملة أو جملتين.'
   + ' إذا سأل عن منتج اذكر المتوفر وسعره من get_available_products.'
+  + ' جواب التوفر صريح من أول كلمة: إذا المنتج بقائمة منتجات المتجر ← «إي عدنا [المنتج] بـ [سعره]»؛ وإذا مو بالقائمة (مثل «شاشة سمارت») ← «لا عزيزي، ما عدنا [المنتج الي سأل عنه]، عدنا بس [المتوفر]»؛'
+  + ' وإذا سأل «عندك غير هذا؟» أو «بس هذا الموجود؟» ← «حالياً عدنا بس [المتوفر]». ممنوع تجاوب بـ «عدنا [منتج ثاني]» كأنه جواب على سؤاله، وممنوع «شكم قطعة رايد؟».'
+  + ' وإذا قال «بعدين» أو «ما ادري» أو «خليني أشوف» جاوبه بلطف «خذ راحتك عزيزي، وإذا احتجت شي أني موجود» بدون أي سؤال.'
   + ' ممنوع بهذا الرد «تمام هيج؟» و«ما عندك شي ثاني تحب تضيفه؟»، وممنوع تذكر أو تقترح عنوانه أو اسمه أو رقمه من طلب سابق،'
   + ' وممنوع تطلب معلومات توصيل أو تكتب ملخص طلب، وممنوع STAGE أكبر من 1.'
   + ' التأكيد وعنوان الطلب السابق يبدون بس بعد ما يقول إنه يريد يطلب.]';
@@ -123,9 +140,10 @@ export const BROWSING_HINT = '\n\n[الزبون هسة يستفسر بس (سؤا
  * @param {string}   [input.lastBotReply]   آخر رد للبوت
  */
 export function isBrowsing({ message = '', cartLength = 0, orderingNow = false, askedToOrder = false, confirmed = false, lastBotReply = '' } = {}) {
+  const msg = norm(message).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '')
+  if (cartLength === 0 && !confirmed && DEFER.test(msg) && !BUY_INTENT.test(msg)) return true
   if (cartLength > 0 || orderingNow === true || askedToOrder || confirmed) return false
   if (ORDER_PROMPT.test(norm(lastBotReply))) return false
-  const msg = norm(message).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '')
   return INQUIRY.test(msg) && !BUY_INTENT.test(msg)
 }
 // </browsing>
@@ -225,7 +243,19 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   // الزبون وافق على بنود ومبلغ البوت عرضهم بردّه السابق: البنود معروفة حتى لو السلة فاضية
   // الزبون سمّى العدد بنفسه والمتجر عنده منتج واحد («رايد قطعه»): البند معروف، فلا سؤال بنود ولا منع للعنوان
   const itemsFromMessage = itemsKnownFromMessage({ productNames, message: combinedMessage });
-  const needsItems = !confirmed && !itemsFromMessage && cart.length === 0 && (askedToOrder || orderingNow === true);
+  // ردك السابق سأل «نعتمد عنوانك السابق… لو تغير؟» والزبون يجاوب عليه: البنود استقرت بردك السابق، والموافقة هذي على العنوان بس
+  const lastBotNorm = norm(Array.isArray(botReplies) ? botReplies[0] : '');
+  const placed = ALREADY_PLACED.test(lastBotNorm);
+  const addressAsked = !confirmed && !placed && PREV_ADDRESS_ASKED.test(lastBotNorm);
+  // استفسار بس: «شنو عندك شاشة سمارت؟» أو «ما عندك بس غسالة؟». الحكم يتبع رسالة الزبون الحالية والسلة ورد البوت الأخير، مو كلمة «احجزلي» قبل ساعات
+  // بسجل اليوم (ماسنجر 2026-10-24، التنفيذ 1638: سجل بيه «احجزلي» خلّى استفسار يتعامل كطلب والبوت رد «عدنا غسالة… شكم قطعة رايد؟» بدل الجواب)
+  const browsing = isBrowsing({
+    message: combinedMessage, cartLength: cart.length, orderingNow, askedToOrder: WANTS_ORDER.test(current), confirmed,
+    lastBotReply: Array.isArray(botReplies) ? botReplies[0] : '',
+  });
+  const needsItems = !confirmed && !itemsFromMessage && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
+  // طلب جاري وردك السابق ما عرض المبلغ الكلي: الزبون ما وافق على شي لهسة، فما ينحجز طلب
+  const totalNotShown = !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || cart.length > 0 || orderingNow === true);
 
   let hint = '';
   if (earlier.length) {
@@ -243,17 +273,19 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   if (confirmed) hint += CONFIRM_ONCE_HINT;
 
-  const browsing = isBrowsing({
-    message: combinedMessage, cartLength: cart.length, orderingNow, askedToOrder, confirmed,
-    lastBotReply: Array.isArray(botReplies) ? botReplies[0] : '',
-  });
   if (browsing) hint += BROWSING_HINT;
 
   const single = singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
   hint += single;
 
-  // التأكيد الواصل له تنبيهه الخاص (ثبّت وبس)، والاستفسار جواب وبس: أسلوب «تدلل حبيبي» يخص استقبال طلب الزبون
-  if (!confirmed && !browsing) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
+  // الحجز النهائي (create_order) بموافقة الزبون الصريحة على المبلغ الكلي بس. «اعتمد» جواب على سؤال العنوان مو موافقة على الطلب
+  // (ماسنجر 2026-10-24، التنفيذ 1591: «اعتمد» ← create_order والزبون ما شاف المبلغ، طلب 47).
+  if (addressAsked) hint += ADDRESS_ANSWER_HINT;
+  else if (totalNotShown) hint += NO_ORDER_YET_HINT;
+
+  // التأكيد الواصل له تنبيهه الخاص (ثبّت وبس)، والاستفسار جواب وبس، وجواب سؤال العنوان ما يرجع يفتتح بـ «تم تأكيد طلبك» من جديد
+  // (التنفيذ 1588: «تمام اعتمد العنوان» ← نفس الافتتاحية ونفس سؤال العنوان)
+  if (!confirmed && !browsing && !addressAsked) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
 
   return { hint, orderContext: { itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length } };
 }

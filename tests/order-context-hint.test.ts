@@ -188,3 +188,162 @@ describe('orderContextHint — التأكيد مرة وحدة', () => {
     expect(r.hint).not.toContain('تأكيد الزبون واصل')
   })
 })
+
+// ماسنجر 2026-10-24: ردّ البوت «تم عزيزي، تم تأكيد طلبك… ونعتمد عنوانك السابق بـ … لو تغير؟» والزبون جاوب على سؤال العنوان
+const ACK_AND_ADDRESS = [
+  'تم عزيزي، تم تأكيد طلبك.\n\nغسالة أوتوماتيك أل جي 8 كيلو، وحدة.\n\nونعتمد عنوانك السابق بـ بغداد، العامرية، شارع العمل الشعبي قرب اسواق أثير - العامرية، لو تغير؟',
+]
+const CART_ONE = { cart: [{ variant_id: '29', quantity: 1, unit_price_iqd: '297500' }] }
+
+describe('orderContextHint — الحجز بموافقة الزبون على المبلغ بس', () => {
+  it('التنفيذ 1591: «اعتمد» جواب على سؤال العنوان ← ممنوع create_order والمطلوب ملخص بالمبلغ الكلي', () => {
+    const r = orderContextHint({
+      combinedMessage: 'اعتمد',
+      sessionData: CART_ONE,
+      recentMessages: ['اعتمد', 'تمام اعتمد العنوان', 'رايد قطعه من منتجك'],
+      botReplies: ACK_AND_ADDRESS,
+      productNames: 'غسالة أوتوماتيك أل جي 8 كيلو',
+    })
+    expect(r.orderContext.confirmedOnce).toBe(false)
+    expect(r.hint).toContain('ممنوع create_order بهذا الرد')
+    expect(r.hint).toContain('أثبّتلك الطلب؟')
+    expect(r.hint).toContain('موافقته على العنوان مو موافقة على الطلب')
+    expect(r.hint).not.toContain('create_order مرة وحدة بس') // تنبيه التثبيت يخص الموافقة على المبلغ الكلي
+  })
+
+  it('التنفيذ 1588: «تمام اعتمد العنوان» والسلة فاضية ← ما يرجع يفتتح بـ «تم تأكيد طلبك» ولا يسأل البنود ولا العنوان من جديد', () => {
+    const r = orderContextHint({
+      combinedMessage: 'تمام اعتمد العنوان',
+      sessionData: {},
+      recentMessages: ['تمام اعتمد العنوان', 'رايد قطعه من منتجك', 'تمام احجزلي الطلب'],
+      botReplies: ACK_AND_ADDRESS,
+      productNames: 'غسالة أوتوماتيك أل جي 8 كيلو',
+    })
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).toContain('ممنوع تعيد «تم تأكيد طلبك» أو سؤال العنوان من جديد')
+    expect(r.hint).not.toContain('أسلوب الرد')
+    expect(r.hint).not.toContain('ماكو ولا بند محفوظ')
+  })
+
+  it('طلب جاري وردك السابق ما عرض المبلغ الكلي ← ممنوع create_order', () => {
+    const r = orderContextHint({
+      combinedMessage: 'حسين محمد\nبغداد العامرية قرب اسواق أثير\n07731048129',
+      sessionData: CART_ONE,
+      recentMessages: ['حسين محمد\nبغداد العامرية قرب اسواق أثير\n07731048129'],
+      botReplies: ['تم عزيزي، تم تأكيد طلبك.\n\nوياريت تدزلي اسمك وعنوانك الكامل ورقم التليفون.'],
+    })
+    expect(r.hint).toContain('ممنوع create_order بهذا الرد')
+    expect(r.hint).toContain('ردك السابق ما عرض المبلغ الكلي')
+  })
+
+  it('الزبون وافق على المبلغ الكلي ← التثبيت يمشي وماكو منع', () => {
+    const r = orderContextHint({
+      combinedMessage: 'اوك ثبت طلب',
+      sessionData: CART_ONE,
+      recentMessages: ['اوك ثبت طلب'],
+      botReplies: QUOTE_WITH_TOTAL,
+    })
+    expect(r.orderContext.confirmedOnce).toBe(true)
+    expect(r.hint).toContain('create_order مرة وحدة بس')
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+  })
+
+  it('رد البوت الأخير عرض المبلغ والزبون يسأل ← ماكو منع زايد', () => {
+    const r = orderContextHint({
+      combinedMessage: 'شكد التوصيل؟',
+      sessionData: CART_ONE,
+      recentMessages: ['شكد التوصيل؟'],
+      botReplies: QUOTE_WITH_TOTAL,
+    })
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+  })
+
+  it('الطلب تثبّت أصلاً ← ماكو منع ولا سؤال عنوان', () => {
+    const r = orderContextHint({ combinedMessage: 'شكراً', sessionData: {}, recentMessages: ['ثبتلي الطلب', 'شكراً'], botReplies: PLACED })
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+  })
+
+  it('استفسار بلا طلب ← ماكو منع', () => {
+    const r = orderContextHint({ combinedMessage: 'ممكن استفسر عن المنتجات المتوفرة', sessionData: {}, recentMessages: [], botReplies: [] })
+    expect(r.hint).not.toContain('create_order') // تنبيه الاستفسار بس (جواب وبس)
+    expect(r.orderContext.browsing).toBe(true)
+  })
+})
+
+// ماسنجر 2026-10-24، التنفيذ 1638: سجل اليوم بيه «احجزلي» وبعده استفسار «ما عندك بس غسالة؟» — الحكم على رسالة الزبون الحالية مو على السجل
+describe('orderContextHint — الاستفسار بعد طلب سابق يبقى استفسار', () => {
+  const HISTORY = ['العفو يعني ما عندك بس غسالة؟', 'تمام احجزلي الطلب', 'شكد سعر الغسالة؟']
+  const WASHER = 'غسالة أوتوماتيك أل جي 8 كيلو'
+
+  it.each(['العفو يعني ما عندك بس غسالة؟', 'شنو عندك شاشة سمارت؟', 'عندكم منتجات ثانية؟'])('«%s» ← استفسار: ماكو سؤال بنود ولا عنوان سابق', (message) => {
+    const r = orderContextHint({
+      combinedMessage: message,
+      sessionData: {},
+      recentMessages: [message, ...HISTORY],
+      botReplies: ['تدلل، شنو المنتج الي رايد تحجزه وشكم وحدة؟ عدنا ' + WASHER + '.'],
+      productNames: WASHER,
+    })
+    expect(r.orderContext.browsing).toBe(true)
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).toContain('الزبون هسة يستفسر بس')
+    expect(r.hint).toContain('لا عزيزي، ما عدنا [المنتج الي سأل عنه]')
+    expect(r.hint).toContain('إي عدنا [المنتج]') // الحالة الموجودة مذكورة أول حتى ما يعمّم النفي على كل سؤال
+    expect(r.hint).not.toContain('ماكو ولا بند محفوظ')
+    expect(r.hint).not.toContain('أسلوب الرد')
+    expect(r.hint).not.toContain('create_order بهذا الرد')
+  })
+
+  it('البوت سأل بنود الطلب بردّه الأخير ← الزبون بنص الطلب (ماكو تغيير)', () => {
+    const r = orderContextHint({
+      combinedMessage: 'شكد سعرها؟',
+      sessionData: {},
+      recentMessages: ['شكد سعرها؟', 'تمام احجزلي الطلب'],
+      orderingNow: true,
+      productNames: WASHER,
+    })
+    expect(r.orderContext.browsing).toBe(false)
+    expect(r.orderContext.needsItems).toBe(true)
+  })
+
+  it('السلة فيها بند ← مو استفسار حتى لو الصيغة سؤال', () => {
+    const r = orderContextHint({
+      combinedMessage: 'عندكم توصيل لبغداد؟',
+      sessionData: CART_ONE,
+      recentMessages: ['عندكم توصيل لبغداد؟'],
+      productNames: WASHER,
+    })
+    expect(r.orderContext.browsing).toBe(false)
+  })
+
+  it('رسالة الزبون نفسها بيها «احجزلي» ← طلب مو استفسار', () => {
+    const r = orderContextHint({ combinedMessage: 'عندك غسالة؟ احجزلي وحدة', sessionData: {}, recentMessages: ['عندك غسالة؟ احجزلي وحدة'], productNames: WASHER })
+    expect(r.orderContext.browsing).toBe(false)
+  })
+})
+
+describe('orderContextHint — تأجيل الزبون («بعدين اشوف») التنفيذ 1652', () => {
+  it.each(['ما ادري بعدين اشوف', 'خليني اشوف وارجعلك', 'لاحقاً إن شاء الله'])('«%s» والبوت كان يسأل عن العدد ← رد لطيف بلا دفع', (message) => {
+    const r = orderContextHint({
+      combinedMessage: message,
+      sessionData: {},
+      recentMessages: [message, 'رايد قطعه من منتجك'],
+      botReplies: ['تدلل عزيزي، شكم وحدة من غسالة أوتوماتيك أل جي 8 كيلو تريد؟'],
+      orderingNow: true, // فاحص الشكاوى يعتبر سؤال العدد «طلب جاري»
+      productNames: 'غسالة أوتوماتيك أل جي 8 كيلو',
+    })
+    expect(r.orderContext.browsing).toBe(true)
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).toContain('خذ راحتك عزيزي')
+    expect(r.hint).not.toContain('أسلوب الرد')
+  })
+
+  it('السلة فيها بند ← التأجيل ما يلغي سياق الطلب', () => {
+    const r = orderContextHint({ combinedMessage: 'بعدين اشوف', sessionData: CART_ONE, recentMessages: ['بعدين اشوف'], botReplies: [] })
+    expect(r.orderContext.browsing).toBe(false)
+  })
+
+  it('تأجيل ويا طلب بنفس الرسالة («اريد وحدة بعدين») ← مو استفسار', () => {
+    const r = orderContextHint({ combinedMessage: 'اريد وحدة بعدين', sessionData: {}, recentMessages: ['اريد وحدة بعدين'] })
+    expect(r.orderContext.browsing).toBe(false)
+  })
+})

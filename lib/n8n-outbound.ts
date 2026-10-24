@@ -1,6 +1,6 @@
 /**
- * إرسال ردود اللوحة إلى n8n (مسار «رد اللوحة → واتساب»)
- * =====================================================
+ * إرسال ردود اللوحة إلى n8n (مسار «رد اللوحة → واتساب وماسنجر»)
+ * ==============================================================
  * العقد كاملاً في docs/n8n-dashboard-reply.md.
  *
  * المسار في n8n عام على الإنترنت ويرسل واتساب باسم المنصة، فهو يرفض بـ 401
@@ -8,14 +8,30 @@
  * طلب نعرف مسبقاً أنه سيُرفض لا يُرسل أصلاً، والسبب يصل للوحة واضحاً.
  */
 
+/** القنوات الي يرسل لها مسار n8n فعلاً. إنستغرام ما إله مسار إرسال بعد: رده ينحفظ باللوحة بس. */
+export type DashboardReplyChannel = 'whatsapp' | 'messenger'
+
 export type DashboardReplyPayload = {
-  /** رقم الزبون بالصيغة الدولية أرقاماً فقط كما يحفظه واتساب (964…) */
+  /** واتساب: رقم الزبون دولياً أرقاماً فقط (964…). ماسنجر: معرّف الزبون عند الصفحة (PSID) */
   phone_number: string
   message_text: string
-  channel: 'whatsapp'
+  channel: DashboardReplyChannel
   source: 'bariq-dashboard'
-  /** phone_number_id الذي تدور عليه المحادثة. null = الرقم القديم (الترحيل ٠١٩) */
+  /**
+   * واتساب: phone_number_id الذي تدور عليه المحادثة، و null = الرقم القديم (الترحيل ٠١٩).
+   * ماسنجر: معرّف الصفحة، وإلزامي — n8n يرفض الناقص أو المجهول (ما نخمّن أي صفحة نرسل منها).
+   */
   account_external_id?: string | null
+}
+
+/**
+ * منصة المحادثة ← قناة مسار n8n. null = ما في إرسال فعلي لهالقناة (إنستغرام): الرد ينحفظ بس ويطلع تنبيه «حُفظ داخلياً».
+ * محادثة بلا منصة محفوظة تعتبر واتساب (المسار القديم).
+ */
+export function dashboardReplyChannel(platform: string | null | undefined): DashboardReplyChannel | null {
+  if (!platform || platform === 'whatsapp') return 'whatsapp'
+  if (platform === 'messenger') return 'messenger'
+  return null
 }
 
 export type DashboardReplyResult =

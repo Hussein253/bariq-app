@@ -4,7 +4,7 @@ import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
 import { apiMessages } from '@/lib/i18n/api'
-import { sendDashboardReply } from '@/lib/n8n-outbound'
+import { dashboardReplyChannel, sendDashboardReply } from '@/lib/n8n-outbound'
 
 /**
  * POST /api/conversations/:id/reply — رد الموظف على محادثة واحدة (أي قناة)
@@ -13,9 +13,10 @@ import { sendDashboardReply } from '@/lib/n8n-outbound'
  * (whatsapp / instagram / messenger) بدل افتراض واتساب دوماً — ضروري لتبويبات
  * إنستغرام وماسنجر حتى لا يُسجَّل الرد في محادثة واتساب خاطئة لنفس الرقم.
  *
- * ⚠️ الإرسال الفعلي للعميل عبر Meta Graph API غير موصول بعد إلا لواتساب
- * (n8n webhook). لإنستغرام وماسنجر: الرد يُسجَّل في قاعدة البيانات ويوقف
- * البوت فوراً، لكن channel_send_supported=false — لا تخمين لتكامل غير موجود.
+ * الإرسال الفعلي للعميل يمرّ عبر مسار n8n «رد اللوحة» لواتساب وماسنجر
+ * (docs/n8n-dashboard-reply.md). إنستغرام: الرد يُسجَّل في قاعدة البيانات
+ * ويوقف البوت فوراً، لكن channel_send_supported=false — لا تخمين لتكامل غير موجود.
+ * (قبل هذا التعديل كان ماسنجر يُحفظ بلا إرسال: الموظف يشوف رده باللوحة والزبون ما يستلم شي.)
  *
  * يخدم لوحة الفريق (/operations/chats) وصفحة التاجر (/workspace/chats).
  * ⚠️ صاحب المحادثة يُفحص قبل تسجيل أي رسالة: التاجر لا يردّ في محادثة تاجر
@@ -71,20 +72,21 @@ export async function POST(
       )
     }
 
-    // 2) الإرسال الفعلي للزبون — واتساب فقط حالياً عبر n8n webhook
+    // 2) الإرسال الفعلي للزبون — واتساب وماسنجر عبر n8n webhook
     let channelSendSupported = false
     let n8nSent = false
     let n8nError: string | null = null
 
-    if (platform === 'whatsapp') {
+    const channel = dashboardReplyChannel(platform)
+    if (channel) {
       channelSendSupported = true
       const result = await sendDashboardReply({
         phone_number: conv.customer_phone,
         message_text: text,
-        channel: 'whatsapp',
+        channel,
         source: 'bariq-dashboard',
-        // الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت.
-        // null = محادثة من المسار القديم (docs/n8n-webhook-setup.md)
+        // واتساب: الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت (null = المسار القديم، docs/n8n-webhook-setup.md).
+        // ماسنجر: معرّف الصفحة، ومن غيره n8n يرفض (missing_account_external_id) بدل ما يخمّن صفحة.
         account_external_id: conv.account_external_id,
       })
 
