@@ -39,6 +39,7 @@ const N = {
   windowCheck: 'فحص نافذة 24 ساعة',
   inWindow: 'داخل نافذة 24 ساعة؟',
   outside: 'رفض: خارج نافذة 24 ساعة',
+  invalid: 'رفض: بيانات غير صالحة',
   channelSwitch: 'قناة الرد',
   note: 'Sticky Note c2e25631',
   checkGroup: 'التحقق من الطلب',
@@ -89,8 +90,15 @@ const patch = async () => {
     for (const [i, outs] of (conn.main ?? []).entries()) conn.main[i] = (outs ?? []).filter((l) => !REMOVED.includes(l.node))
   }
 
-  // ٣. وصف مجموعة التحقق والملاحظة
+  // ٣. مجموعة التحقق: n8n يشترط مخرجها من عقدة ما إلها تالي داخل المجموعة. قبل كان المخرج «داخل نافذة 24 ساعة؟»
+  //    (مخرجاها برّا). هسه «البيانات صالحة؟» هي المخرج، فرفض الـ 400 يطلع برّا المجموعة مثل رفض الـ 409 قبله
+  //    («output edge from non-leaf node» — رفض الحفظ الأول، ما تغيّر شي).
   const group = (wf.nodeGroups ?? []).find((g) => g.name === N.checkGroup)
+  const invalidId = has(N.invalid)?.id
+  if (group && invalidId && group.nodeIds.includes(invalidId)) {
+    group.nodeIds = group.nodeIds.filter((id) => id !== invalidId)
+    done.push('«رفض: بيانات غير صالحة» برّا مجموعة التحقق')
+  }
   if (group && group.description !== CHECK_GROUP_DESCRIPTION) {
     group.description = CHECK_GROUP_DESCRIPTION
     done.push('وصف مجموعة «التحقق من الطلب»')
