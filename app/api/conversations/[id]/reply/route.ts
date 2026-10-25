@@ -4,7 +4,11 @@ import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { canActOnConversation, type Conversation } from '@/lib/conversations'
 import { requireSession } from '@/lib/api-session'
 import { apiMessages } from '@/lib/i18n/api'
-import { dashboardReplyChannel, sendDashboardReply } from '@/lib/n8n-outbound'
+import { dashboardReplyChannel } from '@/lib/n8n-outbound'
+import { deliverAgentReply, saveDeliveryOutcome } from '@/lib/message-delivery-server'
+
+// فحص النافذة (≤3 ث) + n8n (≤15 ث) — أعلى من الافتراضي حتى ما تنقطع الدالة قبل ما تكتب حالة التوصيل
+export const maxDuration = 30
 
 /**
  * POST /api/conversations/:id/reply — رد الموظف على محادثة واحدة (أي قناة)
@@ -17,6 +21,10 @@ import { dashboardReplyChannel, sendDashboardReply } from '@/lib/n8n-outbound'
  * (docs/n8n-dashboard-reply.md). إنستغرام: الرد يُسجَّل في قاعدة البيانات
  * ويوقف البوت فوراً، لكن channel_send_supported=false — لا تخمين لتكامل غير موجود.
  * (قبل هذا التعديل كان ماسنجر يُحفظ بلا إرسال: الموظف يشوف رده باللوحة والزبون ما يستلم شي.)
+ *
+ * كل رد يحمل حالة توصيله (الترحيل ٠٣٠): pending قبل الإرسال، ثم sent/failed/unknown،
+ * و not_supported لإنستغرام. الفشل يبقى على الفقاعة ويعاد من
+ * /api/conversations/:id/messages/:messageId/resend — مو تنبيه مؤقت ينمسح.
  *
  * يخدم لوحة الفريق (/operations/chats) وصفحة التاجر (/workspace/chats).
  * ⚠️ صاحب المحادثة يُفحص قبل تسجيل أي رسالة: التاجر لا يردّ في محادثة تاجر
@@ -55,14 +63,17 @@ export async function POST(
       return NextResponse.json({ success: false, error: t.conversations.notFound }, { status: 404 })
     }
     const platform = conv.platform || 'whatsapp'
+    const channel = dashboardReplyChannel(platform)
 
     // 1) تسجيل رد الموظف في المحادثة نفسها بمعرّفها — لا بالرقم والقناة: زبون
     //    يراسل متجرين له محادثتان على القناة نفسها (الترحيل ٠١٩)
-    const { message: liveMessage } = await recordMessage({
+    const { message: recorded } = await recordMessage({
       conversation: conv,
       content: text,
       senderType: 'agent',
+      deliveryStatus: channel ? 'pending' : 'not_supported',
     })
+    let liveMessage = recorded
 
     if (!liveMessage) {
       console.error('[CONVERSATION_REPLY][RECORD_MESSAGE_FAILED]', { conversationId: id })
@@ -72,30 +83,24 @@ export async function POST(
       )
     }
 
-    // 2) الإرسال الفعلي للزبون — واتساب وماسنجر عبر n8n webhook
-    let channelSendSupported = false
+    // 2) الإرسال الفعلي للزبون — نافذة 24 ساعة بالتطبيق ثم n8n (واتساب وماسنجر)، والنتيجة تنكتب على الرسالة
+    const channelSendSupported = channel !== null
     let n8nSent = false
     let n8nError: string | null = null
 
-    const channel = dashboardReplyChannel(platform)
     if (channel) {
-      channelSendSupported = true
-      const result = await sendDashboardReply({
-        phone_number: conv.customer_phone,
-        message_text: text,
+      const outcome = await deliverAgentReply({
+        phone: conv.customer_phone,
         channel,
-        source: 'bariq-dashboard',
-        // واتساب: الرقم الذي تدور عليه المحادثة — لترسل n8n منه لا من رقم ثابت (null = المسار القديم، docs/n8n-webhook-setup.md).
-        // ماسنجر: معرّف الصفحة، ومن غيره n8n يرفض (missing_account_external_id) بدل ما يخمّن صفحة.
-        account_external_id: conv.account_external_id,
+        accountExternalId: conv.account_external_id,
+        text,
       })
+      n8nSent = outcome.status === 'sent'
+      n8nError = outcome.error
+      if (!n8nSent) console.error('[CONVERSATION_REPLY][DELIVERY]', outcome.status, n8nError)
 
-      if (result.sent) {
-        n8nSent = true
-      } else {
-        n8nError = result.error
-        console.error('[CONVERSATION_REPLY][N8N_ERROR]', n8nError)
-      }
+      // فشل كتابة الحالة ما يفشل الطلب: الرسالة محفوظة، وpending العالقة تنعرض unknown بعد دقيقتين
+      liveMessage = (await saveDeliveryOutcome(liveMessage.id, outcome)) ?? liveMessage
     }
 
     // 3) إيقاف البوت لهذه المحادثة عند الرد اليدوي

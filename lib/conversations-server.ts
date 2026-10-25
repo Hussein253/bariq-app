@@ -3,6 +3,7 @@ import type {
   Conversation,
   ConversationOverview,
   Message,
+  MessageDeliveryStatus,
   MessageType,
   SenderType,
 } from '@/lib/conversations'
@@ -82,6 +83,8 @@ export async function recordMessage(
     content: string
     senderType: SenderType
     messageType?: MessageType
+    /** رد موظف: pending قبل الإرسال، not_supported لقناة بلا إرسال (الترحيل ٠٣٠) */
+    deliveryStatus?: MessageDeliveryStatus
   }
 ): Promise<{ message: Message | null; conversation: Conversation | null }> {
   if (!params.content) return { message: null, conversation: null }
@@ -97,6 +100,13 @@ export async function recordMessage(
       sender_type: params.senderType,
       message_type: params.messageType || 'text',
       content: params.content,
+      ...(params.deliveryStatus
+        ? {
+            delivery_status: params.deliveryStatus,
+            delivery_attempts: params.deliveryStatus === 'pending' ? 1 : 0,
+            delivery_updated_at: new Date().toISOString(),
+          }
+        : {}),
     })
     .select()
     .single()

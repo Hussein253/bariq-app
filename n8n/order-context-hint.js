@@ -108,10 +108,49 @@ export const ASKS_FOR_HUMAN = /موظف|مشرف|مسؤول|مسئول|مدير|
 // <browsing>
 // الزبون يستفسر بس («عندك غسالة؟»، «شكد سعرها؟»، «شنو أيام الدوام؟») وما قال إنه يريد يطلب: الرد جواب وبس. بدون هالفصل
 // البوت يعامل «عندك منتجات غسالة؟» كطلب، فيكتب «تمام هيج؟» ويقترح عنوان الطلب السابق (ماسنجر 2026-10-24، التنفيذ 864).
-// القائمتان واسعتان عن قصد من جهة النية: أي كلمة شراء (حتى «أريد أعرف شكد سعرها») تطلّع الرسالة من «استفسار»،
-// فالخطأ يرجع لسلوك البوت القديم مو لمنع طلب حقيقي.
+// النية تتبع explicitBuyIntent (نية شراء صريحة): «أريد أعرف شكد سعرها» هسة استفسار، والزبون يكمّل الطلب هو لما يقرر.
 const INQUIRY = /عندك|عندكم|عدكم|عدك|اكو|ماكو|موجود|متوفر|تتوفر|توفر|شنو|شكد|بكم|سعر|اسعار|دوام|ساعات|توصيل|توصلون|هل |[?؟]/;
-const BUY_INTENT = /اريد|رايد|ابي|ابغ|احتاج|اطلب|اشتري|اشتريلي|اخذ|خذ|احجز|ثبت|سجل|دزلي|ابعثلي|عطيني|انطيني|ودي|كمل/;
+
+// نية شراء صريحة بكلام الزبون نفسه (توجيه صاحب المتجر 2026-10-25): الحجز («تم تأكيد طلبك» وسؤال العنوان) ما ينفتح على ذكر لون أو كلمة
+// عابرة. كانت كلمة «اريد» لحالها تكفي، فـ«زين اريد الالوان الموجودة» (التنفيذ 1929) طلع «شكم قطعة رايد؟». هسة فعل الحجز أو الشراء،
+// أو الرغبة ويا عدد أو ضمير («اريد وحدة»، «اريدها»، «طالب منك عشر قطع»)، أو الزبون دز عنوانه أو رقمه بنفسه.
+const WANT = '(?:اريد|اريده|رايد|رايده|ابي|ابغي|ابغى|احتاج|بدي|طالب(?: منك)?|انطيني|عطيني|اعطيني)';
+const QTY_WORD = '(?:[0-9٠-٩]+|وحده|واحده|وحدتين|قطعه|قطعتين|حبه|حبتين|ثنين|اثنين|ثلاث|اربع|خمس|ست|سبع|ثمان|تسع|عشر)';
+const EXPLICIT_BUY = [
+  /احجز|ثبت|اثبت|تثبيت|سجلل|سجل الطلب|كمل الطلب|نكمل الطلب/,
+  /اطلب(?!\s+موظف)|اشتري|شلون (?:اشتري|اطلب|احجز|اخذ)/,
+  /(?:^|\s)(?:اخذ|اخذها|اخذه|ماخذ|ماخذها|راح اخذ)(?=\s|$|[.!،,؟?])/,
+  /(?:دز|دزو|ابعث|وصل|جيب|جيبو)ل(?:ي|نا)\s+(?:ها|الطلب|ال?غساله|[0-9٠-٩]|وحده|واحده|قطعه|حبه)/,
+  /(?:دز|ابعث|وصل)ها(?=\s|$|[.!،,؟?])/,
+  new RegExp('(?:^|\\s)' + WANT + '\\s+' + QTY_WORD + '(?=\\s|$|[.!،,؟?])'),
+  /(?:^|\s)(?:اريد|رايد|ابي|ابغي)(?:ها|ه)(?=\s|$|[.!،,؟?])/,
+  /عنواني|اعطيك العنوان|انطيك العنوان|هذا عنواني|اسمي |(?:^|\D)07[0-9]{9}(?!\d)/,
+];
+
+const toLatinDigits = (s) => String(s ?? '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+
+/**
+ * الزبون قال بكلامه إنه يريد يشتري؟ («احجزلي»، «ثبتلي وحدة»، «اريد وحدة»، «شلون أشتري؟»، «أعطيك العنوان»)
+ * ذكر لون أو قياس، «تمام»، «اريد أعرف»، «اريد الألوان» مو نية شراء.
+ * @param {string} message       رسالة الزبون الحالية
+ * @param {string} [productNames] أسماء المنتجات («أ، ب»): «اريد الغسالة» نية شراء
+ */
+export function explicitBuyIntent(message, productNames = '') {
+  const msg = toLatinDigits(norm(message)).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '');
+  if (!msg) return false;
+  if (EXPLICIT_BUY.some((re) => re.test(msg))) return true;
+  // «اريد الغسالة» / «رايد غسالة»: الرغبة ويا أول كلمة من اسم منتج بالمتجر
+  const heads = String(productNames ?? '').split('،').map((n) => norm(n).split(' ')[0]).filter((w) => w && w.length >= 3);
+  return heads.some((w) => new RegExp('(?:^|\\s)' + WANT + '\\s+(?:ال)?' + w.replace(/^ال/, '') + '(?=\\s|$|[.!،,؟?])').test(msg));
+}
+
+// «١٠» أو «وحدتين» جواب على سؤال البوت «شكم قطعة رايد؟» بطلب جاري: هذا كمال الطلب مو كلمة عابرة
+const QTY_ONLY = new RegExp('^' + QTY_WORD + '(?:\\s+(?:قطع|قطعه|وحدات|وحده|حبات|حبه))?$');
+const QTY_ASKED = /شكم\s+(?:قطعه|قطع|وحده|حبه)/;
+export function quantityAnswer(message, lastBotReply = '') {
+  const msg = toLatinDigits(norm(message)).replace(/[.!،,؟?]/g, '').trim();
+  return QTY_ONLY.test(msg) && QTY_ASKED.test(norm(lastBotReply));
+}
 // رد البوت الأخير عرض المبلغ الكلي أو طلب معلومات توصيل: الزبون بنص الطلب حتى لو رسالته الحالية سؤال («وين توصلون؟»).
 // «تمام هيج؟» و«نعتمد عنوانك السابق» و«ما عندك شي ثاني» مو هنا عمداً: البوت نفسه كتبهن بغلط على سؤال استفسار (ماسنجر 2026-10-24،
 // التنفيذ 1156) وبقاؤهن بالسجل خلّى السؤال اللاحق («شكد سعر الغسالة؟») يتصنّف «طلب جاري». البنود المحفوظة (cartLength) والفاحص
@@ -141,10 +180,10 @@ export const BROWSING_HINT = '\n\n[الزبون هسة يستفسر بس (سؤا
  */
 export function isBrowsing({ message = '', cartLength = 0, orderingNow = false, askedToOrder = false, confirmed = false, lastBotReply = '' } = {}) {
   const msg = norm(message).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '')
-  if (cartLength === 0 && !confirmed && DEFER.test(msg) && !BUY_INTENT.test(msg)) return true
+  if (cartLength === 0 && !confirmed && DEFER.test(msg) && !explicitBuyIntent(msg)) return true
   if (cartLength > 0 || orderingNow === true || askedToOrder || confirmed) return false
   if (ORDER_PROMPT.test(norm(lastBotReply))) return false
-  return INQUIRY.test(msg) && !BUY_INTENT.test(msg)
+  return INQUIRY.test(msg) && !explicitBuyIntent(msg)
 }
 // </browsing>
 
@@ -172,7 +211,7 @@ export function singleProductOf(productNames) {
 export function singleProductNote({ productNames = '', message = '', needsItems = false, askedToOrder = false, orderingNow = false } = {}) {
   const name = singleProductOf(productNames)
   if (!name) return ''
-  if (!(needsItems || askedToOrder || orderingNow === true || BUY_INTENT.test(norm(message)))) return ''
+  if (!(needsItems || askedToOrder || orderingNow === true || explicitBuyIntent(message, productNames))) return ''
   // «رايد قطعه من منتجكم» (ماسنجر 2026-10-24، التنفيذ 1573): «قطعة/وحدة/حبة» بكلام الزبون = العدد 1، والوكيل رجع سأله «شكم وحدة تريد؟»
   const oneUnit = ONE_UNIT.test(norm(message))
   return '\n\n[المتجر عنده منتج واحد بس: «' + name + '». هذا التنبيه يلغي أي تعليمة ثانية تقول اسأل الزبون «شنو المنتج» أو «يا منتج»:'
@@ -200,7 +239,7 @@ export function itemsKnownFromMessage({ productNames = '', message = '' } = {}) 
 }
 
 export function ownVoiceNote({ message = '', productNames = '', needsItems = false } = {}) {
-  if (!(needsItems || BUY_INTENT.test(norm(message)))) return ''
+  if (!(needsItems || explicitBuyIntent(message, productNames))) return ''
   const name = singleProductOf(productNames)
   const known = itemsKnownFromMessage({ productNames, message })
   return '\n\n[أسلوب الرد — موظف مبيعات عراقي خبير: «رايد/اريد/ابي» بكلام الزبون كلمته هو مو كلمتك، فممنوع تردد طلبه بصيغة المتكلم («رايد وحدة من…»، «أريد…»، «ابي…») كأن إنت الي تطلب،'
@@ -216,6 +255,168 @@ export function ownVoiceNote({ message = '', productNames = '', needsItems = fal
 }
 // </own-voice>
 
+// <catalog>
+// الكتالوج الحقيقي (products بعقدة «تحديد التاجر» → catalog) يمشي ويا كل دور، وطلب الزبون للون أو سعة مو موجودة ينكشف بالكود مو بذاكرة النموذج.
+// ماسنجر 2026-10-24: الغسالة بيضاء بس، والزبون «اريد وحدة لون أسود» ← «تم عزيزي، تم تأكيد طلبك» (التنفيذ 1741)، و«لون أسود تمام» ←
+// «تم تأكيد طلبك… لون أسود» (1747)؛ و«زين 5 كيلو» والمتوفر 8 كيلو ← «شكم قطعة رايد؟» (1691). الوكيل ما استدعى get_available_products
+// بولا رد منهن، وتنبيه «أسلوب الرد» نفسه كان يكله افتح الحجز. الحارس الحتمي بعقدة الحارس (n8n/catalog-guard.js) هو الطبقة الثانية.
+
+// اللون الأساسي ← صيغه (بعد norm وبدون «ال»). «بنيه» مو لون: «آني بنية» إشارة إن الزبونة بنت.
+const COLOR_FORMS = {
+  اسود: ['اسود', 'سودا', 'سوداء', 'black'],
+  ابيض: ['ابيض', 'بيضا', 'بيضاء', 'white'],
+  احمر: ['احمر', 'حمرا', 'حمراء', 'red'],
+  ازرق: ['ازرق', 'زرقا', 'زرقاء', 'blue'],
+  اخضر: ['اخضر', 'خضرا', 'خضراء', 'green'],
+  اصفر: ['اصفر', 'صفرا', 'صفراء', 'yellow'],
+  رمادي: ['رمادي', 'رماديه', 'رصاصي', 'رصاصيه', 'gray', 'grey'],
+  فضي: ['فضي', 'فضيه', 'سلفر', 'سيلفر', 'silver'],
+  ذهبي: ['ذهبي', 'ذهبيه', 'جولد', 'كولد', 'gold'],
+  بني: ['بني', 'قهوائي', 'قهوائيه', 'brown'],
+  وردي: ['وردي', 'ورديه', 'بمبي', 'بينك', 'pink'],
+  بنفسجي: ['بنفسجي', 'بنفسجيه', 'موف', 'purple'],
+  برتقالي: ['برتقالي', 'برتقاليه', 'orange'],
+  كحلي: ['كحلي', 'كحليه', 'navy'],
+  بيج: ['بيج', 'beige'],
+  ستيل: ['ستيل', 'ستانلس', 'steel'],
+};
+const COLOR_LABEL = {
+  اسود: 'الأسود', ابيض: 'الأبيض', احمر: 'الأحمر', ازرق: 'الأزرق', اخضر: 'الأخضر', اصفر: 'الأصفر', رمادي: 'الرمادي', فضي: 'الفضي',
+  ذهبي: 'الذهبي', بني: 'البني', وردي: 'الوردي', بنفسجي: 'البنفسجي', برتقالي: 'البرتقالي', كحلي: 'الكحلي', بيج: 'البيج', ستيل: 'الستيل',
+};
+const FORM_TO_COLOR = new Map(Object.entries(COLOR_FORMS).flatMap(([k, forms]) => forms.map((f) => [f, k])));
+
+// «بالأسود»، «والبيضاء»، «الاسود» ← الصيغة بدون حرف الجر و«ال»
+const colorOf = (token) => {
+  const t = String(token ?? '').toLowerCase();
+  for (const cand of [t, t.replace(/^(?:و|ب|ف|ل)?ال/, ''), t.replace(/^(?:و|ب)/, '')]) {
+    if (FORM_TO_COLOR.has(cand)) return FORM_TO_COLOR.get(cand);
+  }
+  return '';
+};
+const colorsIn = (text) => [...new Set(norm(text).split(/[^\p{L}\p{N}]+/u).map(colorOf).filter(Boolean))];
+
+// السعة بالرقم والوحدة: «5 كيلو»، «8كيلو»، «55 انج»، «20 لتر»
+const UNIT = { كيلو: 'كيلو', كغم: 'كيلو', كيلوغرام: 'كيلو', kg: 'كيلو', انج: 'انج', انش: 'انج', بوصه: 'انج', لتر: 'لتر', طن: 'طن' };
+const CAP_RE = /(\d+(?:[.,]\d+)?)\s*(كيلوغرام|كيلو|كغم|kg|انج|انش|بوصه|لتر|طن)(?![\p{L}])/gu;
+const capacitiesIn = (text) => {
+  const out = [];
+  for (const m of toLatinDigits(norm(text)).matchAll(CAP_RE)) {
+    const c = { n: Number(m[1].replace(',', '.')), unit: UNIT[m[2]] };
+    if (!out.some((x) => x.n === c.n && x.unit === c.unit)) out.push(c);
+  }
+  return out;
+};
+const capLabel = (c) => `${c.n} ${c.unit}`;
+
+/**
+ * صفوف الكتالوج من عقدة «تحديد التاجر» (catalog: [{ name, color, size, price_iqd }]) — JSON أو مصفوفة
+ * @returns {{ name: string, color: string, size: string, price: number, colors: string[], caps: {n:number,unit:string}[] }[]}
+ */
+export function normalizeCatalog(raw) {
+  let rows = raw;
+  for (let i = 0; i < 2 && typeof rows === 'string'; i++) { try { rows = JSON.parse(rows); } catch { rows = []; } }
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r) => r && String(r.name ?? '').trim())
+    .map((r) => {
+      const name = String(r.name).trim();
+      const color = String(r.color ?? '').trim();
+      const size = String(r.size ?? '').trim();
+      const price = Number(r.price_iqd ?? r.price ?? 0) || 0;
+      return { name, color, size, price, colors: colorsIn(color), caps: capacitiesIn(name + ' ' + size) };
+    });
+}
+
+const fmtIqd = (n) => Math.round(n).toLocaleString('en-US');
+const joinAr = (list) => (list.length <= 1 ? list.join('') : list.slice(0, -1).join('، ') + ' و' + list[list.length - 1]);
+
+// الزبون سمّى منتج بالاسم («الغسالة»): المقارنة على هذا المنتج بس، وإلا على كل الكتالوج
+const mentioned = (catalog, message) => {
+  const msg = norm(message);
+  return catalog.filter((p) => norm(p.name).split(' ').some((w) => w.length >= 4 && msg.includes(w.replace(/^ال/, ''))));
+};
+
+/**
+ * الزبون ذكر لون أو سعة مو موجودة بالكتالوج؟ (المقارنة بس على المنتجات الي لونها أو سعتها مسجلة)
+ * @param {{ message?: string, catalog?: ReturnType<typeof normalizeCatalog> }} [input]
+ * @returns {null | { kind: 'color'|'capacity', requested: string, requestedLabel: string, available: string[], product: string }}
+ */
+export function specMismatch({ message = '', catalog = [] } = {}) {
+  if (!catalog.length || !norm(message)) return null;
+  const named = mentioned(catalog, message);
+  const pool = named.length ? named : catalog;
+  const product = pool.length === 1 ? pool[0].name : '';
+  for (const color of colorsIn(message)) {
+    const known = pool.filter((p) => p.colors.length);
+    if (!known.length || known.some((p) => p.colors.includes(color))) continue;
+    const available = [...new Set(known.flatMap((p) => p.colors))].map((c) => COLOR_LABEL[c] ?? c);
+    return { kind: 'color', requested: color, requestedLabel: COLOR_LABEL[color] ?? color, available, product };
+  }
+  for (const cap of capacitiesIn(message)) {
+    const withUnit = pool.filter((p) => p.caps.some((c) => c.unit === cap.unit));
+    if (!withUnit.length || withUnit.some((p) => p.caps.some((c) => c.unit === cap.unit && c.n === cap.n))) continue;
+    const available = [...new Set(withUnit.flatMap((p) => p.caps.filter((c) => c.unit === cap.unit).map(capLabel)))];
+    return { kind: 'capacity', requested: capLabel(cap), requestedLabel: capLabel(cap), available, product };
+  }
+  return null;
+}
+
+// سؤال عن مواصفة ما مسجلة بالكتالوج («كم امبير تسحب؟»، «ممكن اعرف مواصفاتها»). الضمان والإرجاع إلهم قاعدة تحويل بالبرومت، فمو هنا.
+const SPEC_Q = /امبير|واط|استهلاك|تسحب|كهربا|مواصفات|مواصفه|ابعاد|حجمها|حجمه|وزنها|وزنه|طولها|عرضها|ارتفاع|سرعه|دوران|برامج|موديل|سنه الصنع|منشا|صنع وين/;
+export const isSpecQuestion = (message) => SPEC_Q.test(norm(message));
+
+/** @param {ReturnType<typeof normalizeCatalog>} [catalog] */
+export function catalogFactsHint(catalog = []) {
+  if (!catalog.length) return '';
+  const lines = catalog.slice(0, 30).map((p) => '- ' + p.name
+    + ' — اللون: ' + (p.color || 'مو مسجل')
+    + (p.size ? ' — القياس: ' + p.size : '')
+    + (p.price ? ' — السعر: ' + fmtIqd(p.price) + ' دينار' : ''));
+  return '\n\n[كتالوج المتجر هسة — من قاعدة البيانات بهذا الدور، وهو الحقيقة الوحيدة عن المنتجات (أقوى من ذاكرتك ومن أي رد سابق إلك):\n'
+    + lines.join('\n')
+    + '\nأي لون أو قياس أو سعة أو مواصفة مو مكتوبة هنا يعني مو متوفرة أو مو معروفة: ممنوع تقول عنها «عدنا» أو «متوفر» أو توافق الزبون عليها أو تحطها بطلبه،'
+    + ' وإذا اللون «مو مسجل» ممنوع تأكد أي لون. المواصفات المعروفة هي بس الي بالاسم والحقول فوق.]';
+}
+
+export function mismatchHint(m, { repeated = false } = {}) {
+  if (!m) return '';
+  const avail = joinAr(m.available);
+  const what = m.kind === 'color' ? 'اللون «' + m.requestedLabel + '»' : 'السعة «' + m.requestedLabel + '»';
+  const example = m.kind === 'color'
+    ? '«حياك الله عزيزي، ' + (m.product ? 'بخصوص ' + m.product + '، ' : '') + 'عدنا بس اللون ' + avail + (m.available.length === 1 ? ' (لون أنيق وعملي)' : '')
+      + '، و' + m.requestedLabel + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل ' + avail + '؟»'
+    : '«حياك الله عزيزي، الي عدنا هسة ' + (m.product || 'بس الـ ' + avail) + (m.product ? ' بس' : '') + '، والـ ' + m.requestedLabel
+      + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ ' + avail + '؟»';
+  return '\n\n[تنبيه حاسم (فوق أي تنبيه ثاني): الزبون ذكر ' + what + ' وهذا مو متوفر بالكتالوج (المتوفر: ' + avail + ' بس).'
+    + ' ممنوع توافقه أو تكتب إنه متوفر أو تحطه بطلبه، وممنوع بهذا الرد «تم تأكيد طلبك» و«طلبك هسة صار» وأي طلب للاسم أو العنوان أو الرقم، وممنوع سؤال عن العدد.'
+    + (repeated
+      ? ' ردك السابق صحّحله نفس الشي وهو رجع عليه: لا تعيد نفس الجملة؛ قله بلطف إنه حالياً ماكو غير ' + avail + ' وإذا يناسبه إنت حاضر تخدمه، بدون سؤال ثاني.]'
+      : ' صحّح المعلومة بلطف وثقة مثل بايع شاطر: المتوفر ' + avail + ' بس و' + m.requestedLabel + ' مو متوفر حالياً، وبعدها سؤال واحد خفيف إذا يحب تفاصيل المتوفر. مثال: ' + example + ']');
+}
+
+export const SPEC_HINT = '\n\n[الزبون يسأل عن مواصفة: المعروف عن المنتج هو بس الي بالكتالوج فوق (النوع والماركة والسعة من الاسم، واللون، والسعر) والي مكتوب بمعلومات النشاط.'
+  + ' ممنوع تخترع رقم أو مواصفة (امبير، واط، أبعاد، وزن، سرعة، برامج، سنة صنع…). جاوب مثل بايع واثق: ابدي بالمعروف عن المنتج بجملة وحدة،'
+  + ' وبعدها قل إن هالتفصيلة بالذات ما مسجلة عندك هسة، وإذا يحب تحوّل سؤاله لموظف من الفريق يأكدها بالضبط.'
+  + ' ممنوع تبدي بـ «أعتذر» أو «للأسف ما عندي معلومات» أو «عذراً هاي يتطلب اتصال»، وممنوع «أنصحك بالتواصل مع موظف الدعم»، وممنوع بهذا الرد سؤال عن العدد.]';
+
+export const NO_BUY_YET_HINT = '\n\n[الزبون لسه ما قال بصراحة إنه يريد يشتري (مثل «احجزلي»، «ثبتلي وحدة»، «اريد وحدة»، «شلون أشتري؟»، «أعطيك العنوان»):'
+  + ' ذكر لون أو قياس أو كلمة مثل «تمام» أو «زين» أو «حلو» مو قرار شراء. ركّز على جوابه وإقناعه بالمعلومة الصحيحة بس.'
+  + ' ممنوع بهذا الرد «تم تأكيد طلبك» و«طلبك هسة صار»، وممنوع تطلب الاسم أو العنوان أو رقم الهاتف أو تقترح عنوان سابق، وممنوع «شكم قطعة رايد؟».]';
+
+// الرسالة بيها شي ممكن النموذج يفهمه قرار شراء: لون، سعة، رغبة بلا عدد، كلمة موافقة («تمام»، «زين»، «حلو»)، أو الفاحص شايف طلب جاري
+const BUY_RISK = /اريد|رايد|ابي|تمام|زين|حلو|اوك|اوكي|ماشي|يلا|موافق|حجز|طلب/;
+const buyRisk = (message, orderingNow = false) => orderingNow === true || colorsIn(message).length > 0 || capacitiesIn(message).length > 0 || BUY_RISK.test(norm(message));
+
+// ردك السابق صحّح نفس اللون أو السعة: الزبون يصرّ، فالتنبيه يطلب جملة ثانية مو نفس التصحيح
+const UNAVAILABLE = /ماكو|ما\s*(?:متوفر|عدنا|موجود)|مو\s+(?:متوفر|موجود)|غير\s+(?:متوفر|موجود)|للاسف|نفذ|نفد/;
+export const correctedBefore = (m, lastBotReply = '') => {
+  const last = norm(lastBotReply);
+  if (!m || !UNAVAILABLE.test(last)) return false;
+  return m.kind === 'color' ? colorsIn(last).includes(m.requested) : capacitiesIn(last).some((c) => capLabel(c) === m.requested);
+};
+// </catalog>
+
 /**
  * @param {object}   [input]
  * @param {string}   [input.combinedMessage]  رسائل الزبون الجديدة بهذا الدور
@@ -224,8 +425,9 @@ export function ownVoiceNote({ message = '', productNames = '', needsItems = fal
  * @param {boolean}  [input.orderingNow]      رد البوت الأخير كان يأخذ تفاصيل الطلب (من Complaint Hint)
  * @param {string[]} [input.botReplies]       ردود البوت الأخيرة، الأحدث أول (Load Recent Bot Replies)
  * @param {string}   [input.productNames]     أسماء المنتجات المتوفرة مفصولة بـ «،» (product_names من عقدة تحديد التاجر)
+ * @param {object[]|string} [input.catalog]   صفوف الكتالوج (catalog من عقدة تحديد التاجر): الاسم واللون والقياس والسعر
  */
-export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false, botReplies = [], productNames = '' } = {}) {
+export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false, botReplies = [], productNames = '', catalog = [] } = {}) {
   const current = bare(combinedMessage);
 
   // الدور الحالي ينلوگ بفرع ثاني، فممكن يكون أو ما يكون بالسجل لهسة: أي رسالة موجودة أصلاً بالرسائل
@@ -253,7 +455,15 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
     message: combinedMessage, cartLength: cart.length, orderingNow, askedToOrder: WANTS_ORDER.test(current), confirmed,
     lastBotReply: Array.isArray(botReplies) ? botReplies[0] : '',
   });
-  const needsItems = !confirmed && !itemsFromMessage && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
+  // الكتالوج ونية الشراء: لون أو سعة مو موجودة تتصحح أول، والحجز ما ينفتح إلا بنية شراء صريحة أو بطلب جاري فعلاً
+  const items = normalizeCatalog(catalog);
+  const lastBotReply = Array.isArray(botReplies) ? botReplies[0] : '';
+  const mismatch = specMismatch({ message: combinedMessage, catalog: items });
+  const explicitIntent = explicitBuyIntent(combinedMessage, productNames) || quantityAnswer(combinedMessage, lastBotReply);
+  const inFlow = cart.length > 0 || confirmed || addressAsked || ORDER_PROMPT.test(lastBotNorm);
+  const bookingAllowed = !mismatch && (explicitIntent || inFlow);
+  const specQuestion = !mismatch && isSpecQuestion(combinedMessage);
+  const needsItems = !mismatch && !confirmed && !itemsFromMessage && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
   // طلب جاري وردك السابق ما عرض المبلغ الكلي: الزبون ما وافق على شي لهسة، فما ينحجز طلب
   const totalNotShown = !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || cart.length > 0 || orderingNow === true);
 
@@ -263,6 +473,7 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
       + ' لا تجاوب عليها من جديد ولا ترحب من جديد، بس استعملها حتى تعرف شنو طلب الزبون قبل وشنو قاله إلك.\n'
       + earlier.join('\n') + ']';
   }
+  hint += catalogFactsHint(items);
   if (needsItems) {
     hint += '\n\n[تنبيه داخلي: الزبون يريد يثبت طلبه بس ماكو ولا بند محفوظ لهذا الطلب، يعني إحنا ما نعرف شنو يريد.'
       + ' ردك هذا عن البنود بس: إذا سمّى المنتج بالمحادثة (شوف سجل المحادثة فوق) أعد اسمه عليه واسأله شكم وحدة يريد،'
@@ -275,7 +486,7 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   if (browsing) hint += BROWSING_HINT;
 
-  const single = singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
+  const single = mismatch ? '' : singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
   hint += single;
 
   // الحجز النهائي (create_order) بموافقة الزبون الصريحة على المبلغ الكلي بس. «اعتمد» جواب على سؤال العنوان مو موافقة على الطلب
@@ -285,7 +496,20 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   // التأكيد الواصل له تنبيهه الخاص (ثبّت وبس)، والاستفسار جواب وبس، وجواب سؤال العنوان ما يرجع يفتتح بـ «تم تأكيد طلبك» من جديد
   // (التنفيذ 1588: «تمام اعتمد العنوان» ← نفس الافتتاحية ونفس سؤال العنوان)
-  if (!confirmed && !browsing && !addressAsked) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
+  if (!confirmed && !browsing && !addressAsked && bookingAllowed) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
+  // بلا نية شراء صريحة وبلا طلب جاري: جواب وإقناع بس، بدون فتح حجز (تنبيه البنود والاستفسار عدهم قواعدهم). التحية لحالها ما تحتاجه
+  else if (!confirmed && !browsing && !addressAsked && !needsItems && !mismatch && buyRisk(combinedMessage, orderingNow)) hint += NO_BUY_YET_HINT;
+  if (specQuestion) hint += SPEC_HINT;
+  // التصحيح آخر تنبيه حتى يغلب أي تعليمة فوقه
+  const repeated = correctedBefore(mismatch, lastBotReply);
+  if (mismatch) hint += mismatchHint(mismatch, { repeated });
 
-  return { hint, orderContext: { itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length } };
+  return {
+    hint,
+    orderContext: {
+      itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length,
+      explicitIntent, bookingAllowed, specQuestion, mismatch: mismatch ? { ...mismatch, repeated } : null,
+      catalog: items.map((p) => ({ name: p.name, color: p.color, price: p.price, colors: p.colors.map((c) => COLOR_LABEL[c] ?? c) })),
+    },
+  };
 }

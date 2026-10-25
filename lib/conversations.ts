@@ -50,6 +50,9 @@ export interface MessageMedia {
   mime_type?: string
 }
 
+/** حالة توصيل رد الموظف (الترحيل ٠٣٠). المعاني والانتقالات في lib/message-delivery.ts */
+export type MessageDeliveryStatus = 'pending' | 'sent' | 'failed' | 'unknown' | 'not_supported'
+
 /** صف من جدول public.messages */
 export interface Message {
   id: string
@@ -60,6 +63,14 @@ export interface Message {
   created_at: string | null
   /** ملفات الرسالة بترتيب رسائل الدفعة؛ null = بلا ملف (كل ما قبل الترحيل ٠٢٨) */
   media?: MessageMedia[] | null
+  /** null = رسالة زبون أو بوت، أو رد قبل الترحيل ٠٣٠ */
+  delivery_status?: MessageDeliveryStatus | null
+  /** رمز سبب الفشل (outside_24h_window، n8n 502: messenger_send_failed…) — لفريق برق */
+  delivery_error?: string | null
+  /** wamid لواتساب، mid لماسنجر — بعد قبول Meta */
+  external_message_id?: string | null
+  delivery_attempts?: number
+  delivery_updated_at?: string | null
 }
 
 /** محادثة مُثراة ببيانات العرض (تُبنى في الخادم، لا تُخزَّن) */
