@@ -25,7 +25,9 @@ export const nodeCode = (c) => MODULE.replace(/^export /gm, '').trimEnd() + `
 const NODES = ${JSON.stringify({ prompt: c.prompt, recent: c.recent, bot: c.bot ?? null, merchant: c.merchant ?? 'تحديد التاجر' })};
 const j = $json;
 const productNames = (() => { try { return String($(NODES.merchant).first().json.product_names || ''); } catch (e) { return ''; } })();
-const base = (() => { try { return $(NODES.prompt).first().json || {}; } catch (e) { return {}; } })();
+// صفوف الكتالوج (عمود catalog بعقدة تحديد التاجر، من n8n/sales-guardrails.mjs): بدونها ماكو فحص لون ولا سعة
+const catalog = (() => { try { return $(NODES.merchant).first().json.catalog || []; } catch (e) { return []; } })();
+const base =(() => { try { return $(NODES.prompt).first().json || {}; } catch (e) { return {}; } })();
 const recent = (() => {
   try { return $(NODES.recent).all().map((i) => String((i.json || {}).message_text || '')); } catch (e) { return []; }
 })();
@@ -44,6 +46,7 @@ try {
     orderingNow: (j.complaintCheck || {}).ordering_now === true,
     botReplies,
     productNames,
+    catalog,
   });
   return [{ json: { ...j, userPrompt: String(j.userPrompt || '') + res.hint, orderContext: res.orderContext }, pairedItem: { item: 0 } }];
 } catch (e) {
