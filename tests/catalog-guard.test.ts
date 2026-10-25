@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { correctionText, guardCatalogReply, humanTouch } from '@/n8n/catalog-guard.js'
-import { explicitBuyIntent, normalizeCatalog, orderContextHint, quantityAnswer, specMismatch } from '@/n8n/order-context-hint.js'
+import { correctionText, dropPreviousAddress, fixDeliveryFee, guardCatalogReply, humanTouch } from '@/n8n/catalog-guard.js'
+import { deliveryFor, explicitBuyIntent, isContactRequest, normalizeCatalog, orderContextHint, quantityAnswer, specMismatch, stripPreviousAddress } from '@/n8n/order-context-hint.js'
 
 // محادثة ماسنجر 2026-10-24 (الزبون 28944586871867160): الغسالة الوحيدة بالمتجر بيضاء
 const WASHER = 'غسالة أوتوماتيك أل جي 8 كيلو'
@@ -109,9 +109,14 @@ describe('orderContextHint — الكتالوج ونية الشراء', () => {
     expect(r.hint).toContain('أسلوب الرد')
   })
 
-  it('البوت طلب العنوان والزبون يكمّل ← الطلب جاري (الحجز مفتوح)', () => {
-    const r = ctxFor('حسين محمد، بغداد الكرادة قرب الجامعة', [ASKED_ADDRESS])
+  it('البوت طلب العنوان بعد «اريد وحدة» والزبون يكمّل ← الطلب جاري (الحجز مفتوح)', () => {
+    const m = 'حسين محمد، بغداد الكرادة قرب الجامعة'
+    const r = orderContextHint({ combinedMessage: m, sessionData: {}, recentMessages: [m, 'اريد وحدة'], botReplies: [ASKED_ADDRESS], productNames: WASHER, catalog: CATALOG })
     expect(r.orderContext.bookingAllowed).toBe(true)
+  })
+
+  it('نفس العنوان بلا نية شراء قبله ← مو حجز', () => {
+    expect(ctxFor('حسين محمد، بغداد الكرادة قرب الجامعة', [ASKED_ADDRESS]).orderContext.bookingAllowed).toBe(false)
   })
 })
 
@@ -120,7 +125,7 @@ describe('guardCatalogReply — التصحيح الحتمي', () => {
 
   it('رد التنفيذ 1741 بالضبط ← تصحيح لطيف بالمتوفر حصراً وSTAGE 1', () => {
     const out = run(ASKED_ADDRESS + '\nSTAGE: 3', 'اريد وحدة لون أسود')
-    expect(out).toBe('حياك الله عزيزي، بخصوص ' + WASHER + '، عدنا بس اللون الأبيض (لون أنيق وعملي)، والأسود للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الأبيض؟\nSTAGE: 1')
+    expect(out).toBe('بخصوص ' + WASHER + ' عزيزي، عدنا بس اللون الأبيض (لون أنيق وعملي)، والأسود للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الأبيض؟\nSTAGE: 1')
   })
 
   it('رد التنفيذ 1747 (أكّد اللون الأسود) بعد تصحيح سابق ← «أفهمك» بلا سؤال', () => {
@@ -131,7 +136,7 @@ describe('guardCatalogReply — التصحيح الحتمي', () => {
 
   it('رد التنفيذ 1691 («فيا شكم قطعة رايد؟» على 5 كيلو) ← تصحيح السعة', () => {
     const out = run('تدلل عزيزي، الغسالة أوتوماتيك أل جي 8 كيلو، فيا شكم قطعة رايد؟\nSTAGE: 0', 'زين 5 كيلو')
-    expect(out).toBe('حياك الله عزيزي، الي عدنا هسة ' + WASHER + ' بس، والـ 5 كيلو للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ 8 كيلو؟\nSTAGE: 0')
+    expect(out).toBe('عزيزي، الي عدنا هسة ' + WASHER + ' بس، والـ 5 كيلو للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ 8 كيلو؟\nSTAGE: 0')
   })
 
   it('النموذج صحّح بنفسه ← الرد يبقى مثل ما هو', () => {
@@ -141,7 +146,7 @@ describe('guardCatalogReply — التصحيح الحتمي', () => {
 
   it('الرد سكت عن اللون وجاوب على التوصيل ← التصحيح ينضاف بآخره', () => {
     const out = run('أجور التوصيل 3,000 دينار لبغداد.\nSTAGE: 1', 'عندكم أسود؟ وشكد التوصيل؟')
-    expect(out.startsWith('أجور التوصيل 3,000 دينار لبغداد.\n\nحياك الله عزيزي')).toBe(true)
+    expect(out.startsWith('أجور التوصيل 3,000 دينار لبغداد.\n\nبخصوص ' + WASHER + ' عزيزي، عدنا بس اللون الأبيض')).toBe(true)
   })
 
   it('التنفيذ 1929: سؤال العدد على استفسار الألوان ينشال ويا الإيموجي', () => {
@@ -172,7 +177,146 @@ describe('guardCatalogReply — التصحيح الحتمي', () => {
 
   it('correctionText بأكثر من لون متوفر', () => {
     expect(correctionText({ kind: 'color', requested: 'احمر', requestedLabel: 'الأحمر', available: ['الأبيض', 'الأسود'], product: '' }))
-      .toBe('حياك الله عزيزي، عدنا بس اللون الأبيض والأسود، والأحمر للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الأبيض والأسود؟')
+      .toBe('عزيزي، عدنا بس اللون الأبيض والأسود، والأحمر للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الأبيض والأسود؟')
+  })
+})
+
+// ماسنجر 2026-10-25 بعد أول تطبيق: البوت رجع يأكد العنوان والطلب والزبون يستفسر. السبب سياق قديم انعدّ «طلب جاري».
+describe('الطلب الجاري فعلاً — سياق قديم ما يفتح الحجز', () => {
+  const NOW = Date.parse('2026-10-25T12:09:00Z')
+  const YESTERDAY = '2026-10-24T12:28:13Z'
+  const OLD_ASK = 'عدنا غسالة أوتوماتيك أل جي 8 كيلو. تدلل عزيزي، شكم قطعة رايد؟ وإذا تحب، ممكن نعتمد عنوانك السابق بـ بغداد التاجي قرب المعسكر لو تغير؟'
+  const PLACED = 'تم عزيزي، تم تأكيد طلبك.\n\nتفاصيل الطلب:\n- غسالة أوتوماتيك أل جي 8 كيلو، وحدة.\n- المجموع الكلي: 300,500 دينار كاش عند الاستلام\n\nالمندوب يتصل بيك قبل لا يوصل.'
+  const PREV_HINT = '\n\n[عنوان سابق للزبون — من طلبه السابق رقم 47، مو من هالمحادثة: بغداد التاجي قرب المعسكر]\n[تنبيه: هذي معلومات طلب سابق، مو معلومات هالطلب: اسأله «نعتمد عنوانك السابق بـ بغداد التاجي قرب المعسكر لو تغير؟».]'
+  const ctx = (message: string, botReplies: string[], extra: Record<string, unknown> = {}) =>
+    orderContextHint({ combinedMessage: message, sessionData: {}, recentMessages: [message], botReplies, productNames: WASHER, catalog: CATALOG, now: NOW, ...extra })
+
+  it('التنفيذ 1997: «شون أتصل عليك؟» بعد سؤال عنوان من أمس ← ماكو حجز، ورقم التواصل', () => {
+    const r = ctx('[رسالة صوتية]: أگول لك، أريد أتصل، شون أتصل عليك؟', [OLD_ASK], { lastBotAt: YESTERDAY, orderingNow: true, contactPhone: '07731048129' })
+    expect(r.orderContext.threadFresh).toBe(false)
+    expect(r.orderContext.bookingAllowed).toBe(false)
+    expect(r.orderContext.contactRequest).toBe(true)
+    expect(r.hint).toContain('الزبون يريد يتصل بيكم')
+    expect(r.hint).not.toContain('الزبون يرد على سؤالك «نعتمد عنوانك السابق')
+    expect(r.hint).not.toContain('أسلوب الرد')
+    const reply = 'أفتهمت إنك حاب تحجز غسالة أوتوماتيك أل جي 8 كيلو. شكم قطعة رايد؟\n\nوإذا تحب، نعتمد عنوانك السابق بغداد التاجي قرب المعسكر لو تغير؟\nSTAGE: 0'
+    expect(guardCatalogReply(reply, r.orderContext)).toBe('تكدر تتصل بينا على 07731048129، وإذا تحب موظف من الفريق يتصل بيك ويكمل وياك.\nSTAGE: 0')
+  })
+
+  it('نفس السؤال وسؤال العنوان حديث ← بعده مو جواب على العنوان', () => {
+    const r = ctx('شون أتصل عليك؟', [OLD_ASK], { lastBotAt: '2026-10-25T12:05:00Z' })
+    expect(r.orderContext.bookingAllowed).toBe(false)
+  })
+
+  it('التنفيذ 1999: سلة طلب انحجز أمس + «عندك غساله سوده» ← تصحيح لون بلا حجز', () => {
+    const r = orderContextHint({
+      combinedMessage: 'مرحبا عندك غساله سوده', recentMessages: ['مرحبا عندك غساله سوده'], botReplies: [PLACED], productNames: WASHER, catalog: CATALOG, now: NOW,
+      sessionData: { cart: [{ variant_id: '29', color: 'بيضاء', quantity: 1, unit_price_iqd: '297500' }] }, lastBotAt: YESTERDAY,
+    })
+    expect(r.orderContext.mismatch).toMatchObject({ requested: 'اسود' })
+    expect(r.orderContext.bookingAllowed).toBe(false)
+  })
+
+  it('السلة فيها بند وطلب جاري حديث ← سؤال «شكد التوصيل؟» ما يسكّر الحجز', () => {
+    const r = orderContextHint({
+      combinedMessage: 'شكد التوصيل؟', recentMessages: ['شكد التوصيل؟'], productNames: WASHER, catalog: CATALOG, now: NOW,
+      sessionData: { cart: [{ variant_id: '29', quantity: 1 }] }, botReplies: [ASKED_ADDRESS], lastBotAt: '2026-10-25T12:07:00Z',
+    })
+    expect(r.orderContext.bookingAllowed).toBe(true)
+  })
+
+  it.each(['اعتمد', 'تمام اعتمد العنوان', 'لا تغير، هسة بالغزالية', '[رسالة صوتية]: اكتب بغداد غزالية', 'حسين محمد 07731234567'])('جواب فعلي على سؤال العنوان الحديث بعد «اريد وحدة»: %s', (m) => {
+    const r = ctx(m, [OLD_ASK], { lastBotAt: '2026-10-25T12:05:00Z', recentMessages: [m, 'اريد وحدة'] })
+    expect(r.orderContext.bookingAllowed).toBe(true)
+  })
+
+  it('التنفيذ 2004: «اكتب بغداد غزالية» بعد ما رفض الـ 8 كيلو وطلب 15 ← ماكو حجز', () => {
+    const m = '[رسالة صوتية]: أخوي أنا مو بالتاجي، أنا شليت من التاجي هسه بالغزالية آني. اكتب بغداد غزالية.'
+    const r = ctx(m, [OLD_ASK], {
+      lastBotAt: '2026-10-25T12:05:00Z',
+      recentMessages: [m, '[رسالة صوتية]: ما عندك غير 8 كيلو؟ ما تكفي، اريد غسالة اوتوماتيكي ال جي تكفي 15 كيلو', 'اريد وحدة'],
+    })
+    expect(r.orderContext.bookingAllowed).toBe(false)
+  })
+
+  it('نية شراء من أمس ما تحسب (recentTimes)', () => {
+    const r = ctx('بغداد الكرادة', [ASKED_ADDRESS], {
+      lastBotAt: '2026-10-25T12:05:00Z', recentMessages: ['بغداد الكرادة', 'اريد وحدة'], recentTimes: ['2026-10-25T12:08:00Z', YESTERDAY],
+    })
+    expect(r.orderContext.bookingAllowed).toBe(false)
+  })
+
+  it('موافقة «تمام» على ملخص من أمس ← مو تأكيد (ماكو create_order على سياق قديم)', () => {
+    const summary = 'هذا ملخص طلبك:\n- المجموع الكلي: 353,000 دينار كاش عند الاستلام\nأثبّتلك الطلب؟'
+    const r = ctx('تمام', [summary], { lastBotAt: YESTERDAY })
+    expect(r.orderContext.confirmedOnce).toBe(false)
+    expect(r.hint).not.toContain('تأكيد الزبون واصل')
+  })
+
+  it('عنوان الطلب السابق ينشال من البرومت بلا نية شراء', () => {
+    expect(stripPreviousAddress('رسائل الزبون:\nعندك غساله؟' + PREV_HINT + '\n\n[محادثة مستمرة]')).toBe('رسائل الزبون:\nعندك غساله؟\n\n[محادثة مستمرة]')
+  })
+
+  it('التنفيذ 2005: «نأكد العنوان السابق» ويا تصحيح السعة ← التصحيح بس', () => {
+    const r = ctx('[رسالة صوتية]: ما تكفي، اريد غسالة اوتوماتيكي ال جي 15 كيلو', [OLD_ASK], { lastBotAt: '2026-10-25T12:09:00Z' })
+    const reply = 'عزيزي، الي عدنا هسة غسالة أوتوماتيك أل جي 8 كيلو بس، والـ 15 كيلو للأسف ما عدنا حالياً.\n\nتحب أدزلك تفاصيل الغسالة الـ 8 كيلو؟ وإذا تحب نأكد العنوان السابق بغداد التاجي قرب المعسكر لو تغير؟\nSTAGE: 1'
+    const out = guardCatalogReply(reply, r.orderContext)
+    expect(out).not.toContain('العنوان السابق')
+    expect(out).toContain('والـ 15 كيلو للأسف ما عدنا حالياً')
+  })
+
+  it('إعادة التشغيل للتنفيذ 2004: «طلبك هسة صار» و«والعنوان: …» تنشال بلا نية شراء', () => {
+    const m = '[رسالة صوتية]: أخوي أنا مو بالتاجي، هسه بالغزالية. اكتب بغداد غزالية.'
+    const r = ctx(m, [OLD_ASK], { lastBotAt: '2026-10-25T12:05:00Z', recentMessages: [m, 'ما تكفي، اريد غسالة ال جي 15 كيلو'] })
+    const reply = 'تمام، أكتب بغداد الغزالية.\n\nطلبك هسة صار: ١ قطعة غسالة أوتوماتيك أل جي 8 كيلو (لونها أبيض).\n\nوالعنوان: بغداد الغزالية. تمام هيج؟ ما عندك شي ثاني تحب تضيفه بعد؟\nSTAGE: 2'
+    expect(guardCatalogReply(reply, r.orderContext)).toBe('تمام، أكتب بغداد الغزالية.\nSTAGE: 1')
+  })
+
+  const FEES = 'أجور التوصيل: 3,000 دينار لبغداد، و5,000 دينار لباقي المحافظات.'
+  const BOOKED_1392 = 'تم عزيزي، تم تأكيد طلبك. طلبك هسة صار: 1 غسالة أوتوماتيك أل جي 8 كيلو (لون أبيض).\n\nوالعنوان: بغداد غزالية. تمام هيج؟ ما عندك شي ثاني تحب تضيفه بعد؟ وياريت تدزلي اسمك ورقم الهاتف حتى نتأكد من الحجز.'
+  const BUY_1391 = '[رسالة صوتية]: تمام ثبت على بغداد الغزالية بس أريد غسالة ثمانية كيلو يلا مو مشكلة'
+
+  it('التنفيذ 2018: «تمااام» بعد ما البوت ذكر البند والعدد ← ماكو سؤال عدد من جديد', () => {
+    const r = ctx('تمااام', [BOOKED_1392], { lastBotAt: '2026-10-25T12:25:55Z', recentMessages: ['تمااام', BUY_1391], askedToOrder: true })
+    expect(r.orderContext.itemsFromBot).toBe(true)
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).toContain('ممنوع تسأل «شكم قطعة رايد؟» من جديد')
+    expect(r.hint).not.toContain('ماكو ولا بند محفوظ')
+  })
+
+  it('التنفيذ 2039: الزبون كال «بغداد الغزالية» ← عنوان الطلب السابق ينشال من البرومت ومن الرد', () => {
+    const m = '[رسالة صوتية]: اي قطعة وحده اريد. اشكد يصير سعرها ويا التوصيل؟ زين على بغداد الغزالية ورقم تلفوني نفسه.'
+    const r = ctx(m, [BOOKED_1392], { lastBotAt: '2026-10-25T12:28:05Z', recentMessages: [m, BUY_1391] })
+    expect(r.orderContext.addressGiven).toBe(true)
+    expect(r.hint).toContain('ممنوع تذكر أو تقترح عنوان أي طلب سابق')
+    const reply = 'تم عزيزي، تم تأكيد طلبك. الغسالة الأوتوماتيك أل جي 8 كيلو، وحدة.\n\nنعتمد عنوانك السابق بـ بغداد التاجي قرب المعسكر لو تغير؟\nSTAGE: 2'
+    expect(dropPreviousAddress(reply, { ...r.orderContext, previousAddress: 'بغداد التاجي قرب المعسكر' }))
+      .toBe('تم عزيزي، تم تأكيد طلبك. الغسالة الأوتوماتيك أل جي 8 كيلو، وحدة.\nSTAGE: 2')
+  })
+
+  it('أجور التوصيل من إعدادات المتجر حسب محافظة الزبون', () => {
+    expect(deliveryFor({ deliveryFees: FEES, message: 'زين على بغداد الغزالية' })).toEqual({ governorate: 'بغداد', fee: 3000, otherFee: 5000 })
+    expect(deliveryFor({ deliveryFees: FEES, message: 'توصلون للبصرة؟' })).toEqual({ governorate: 'البصرة', fee: 5000, otherFee: 3000 })
+    expect(deliveryFor({ deliveryFees: FEES, message: 'شكد سعرها؟' })).toBeNull()
+    const r = ctx('زين على بغداد الغزالية', [BOOKED_1392], { deliveryFees: FEES, recentMessages: ['زين على بغداد الغزالية', BUY_1391] })
+    expect(r.hint).toContain('المحافظة «بغداد» ← التوصيل 3,000 دينار بالضبط، مو 5,000')
+  })
+
+  it('التنفيذ 2062: «355,000 (350,000 + 5,000 توصيل)» لبغداد ← 353,000 و3,000', () => {
+    const d = { delivery: { governorate: 'بغداد', fee: 3000, otherFee: 5000 }, catalog: [{ price: 350000 }] }
+    expect(fixDeliveryFee('عند التوصيل إلى بغداد غزالية، السعر بيكون 355,000 دينار (350,000 للتسعيرة + 5,000 توصيل).\nSTAGE: 2', d))
+      .toBe('عند التوصيل إلى بغداد غزالية، السعر بيكون 353,000 دينار (350,000 للتسعيرة + 3,000 توصيل).\nSTAGE: 2')
+    // رسالة التثبيت (التنفيذ 2071) بيها المجموع بس: ينحسب من سعر الكتالوج
+    expect(fixDeliveryFee('رقم الطلب: 48\nالسعر الكلي: 355,000 دينار كاش عند الاستلام.', d)).toBe('رقم الطلب: 48\nالسعر الكلي: 353,000 دينار كاش عند الاستلام.')
+    // سطر الأجرتين والرد الصح ما ينلمسون
+    expect(fixDeliveryFee('أجور التوصيل 3,000 دينار لبغداد و5,000 دينار لباقي المحافظات.', d)).toBe('أجور التوصيل 3,000 دينار لبغداد و5,000 دينار لباقي المحافظات.')
+    expect(fixDeliveryFee('المجموع الكلي: 353,000 دينار (350,000 + 3,000 توصيل).', d)).toBe('المجموع الكلي: 353,000 دينار (350,000 + 3,000 توصيل).')
+    expect(fixDeliveryFee('المجموع الكلي: 355,000 دينار', {})).toBe('المجموع الكلي: 355,000 دينار')
+  })
+
+  it('«ما أعرف أقرا» طلب تواصل', () => {
+    expect(isContactRequest('[رسالة صوتية]: عجبلك تكتبلي، ما أعرف أقرا، بصمة بصمة')).toBe(true)
+    expect(isContactRequest('شكد سعرها؟')).toBe(false)
   })
 })
 

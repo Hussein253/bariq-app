@@ -19,8 +19,13 @@ const cgNorm = (s) => String(s ?? '').replace(/[ً-ٰٟـ]/g, '').replace(/[أإ
 const CG_BOOKED = /تم\s+تاكيد\s+طلب|طلب[كچ]\s+هسه\s+صار|تفاصيل\s+طلب[كچ]\s+الكامل/
 const CG_INFO_WORD = /اسم[كچ]|عنوان[كچ]|العنوان\s+الكامل|رقم\s+(?:التليفون|التلفون|الهاتف|الموبايل|تليفون[كچ]|موبايل[كچ])|معلومات[كچ]|المحافظه\s+والمنطقه/
 const CG_INFO_ASK = /ياريت|يا\s+ريت|تدزلي|تدزيلي|دزلي|دزيلي|اكتبلي|تكتبلي|ممكن|نحتاج|احتاج|ارسل|انطيني|علمود\s+ناكد|حتى\s+نكمل/
-const CG_PREV_ADDR = /نعتمد\s+عنوان/
-const CG_QTY_ASK = /(?:شكم|شكد)\s+(?:قطعه|قطع|وحده|حبه)[^.!؟?\n]*[؟?]|تحب\s+تطلب|نضغط\s+على\s+طلب/
+// «نعتمد عنوانك السابق»، و«نأكد العنوان السابق» (التنفيذ 2005)، و«نوصلها على عنوانك»
+const CG_PREV_ADDR = /(?:نعتمد|ناكد|نثبت|نوصل(?:ها)?|نرسل(?:ها)?|ندز(?:ها)?)\s+(?:على\s+|ل)?(?:عنوان|العنوان)|عنوان[كچ]?\s+السابق|العنوان\s+السابق/
+// النموذج يفترض نية حجز ما قالها الزبون: «فتهمت إنك حاب تحجز…» (التنفيذ 1997: الزبون سأل «شون أتصل عليك؟»)
+const CG_ASSUME = /(?:فتهمت|افتهمت|فهمت|مفهوم)\s+(?:ان[كچ]|إن[كچ])\s+(?:حاب|حابه|رايد|رايده|تريد|تريدين)\s+(?:تحجز|تطلب|تشتري)/
+// إعادة عنوان التوصيل كأنه طلب: «والعنوان: بغداد الغزالية.»، «والتوصيل راح يكون لعنوانك بـ…» (إعادة التشغيل للتنفيذ 2004)
+const CG_ADDR_ECHO = /^و?(?:ال)?عنوان[كچ]?\s*:|التوصيل\s+راح\s+يكون\s+ل(?:عنوان|ل)/
+const CG_QTY_ASK = /(?:شكم|شكد)\s+(?:قطعه|قطع|وحده|حبه)[^.!؟?\n]*[؟?]|تحب\s+تطلب|نضغط\s+على\s+طلب|(?:اذا|لو)\s+تحب\s+ن(?:كمل|ثبت|حجز|طلب)/
 const CG_CONFIRM_Q = /تمام\s+(?:هيج|هيچ)\s*[؟?]|ما\s+عند[كچ]\s+شي\s+(?:ثاني\s+)?تحب/
 // «غسالة أوتوماتيك…، وحدة.» لحالها: إعادة بند طلب ما صار
 const CG_ITEM_ECHO = /^[^،,.!؟?\n]{3,80}[،,]\s*(?:لون\s+[^،,.!؟?\n]+[،,]\s*)?(?:وحده|وحدتين|[0-9]+\s+قطع)(?:[،,]\s*لون\s+[^،,.!؟?\n]+)?\s*[.!]?$/
@@ -61,7 +66,7 @@ const cgSentences = (visible) => visible.split(/(?<=[.!؟?\n])/)
 
 const cgOpensBooking = (s) => {
   const t = cgNorm(s)
-  return CG_BOOKED.test(t) || CG_PREV_ADDR.test(t) || (CG_INFO_WORD.test(t) && CG_INFO_ASK.test(t))
+  return CG_BOOKED.test(t) || CG_PREV_ADDR.test(t) || CG_ASSUME.test(t) || CG_ADDR_ECHO.test(t.trim()) || (CG_INFO_WORD.test(t) && CG_INFO_ASK.test(t))
 }
 const cgPushes = (s) => CG_QTY_ASK.test(cgNorm(s)) || CG_CONFIRM_Q.test(cgNorm(s))
 
@@ -72,11 +77,12 @@ export function correctionText(m) {
   const avail = cgJoinAr(m.available ?? [])
   if (m.kind === 'color') {
     if (m.repeated) return 'أفهمك عزيزي، بس صدك حالياً ما عدنا ' + m.requestedLabel + '، المتوفر بس ' + avail + '. وإذا يناسبك ' + avail + ' أني حاضر أخدمك.'
-    return 'حياك الله عزيزي، ' + (m.product ? 'بخصوص ' + m.product + '، ' : '') + 'عدنا بس اللون ' + avail
+    // بدون «حياك الله»: «Polish Reply Style» يشيل الترحيب بالمحادثة المستمرة فيبقى الرد يبدي بـ «عزيزي،» مبتور
+    return (m.product ? 'بخصوص ' + m.product + ' عزيزي، ' : 'عزيزي، ') + 'عدنا بس اللون ' + avail
       + (m.available?.length === 1 ? ' (لون أنيق وعملي)' : '') + '، و' + m.requestedLabel + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل ' + avail + '؟'
   }
   if (m.repeated) return 'أفهمك عزيزي، بس حالياً ما عدنا الـ ' + m.requestedLabel + '، المتوفر بس الـ ' + avail + '. وإذا يناسبك أني حاضر أخدمك.'
-  return 'حياك الله عزيزي، الي عدنا هسة ' + (m.product ? m.product + ' بس' : 'بس الـ ' + avail) + '، والـ ' + m.requestedLabel
+  return 'عزيزي، الي عدنا هسة ' + (m.product ? m.product + ' بس' : 'بس الـ ' + avail) + '، والـ ' + m.requestedLabel
     + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ ' + avail + '؟'
 }
 
@@ -88,9 +94,14 @@ const cgFacts = (catalog = []) => {
   return list.length ? 'عدنا ' + cgJoinAr(list) + '.' : ''
 }
 
+// الزبون يريد يتصل أو ما يعرف يقرا (التنفيذ 1997) والرد كله كان فتح حجز: رقم التواصل وعرض موظف
+const cgContact = (phone) => (String(phone ?? '').trim()
+  ? 'تكدر تتصل بينا على ' + String(phone).trim() + '، وإذا تحب موظف من الفريق يتصل بيك ويكمل وياك.'
+  : 'إذا تحب، موظف من الفريق يتصل بيك ويكمل وياك.')
+
 /**
  * @param {string} text رد الوكيل (مع أسطر STAGE / NOTIFICATION_TYPE المخفية بآخره)
- * @param {object} [ctx] orderContext من عقدة «سياق الطلب» (mismatch، bookingAllowed، catalog) و placingOrder (create_order اشتغلت)
+ * @param {object} [ctx] orderContext من عقدة «سياق الطلب» (mismatch، bookingAllowed، catalog، contactRequest، contactPhone) و placingOrder (create_order اشتغلت)
  */
 export function guardCatalogReply(text, ctx = {}) {
   const src = String(text ?? '')
@@ -122,9 +133,69 @@ export function guardCatalogReply(text, ctx = {}) {
   })
   // إيموجي بقى لحاله بعد الجملة المشالة («شكم قطعة رايد؟ 🌟») يروح وياها
   let out = kept.filter((p) => !p.trim() || /[\p{L}\p{N}]/u.test(p)).join('').replace(/^\s*(?:تدلل|تم)\s+(?:عزيزي|عزيزتي)[،,.]?\s*$/m, '')
-  if (!/[\p{L}\p{N}]/u.test(out)) out = cgFacts(ctx.catalog)
+  if (!/[\p{L}\p{N}]/u.test(out)) out = ctx.contactRequest ? cgContact(ctx.contactPhone) : cgFacts(ctx.catalog)
   if (!out.trim()) return src
   return cgJoin(out, cgStage1(hidden))
+}
+
+// ————— عنوان الطلب السابق بعد ما الزبون ذكر عنوان جديد (التنفيذ 2039) —————
+
+const CG_OLD_ADDR = /عنوان[كچ]?\s+السابق|العنوان\s+السابق|من\s+(?:الطلب\s+)?السابق/
+
+/** يشيل كل جملة تذكر العنوان السابق إذا الزبون ذكر عنوان بهالمحادثة (ctx.addressGiven)، حتى بطلب جاري */
+export function dropPreviousAddress(text, ctx = {}) {
+  const src = String(text ?? '')
+  if (!ctx || !ctx.addressGiven || ctx.placingOrder) return src
+  const { visible, hidden } = cgSplit(src)
+  const prev = cgNorm(ctx.previousAddress || '').replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim()
+  const parts = cgSentences(visible)
+  const kept = parts.filter((p) => {
+    const t = cgNorm(p)
+    if (CG_OLD_ADDR.test(t) && /عنوان|السابق/.test(t)) return false
+    return !(prev.length >= 6 && t.replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').includes(prev))
+  })
+  if (kept.length === parts.length) return src
+  const out = kept.join('')
+  return /[\p{L}\p{N}]/u.test(out) ? cgJoin(out, hidden) : src
+}
+
+// ————— أجور التوصيل (الطلب 48: «355,000 (350,000 + 5,000 توصيل)» لبغداد والصح 3,000 و353,000) —————
+
+const CG_NUM = /\d{1,3}(?:,\d{3})+|\d{4,}/g
+const cgFmt = (n, like) => (like.includes(',') ? Math.round(n).toLocaleString('en-US') : String(Math.round(n)))
+
+/**
+ * الرقم الغلط للتوصيل (أجرة المحافظات الثانية) يتبدّل بالصح، والمجموع المبني عليه يتصحح: إذا بالرد مبلغ A ومبلغ A + الأجرة الغلط، يصير A + الأجرة الصح.
+ * سطر يذكر الأجرتين («3,000 لبغداد و5,000 لباقي المحافظات») ما ينلمس. ctx.delivery = { governorate, fee, otherFee }
+ */
+export function fixDeliveryFee(text, ctx = {}) {
+  const src = String(text ?? '')
+  const d = ctx && ctx.delivery
+  if (!d || !d.fee || !d.otherFee || d.fee === d.otherFee) return src
+  const { visible, hidden } = cgSplit(src)
+  const values = (visible.match(CG_NUM) || []).map((s) => Number(s.replace(/,/g, '')))
+  const prices = (ctx.catalog || []).map((p) => Number(p.price) || 0).filter(Boolean)
+  const fixTotal = (n) => {
+    const sub = n - d.otherFee
+    if (sub > d.otherFee && values.includes(sub) && !values.includes(n - d.fee)) return sub + d.fee
+    for (const p of prices) for (let q = 1; q <= 30; q++) if (n === p * q + d.otherFee) return p * q + d.fee
+    return n
+  }
+  const lines = visible.split('\n').map((line) => {
+    const t = cgNorm(line)
+    if (/باقي\s+المحافظات|لباقي/.test(t)) return line
+    return line.replace(CG_NUM, (tok, at) => {
+      const n = Number(tok.replace(/,/g, ''))
+      if (n === d.otherFee) {
+        const around = cgNorm(line.slice(Math.max(0, at - 30), at + tok.length + 30))
+        return /توصيل/.test(around) ? cgFmt(d.fee, tok) : tok
+      }
+      const fixed = fixTotal(n)
+      return fixed !== n ? cgFmt(fixed, tok) : tok
+    })
+  })
+  const out = lines.join('\n')
+  return out === visible ? src : cgJoin(out, hidden)
 }
 
 // ————— لمسة بشرية —————
@@ -137,7 +208,8 @@ const HT_CLOSERS = [
   /^(?:و)?اذا\s+(?:تحتاج|عند[كچ]|احتجت)\s+(?:اي\s+)?(?:شي\s+ثاني|استفسار|معلومات\s+ثانيه)[^.!؟?]*[.!؟?]?$/,
   /^(?:ت)?خبرني\s+بخصوص\s+هالموضوع\s*[؟?]?$/,
   /^شنو\s+رايد\s+تسال\s+اكثر\s*[؟?]?$/,
-  /^شنو\s+(?:رايد|تحب)\s+(?:تطلب|تسوي)(?:\s+بعد)?\s*[؟?]?$/,
+  // «شنو رايد تسوي، رايد تفاصيل أكثر؟» (التنفيذ 1999)
+  /^شنو\s+(?:رايد|تحب)\s+(?:تطلب|تسوي)[^.!؟?]*[؟?]?$/,
 ]
 // تلميح سعر خاص للكمية (التنفيذ 1678): «لكن إذا رايد 10 قطع يمكن نكدر نساعدك بتسعير أو شيء من هالقبيل»
 const HT_BULK = /(?:ن|ا)?(?:ك|ق)در\s+(?:ن|ا)ساعد(?:ك|چ)\s+ب?(?:ال)?تسعير|سعر\s+(?:خاص|جمله)|اسعار\s+جمله/

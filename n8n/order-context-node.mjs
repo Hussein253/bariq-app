@@ -27,7 +27,9 @@ const j = $json;
 const productNames = (() => { try { return String($(NODES.merchant).first().json.product_names || ''); } catch (e) { return ''; } })();
 // صفوف الكتالوج (عمود catalog بعقدة تحديد التاجر، من n8n/sales-guardrails.mjs): بدونها ماكو فحص لون ولا سعة
 const catalog = (() => { try { return $(NODES.merchant).first().json.catalog || []; } catch (e) { return []; } })();
-const base =(() => { try { return $(NODES.prompt).first().json || {}; } catch (e) { return {}; } })();
+// رقم التواصل من «معلومات النشاط» (merchant_section): حارس الرد يعطيه للزبون الي يريد يتصل
+const contactPhone = (() => { try { return (String($(NODES.merchant).first().json.merchant_section || '').match(/(?:^|\\n)-\\s*رقم التواصل:\\s*([+0-9٠-٩][0-9٠-٩ \\-]{6,}[0-9٠-٩])/) || [])[1] || ''; } catch (e) { return ''; } })();
+const base = (() => { try { return $(NODES.prompt).first().json || {}; } catch (e) { return {}; } })();
 const recent = (() => {
   try { return $(NODES.recent).all().map((i) => String((i.json || {}).message_text || '')); } catch (e) { return []; }
 })();
@@ -38,6 +40,11 @@ const botReplies = (() => {
     return Array.isArray(r) ? r.map((x) => String(x || '')) : [];
   } catch (e) { return []; }
 })();
+const recentTimes = (() => {
+  try { return $(NODES.recent).all().map((i) => (i.json || {}).created_at || null); } catch (e) { return []; }
+})();
+// وقت آخر رد للبوت (last_reply_at، من n8n/sales-guardrails.mjs): رد أقدم من 6 ساعات ما يُعدّ طلب جاري
+const lastBotAt = (() => { try { return $(NODES.bot).first().json.last_reply_at || null; } catch (e) { return null; } })();
 try {
   const res = orderContextHint({
     combinedMessage: base.combinedMessage,
@@ -47,8 +54,17 @@ try {
     botReplies,
     productNames,
     catalog,
+    lastBotAt,
+    contactPhone,
+    recentTimes,
+    deliveryFees: (() => { try { return String($(NODES.merchant).first().json.delivery_fees || ''); } catch (e) { return ''; } })(),
   });
-  return [{ json: { ...j, userPrompt: String(j.userPrompt || '') + res.hint, orderContext: res.orderContext }, pairedItem: { item: 0 } }];
+  // بلا نية شراء، أو الزبون ذكر عنوان جديد بهالمحادثة: عنوان الطلب السابق ينشال من البرومت حتى ما يقترحه البوت
+  const oc = res.orderContext;
+  const prompt = oc.bookingAllowed === false || oc.addressGiven ? stripPreviousAddress(j.userPrompt) : String(j.userPrompt || '');
+  // عنوان الطلب السابق لحارس الرد: جملة تذكره تنشال إذا الزبون ذكر عنوان جديد
+  oc.previousAddress = (() => { try { return String($('Previous Address Hint').first().json.previousAddress || ''); } catch (e) { return ''; } })();
+  return [{ json: { ...j, userPrompt: prompt + res.hint, orderContext: oc }, pairedItem: { item: 0 } }];
 } catch (e) {
   // التنبيه ما يوقف الرد أبداً: أي خطأ هنا يمرّر البرومت مثل ما هو ويُسجَّل السبب
   return [{ json: { ...j, orderContext: { error: String((e && e.message) || e) } }, pairedItem: { item: 0 } }];

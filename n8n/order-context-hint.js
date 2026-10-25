@@ -40,6 +40,8 @@ const WANTS_ORDER = /ثبتل|ثبت الطلب|تثبيت|اثبت|احجزل|�
 
 // للمطابقة بس (مو للعرض): بلا تشكيل، وهمزات وياء وتاء مربوطة موحّدة.
 const norm = (s) => bare(s).toLowerCase().replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+// «تمااام»، «ايييي»، «هسه تماام» (ماسنجر 2026-10-25، التنفيذين 2018 و2067): الحرف الممطوط ينحسب مرة وحدة بمطابقة الموافقة
+const squash = (s) => String(s ?? '').replace(/(\p{L})\1+/gu, '$1');
 
 // موافقة صريحة قصيرة على الي عرضه البوت: «ثبت»، «اوك ثبت طلب»، «إي»، «تمام»، «يلا».
 const AFFIRM = new Set([
@@ -73,7 +75,7 @@ export function confirmedOnce({ combinedMessage = '', botReplies = [] } = {}) {
   // البصمة تفريغها ممكن يغلط: تمشي بمسارها (Voice Confirm Guard) وما نفرض عليها تثبيت
   if (/رساله صوتيه|\[/.test(msg)) return false;
   if (/[?؟]/.test(msg)) return false;
-  const tokens = msg.split(/[\s,.،؛!:\-_/\\()]+/).filter(Boolean);
+  const tokens = msg.split(/[\s,.،؛!:\-_/\\()]+/).filter(Boolean).map(squash);
   if (tokens.length === 0 || tokens.length > 8) return false;
   if (NO_MORE.test(msg)) return true;
   if (tokens.some((t) => NOT_A_CONFIRM.has(t))) return false;
@@ -81,7 +83,8 @@ export function confirmedOnce({ combinedMessage = '', botReplies = [] } = {}) {
 }
 
 // ردك السابق سأل الزبون عن عنوانه السابق («نعتمد عنوانك السابق بـ … لو تغير؟») وهو يجاوب
-const PREV_ADDRESS_ASKED = /نعتمد عنوان[كچ] السابق/;
+// «نعتمد عنوانك السابق…» أو صيغ النموذج الثانية («نأكد العنوان السابق…»، التنفيذ 2005): بعد norm الهمزة تنشال
+const PREV_ADDRESS_ASKED = /(?:نعتمد|ناكد|نثبت)\s+(?:عنوان[كچ]|العنوان)\s+السابق|عنوان[كچ]\s+السابق/;
 
 const ADDRESS_ANSWER_HINT = '\n\n[الزبون يرد على سؤالك «نعتمد عنوانك السابق … لو تغير؟»: ممنوع تعيد «تم تأكيد طلبك» أو سؤال العنوان من جديد، والبنود هي الي ذكرتها بردك السابق (خزّنها بـ update_session_data إذا السلة فاضية).'
   + ' إذا وافق (إي، نفسه، اعتمد، تمام) اعتمد العنوان السابق والاسم ورقم التواصل بذاك الطلب وكمّل بملخص الطلب (البنود، أجور التوصيل، المبلغ الكلي كاش عند الاستلام) وبآخره «أثبّتلك الطلب؟».'
@@ -263,12 +266,13 @@ export function ownVoiceNote({ message = '', productNames = '', needsItems = fal
 
 // اللون الأساسي ← صيغه (بعد norm وبدون «ال»). «بنيه» مو لون: «آني بنية» إشارة إن الزبونة بنت.
 const COLOR_FORMS = {
-  اسود: ['اسود', 'سودا', 'سوداء', 'black'],
-  ابيض: ['ابيض', 'بيضا', 'بيضاء', 'white'],
-  احمر: ['احمر', 'حمرا', 'حمراء', 'red'],
-  ازرق: ['ازرق', 'زرقا', 'زرقاء', 'blue'],
-  اخضر: ['اخضر', 'خضرا', 'خضراء', 'green'],
-  اصفر: ['اصفر', 'صفرا', 'صفراء', 'yellow'],
+  // «سوده» (سودة بعد norm) بالتنفيذ 1999: «عندك غساله سوده» ما انكشفت
+  اسود: ['اسود', 'سودا', 'سوداء', 'سوده', 'black'],
+  ابيض: ['ابيض', 'بيضا', 'بيضاء', 'بيضه', 'white'],
+  احمر: ['احمر', 'حمرا', 'حمراء', 'حمره', 'red'],
+  ازرق: ['ازرق', 'زرقا', 'زرقاء', 'زرقه', 'blue'],
+  اخضر: ['اخضر', 'خضرا', 'خضراء', 'خضره', 'green'],
+  اصفر: ['اصفر', 'صفرا', 'صفراء', 'صفره', 'yellow'],
   رمادي: ['رمادي', 'رماديه', 'رصاصي', 'رصاصيه', 'gray', 'grey'],
   فضي: ['فضي', 'فضيه', 'سلفر', 'سيلفر', 'silver'],
   ذهبي: ['ذهبي', 'ذهبيه', 'جولد', 'كولد', 'gold'],
@@ -384,9 +388,9 @@ export function mismatchHint(m, { repeated = false } = {}) {
   const avail = joinAr(m.available);
   const what = m.kind === 'color' ? 'اللون «' + m.requestedLabel + '»' : 'السعة «' + m.requestedLabel + '»';
   const example = m.kind === 'color'
-    ? '«حياك الله عزيزي، ' + (m.product ? 'بخصوص ' + m.product + '، ' : '') + 'عدنا بس اللون ' + avail + (m.available.length === 1 ? ' (لون أنيق وعملي)' : '')
+    ? '«' + (m.product ? 'بخصوص ' + m.product + ' عزيزي، ' : 'عزيزي، ') + 'عدنا بس اللون ' + avail + (m.available.length === 1 ? ' (لون أنيق وعملي)' : '')
       + '، و' + m.requestedLabel + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل ' + avail + '؟»'
-    : '«حياك الله عزيزي، الي عدنا هسة ' + (m.product || 'بس الـ ' + avail) + (m.product ? ' بس' : '') + '، والـ ' + m.requestedLabel
+    : '«عزيزي، الي عدنا هسة ' + (m.product || 'بس الـ ' + avail) + (m.product ? ' بس' : '') + '، والـ ' + m.requestedLabel
       + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ ' + avail + '؟»';
   return '\n\n[تنبيه حاسم (فوق أي تنبيه ثاني): الزبون ذكر ' + what + ' وهذا مو متوفر بالكتالوج (المتوفر: ' + avail + ' بس).'
     + ' ممنوع توافقه أو تكتب إنه متوفر أو تحطه بطلبه، وممنوع بهذا الرد «تم تأكيد طلبك» و«طلبك هسة صار» وأي طلب للاسم أو العنوان أو الرقم، وممنوع سؤال عن العدد.'
@@ -415,6 +419,107 @@ export const correctedBefore = (m, lastBotReply = '') => {
   if (!m || !UNAVAILABLE.test(last)) return false;
   return m.kind === 'color' ? colorsIn(last).includes(m.requested) : capacitiesIn(last).some((c) => capLabel(c) === m.requested);
 };
+
+// ————— الطلب الجاري فعلاً (ماسنجر 2026-10-25) —————
+// التنفيذ 1997: رد البوت الأخير (من أمس) سأل «نعتمد عنوانك السابق… لو تغير؟»، والزبون سأل «شون أتصل عليك؟»؛ الكود عدّ الرسالة جواب على العنوان،
+// والتنبيهات خلّت البوت يكتب «فتهمت إنك حاب تحجز… شكم قطعة رايد؟ ونعتمد عنوانك السابق». والتنفيذ 1999: سلة طلب أمس (انحجز) بقت بالجلسة فـ«عندك
+// غساله سوده» انعدّت طلب جاري. هسة الطلب جاري بس إذا رد البوت الأخير حديث (6 ساعات) وكان سؤال طلب، ورسالة الزبون جواب عليه فعلاً.
+const THREAD_TTL_MS = 6 * 60 * 60 * 1000;
+export const isFresh = (at, now = Date.now()) => {
+  if (!at) return true; // نسخة أقدم من الاستعلام بلا وقت: نفس السلوك القديم
+  const t = Date.parse(String(at));
+  return Number.isNaN(t) || now - t < THREAD_TTL_MS;
+};
+const orderThread = (lastNorm) => ORDER_PROMPT.test(lastNorm) || QTY_ASKED.test(lastNorm) || SHOWED_TOTAL.test(lastNorm) || PREV_ADDRESS_ASKED.test(lastNorm);
+
+// المحافظات (بعد norm وبدون «ال»). «رمادي» مو هنا لأنها لون.
+const GOVS = /بغداد|بصره|نينوي|موصل|اربيل|نجف|كربلا|بابل|حله|انبار|فلوجه|ديالي|بعقوبه|صلاح الدين|تكريت|سامراء|كركوك|واسط|كوت|ميسان|عماره|ذي قار|ناصريه|مثني|سماوه|قادسيه|ديوانيه|دهوك|سليمانيه|حلبجه/;
+const ADDRESS_WORDS = /(?:^|\s)(?:حي|شارع|محله|زقاق|قرب|مقابل|جنب|منطقه|منطقتي|عنواني|العنوان|ساكن|اسكن|نقطه داله|اسمي|الاسم)(?=\s|$)/;
+// جواب قصير (لحد 6 كلمات) بيه كلمة موافقة أو نفي أو «نفسه»: «اعتمد»، «تمام اعتمد العنوان»، «هسه تماام» (التنفيذ 2067: «هسه» قبل «تمام»)
+const SHORT_WORDS = new Set(['اي', 'ايه', 'ايوه', 'نعم', 'اكيد', 'تمام', 'اوك', 'اوكي', 'ok', 'نفسه', 'اعتمد', 'اعتمده', 'اعتمدوه', 'موافق', 'زين', 'لا', 'لاء', 'تغير', 'غيرته', 'ثبت', 'ثبتها', 'ثبته', 'ثبتلي', 'يلا', 'ماشي', 'صح', 'خلص', 'كمل']);
+const SHORT_ANSWER = { test: (msg) => { const t = msg.split(' ').filter(Boolean); return t.length > 0 && t.length <= 6 && t.some((w) => SHORT_WORDS.has(w)); } };
+
+/** رسالة الزبون جواب على سؤال طلب (عنوان، رقم، اسم، عدد، إي/لا)؟ سؤال ثاني مثل «شون أتصل عليك؟» مو جواب. */
+export function answersThread(message) {
+  const msg = squash(toLatinDigits(norm(message))).replace(/^\[رساله صوتيه[^\]]*\]:?\s*/, '').replace(/[.!،,؟?]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!msg) return false;
+  if (/(?:^|\D)07\d{9}(?!\d)/.test(msg.replace(/[\s\-.()]/g, ''))) return true;
+  if (GOVS.test(msg) || ADDRESS_WORDS.test(msg) || QTY_ONLY.test(msg)) return true;
+  return SHORT_ANSWER.test(msg);
+}
+
+/**
+ * الزبون طلب يشتري بصراحة (لشي متوفر) برسالة من رسائله الحديثة، وما رجع بعدها طلب شي مو موجود؟
+ * @param {{ recentMessages?: string[], recentTimes?: (string|null)[], catalog?: ReturnType<typeof normalizeCatalog>, productNames?: string, now?: number }} [input]
+ */
+export function intentBefore({ recentMessages = [], recentTimes = [], catalog = [], productNames = '', now = Date.now() } = {}) {
+  for (let i = 0; i < recentMessages.length; i++) {
+    if (!isFresh(recentTimes[i] ?? null, now)) break; // الأحدث أول: أول رسالة قديمة توقف البحث
+    const m = recentMessages[i];
+    if (specMismatch({ message: m, catalog })) return false; // آخر طلب صريح كان لشي مو موجود
+    if (explicitBuyIntent(m, productNames)) return true;
+  }
+  return false;
+}
+
+// الزبون يريد يتصل أو ما يعرف يقرا (التنفيذين 1997 و2005): رقم التواصل وعرض موظف، مو حجز
+const CONTACT_Q = /(?:شلون|شون|كيف|وين)\s+(?:ا)?تصل|(?:اريد|رايد|ابي)\s+(?:ا)?تصل|رقمكم|رقم\s+(?:التواصل|المحل|الصفحه|المكتب|تلفونكم|موبايلكم)|اتصلو(?:ا)?\s+بي|اتصلولي|خلي\s+(?:احد|موظف)\s+يتصل|ما\s+اعرف\s+(?:اقرا|اقره|اكتب)|ما\s+(?:اقرا|اكتب)(?=\s|$)|دزلي\s+(?:بصمه|فويس|صوت)/;
+export const isContactRequest = (message) => CONTACT_Q.test(norm(message));
+
+export const CONTACT_HINT = '\n\n[الزبون يريد يتصل بيكم أو يكول ما يعرف يقرا أو يكتب: هذا مو طلب حجز.'
+  + ' انطيه رقم التواصل المكتوب بقسم «معلومات النشاط» حرفياً (إذا مكتوب)، وقله: «وإذا تحب، موظف من الفريق يتصل بيك ويحچي وياك». جملتين قصار وواضحات.'
+  + ' ممنوع بهذا الرد أي سؤال عن الطلب أو العدد أو العنوان، وممنوع تفترض إنه يريد يحجز («فهمت إنك حاب تحجز»).]';
+
+// ————— بنود معروفة، عنوان جديد، وأجور توصيل حتمية (ماسنجر 2026-10-25، الطلب 48) —————
+// ١. «تمااام» بعد «تم تأكيد طلبك… 1 غسالة» ← «شكم قطعة رايد؟» ثلاث مرات (التنفيذات 2018 و2034): البند مذكور برد البوت الحديث حتى لو السلة فاضية.
+const ITEM_STATED = /تم تاكيد طلب|طلب[كچ] هسه صار|تفاصيل طلب[كچ]/;
+const STATED_QTY = /(?:^|\s|[،,:(])(?:وحده|وحدتين|قطعه|قطعتين|[0-9]+)(?=\s|$|[.،,)])/;
+export const itemsStatedByBot = (lastNorm) => ITEM_STATED.test(lastNorm) && STATED_QTY.test(toLatinDigits(lastNorm));
+
+// ٢. الزبون كال «بغداد الغزالية» ثلاث مرات والبوت رجع اقترح «عنوانك السابق بـ بغداد التاجي» (التنفيذ 2039): عنوان بهالمحادثة يلغي عنوان الطلب السابق.
+const NEW_ADDRESS = /عنواني|شارع|محله|زقاق|(?:^|\s)حي(?=\s)|(?:^|\s)قرب(?=\s)/;
+/** الزبون ذكر عنوان أو محافظة برسالته الحالية أو برسائله الحديثة؟ */
+export function addressInThread({ message = '', recentMessages = [], recentTimes = [], now = Date.now() } = {}) {
+  const fresh = recentMessages.filter((_, i) => isFresh(recentTimes[i] ?? null, now));
+  return [message, ...fresh].some((m) => { const t = norm(m); return GOVS.test(t) || NEW_ADDRESS.test(t); });
+}
+
+// ٣. «بغداد غزالية» ← «355,000 (350,000 + 5,000 توصيل)» والتوصيل لبغداد 3,000 (التنفيذات 2062 و2067 و2071؛ الطلب 48 انحفظ 353,000 بس الزبون انقرا له 355,000).
+// المحافظة من كلام الزبون (آخر ذكر)، والأجور من نص delivery_fees بعقدة «تحديد التاجر» (نفس مصدر create_bot_order_shipment).
+const GOV_NAMES = [
+  ['بغداد', 'بغداد'], ['بصره', 'البصرة'], ['نينوي|موصل', 'نينوى'], ['اربيل', 'أربيل'], ['نجف', 'النجف'], ['كربلا', 'كربلاء'], ['بابل|حله', 'بابل'],
+  ['انبار|فلوجه', 'الأنبار'], ['ديالي|بعقوبه', 'ديالى'], ['صلاح الدين|تكريت|سامراء', 'صلاح الدين'], ['كركوك', 'كركوك'], ['واسط|كوت', 'واسط'],
+  ['ميسان|عماره', 'ميسان'], ['ذي قار|ناصريه', 'ذي قار'], ['مثني|سماوه', 'المثنى'], ['قادسيه|ديوانيه', 'القادسية'], ['دهوك', 'دهوك'],
+  ['سليمانيه', 'السليمانية'], ['حلبجه', 'حلبجة'],
+].map(([re, name]) => [new RegExp(re), name]);
+const govOf = (text) => { const t = norm(text); for (const [re, name] of GOV_NAMES) if (re.test(t)) return name; return ''; };
+const parseIqd = (s) => Number(String(s ?? '').replace(/[^\d]/g, '')) || 0;
+
+/**
+ * أجور التوصيل لمحافظة الزبون إذا معروفة: { governorate, fee, otherFee } أو null
+ * @param {{ deliveryFees?: string, message?: string, recentMessages?: string[], recentTimes?: (string|null)[], now?: number }} [input]
+ */
+export function deliveryFor({ deliveryFees = '', message = '', recentMessages = [], recentTimes = [], now = Date.now() } = {}) {
+  const m = toLatinDigits(String(deliveryFees ?? '')).match(/أجور التوصيل:\s*([\d,]+)\s*دينار\s*ل(.+?)،\s*و([\d,]+)\s*دينار\s*لباقي المحافظات/);
+  if (!m) return null;
+  const local = parseIqd(m[1]);
+  const base = govOf(m[2]);
+  const other = parseIqd(m[3]);
+  if (!local || !other || !base) return null;
+  const fresh = recentMessages.filter((_, i) => isFresh(recentTimes[i] ?? null, now));
+  const gov = [message, ...fresh].map(govOf).find(Boolean);
+  if (!gov) return null;
+  return gov === base ? { governorate: gov, fee: local, otherFee: other } : { governorate: gov, fee: other, otherFee: local };
+}
+
+export const deliveryHint = (d) => (d
+  ? '\n\n[أجور التوصيل لهذا الزبون (من إعدادات المتجر، حتمية): المحافظة «' + d.governorate + '» ← التوصيل ' + fmtIqd(d.fee) + ' دينار بالضبط، مو '
+    + fmtIqd(d.otherFee) + '. المجموع الكلي = سعر القطعة × العدد + ' + fmtIqd(d.fee) + '. استعمل هالرقم بكل رد وبالملخص وبـ create_order ورسالة التثبيت.]'
+  : '');
+
+// عنوان الطلب السابق (عقدة «Previous Address Hint») يبقى بالبرومت بس إذا الحجز مسموح، وإلا البوت يقترحه على استفسار
+const PREV_ADDRESS_BLOCK = /\n\n\[عنوان سابق للزبون[^\]]*\](?:\n\[تنبيه: هذي معلومات طلب سابق[^\]]*\])?/g;
+export const stripPreviousAddress = (userPrompt) => String(userPrompt ?? '').replace(PREV_ADDRESS_BLOCK, '');
 // </catalog>
 
 /**
@@ -426,8 +531,13 @@ export const correctedBefore = (m, lastBotReply = '') => {
  * @param {string[]} [input.botReplies]       ردود البوت الأخيرة، الأحدث أول (Load Recent Bot Replies)
  * @param {string}   [input.productNames]     أسماء المنتجات المتوفرة مفصولة بـ «،» (product_names من عقدة تحديد التاجر)
  * @param {object[]|string} [input.catalog]   صفوف الكتالوج (catalog من عقدة تحديد التاجر): الاسم واللون والقياس والسعر
+ * @param {string|null} [input.lastBotAt]     وقت آخر رد للبوت (last_reply_at من Load Recent Bot Replies)؛ بدونه يُعدّ حديث
+ * @param {number}   [input.now]              الوقت الحالي بالملي ثانية (للاختبارات)
+ * @param {string}   [input.contactPhone]     رقم التواصل من «معلومات النشاط» (لحارس الرد إذا الزبون يريد يتصل)
+ * @param {(string|null)[]} [input.recentTimes] أوقات recentMessages بنفس الترتيب (created_at)؛ بدونها كل السجل يُعدّ حديث
+ * @param {string}   [input.deliveryFees]     نص delivery_fees من عقدة تحديد التاجر («أجور التوصيل: 3,000 دينار لبغداد، و5,000 دينار لباقي المحافظات.»)
  */
-export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false, botReplies = [], productNames = '', catalog = [] } = {}) {
+export function orderContextHint({ combinedMessage = '', sessionData = null, recentMessages = [], orderingNow = false, botReplies = [], productNames = '', catalog = [], lastBotAt = null, now = Date.now(), contactPhone = '', recentTimes = [], deliveryFees = '' } = {}) {
   const current = bare(combinedMessage);
 
   // الدور الحالي ينلوگ بفرع ثاني، فممكن يكون أو ما يكون بالسجل لهسة: أي رسالة موجودة أصلاً بالرسائل
@@ -441,14 +551,18 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   const cart = sessionData && Array.isArray(sessionData.cart) ? sessionData.cart : [];
   const askedToOrder = WANTS_ORDER.test(current) || recentMessages.some((t) => WANTS_ORDER.test(bare(t)));
-  const confirmed = confirmedOnce({ combinedMessage, botReplies });
+  // رد البوت الأخير أقدم من 6 ساعات ما يُعدّ طلب جاري (التنفيذ 1997: سؤال عنوان من أمس خلّى «شون أتصل عليك؟» جواب عليه)
+  const threadFresh = isFresh(lastBotAt, now);
+  const confirmed = threadFresh && confirmedOnce({ combinedMessage, botReplies });
   // الزبون وافق على بنود ومبلغ البوت عرضهم بردّه السابق: البنود معروفة حتى لو السلة فاضية
   // الزبون سمّى العدد بنفسه والمتجر عنده منتج واحد («رايد قطعه»): البند معروف، فلا سؤال بنود ولا منع للعنوان
   const itemsFromMessage = itemsKnownFromMessage({ productNames, message: combinedMessage });
-  // ردك السابق سأل «نعتمد عنوانك السابق… لو تغير؟» والزبون يجاوب عليه: البنود استقرت بردك السابق، والموافقة هذي على العنوان بس
+  // ردك السابق سأل «نعتمد عنوانك السابق… لو تغير؟» والزبون يجاوب عليه فعلاً (إي، نفسه، عنوان جديد): البنود استقرت بردك السابق، والموافقة هذي على العنوان بس
   const lastBotNorm = norm(Array.isArray(botReplies) ? botReplies[0] : '');
   const placed = ALREADY_PLACED.test(lastBotNorm);
-  const addressAsked = !confirmed && !placed && PREV_ADDRESS_ASKED.test(lastBotNorm);
+  const threadActive = threadFresh && !placed && orderThread(lastBotNorm);
+  const answering = threadActive && answersThread(combinedMessage);
+  const addressAsked = !confirmed && answering && PREV_ADDRESS_ASKED.test(lastBotNorm);
   // استفسار بس: «شنو عندك شاشة سمارت؟» أو «ما عندك بس غسالة؟». الحكم يتبع رسالة الزبون الحالية والسلة ورد البوت الأخير، مو كلمة «احجزلي» قبل ساعات
   // بسجل اليوم (ماسنجر 2026-10-24، التنفيذ 1638: سجل بيه «احجزلي» خلّى استفسار يتعامل كطلب والبوت رد «عدنا غسالة… شكم قطعة رايد؟» بدل الجواب)
   const browsing = isBrowsing({
@@ -459,11 +573,19 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   const items = normalizeCatalog(catalog);
   const lastBotReply = Array.isArray(botReplies) ? botReplies[0] : '';
   const mismatch = specMismatch({ message: combinedMessage, catalog: items });
-  const explicitIntent = explicitBuyIntent(combinedMessage, productNames) || quantityAnswer(combinedMessage, lastBotReply);
-  const inFlow = cart.length > 0 || confirmed || addressAsked || ORDER_PROMPT.test(lastBotNorm);
-  const bookingAllowed = !mismatch && (explicitIntent || inFlow);
+  const explicitIntent = explicitBuyIntent(combinedMessage, productNames) || (threadFresh && quantityAnswer(combinedMessage, lastBotReply));
+  const contactRequest = isContactRequest(combinedMessage);
+  // الحجز بنية شراء صريحة بهالرسالة، أو موافقة على الملخص، أو جواب فعلي على سؤال طلب جاري (عنوان، رقم، عدد، إي/لا)،
+  // أو بنود محفوظة وطلب جاري فعلاً. السلة الباقية من طلب انحجز (التنفيذ 1999) وسؤال عنوان قديم مو طلب جاري.
+  // والجواب على سؤال الطلب يحتاج نية شراء سابقة بهالمحادثة لشي متوفر: «اكتب بغداد غزالية» بعد ما كال «8 كيلو ما تكفيني، اريد 15» (التنفيذ 2004) مو حجز
+  const intentInThread = intentBefore({ recentMessages, recentTimes, catalog: items, productNames, now });
+  const bookingAllowed = !mismatch && (explicitIntent || confirmed || (answering && intentInThread) || (cart.length > 0 && threadActive && !contactRequest));
   const specQuestion = !mismatch && isSpecQuestion(combinedMessage);
-  const needsItems = !mismatch && !confirmed && !itemsFromMessage && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
+  // البند والعدد مذكورين برد البوت الحديث («تم تأكيد طلبك… 1 غسالة»): ما ينسأل عن العدد من جديد حتى لو السلة فاضية
+  const itemsFromBot = threadActive && itemsStatedByBot(lastBotNorm);
+  const addressGiven = addressInThread({ message: combinedMessage, recentMessages, recentTimes, now });
+  const delivery = deliveryFor({ deliveryFees, message: combinedMessage, recentMessages, recentTimes, now });
+  const needsItems = !mismatch && !confirmed && !itemsFromMessage && !itemsFromBot && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
   // طلب جاري وردك السابق ما عرض المبلغ الكلي: الزبون ما وافق على شي لهسة، فما ينحجز طلب
   const totalNotShown = !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || cart.length > 0 || orderingNow === true);
 
@@ -486,7 +608,7 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   if (browsing) hint += BROWSING_HINT;
 
-  const single = mismatch ? '' : singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
+  const single = mismatch || itemsFromBot ? '' : singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
   hint += single;
 
   // الحجز النهائي (create_order) بموافقة الزبون الصريحة على المبلغ الكلي بس. «اعتمد» جواب على سؤال العنوان مو موافقة على الطلب
@@ -498,8 +620,16 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   // (التنفيذ 1588: «تمام اعتمد العنوان» ← نفس الافتتاحية ونفس سؤال العنوان)
   if (!confirmed && !browsing && !addressAsked && bookingAllowed) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
   // بلا نية شراء صريحة وبلا طلب جاري: جواب وإقناع بس، بدون فتح حجز (تنبيه البنود والاستفسار عدهم قواعدهم). التحية لحالها ما تحتاجه
-  else if (!confirmed && !browsing && !addressAsked && !needsItems && !mismatch && buyRisk(combinedMessage, orderingNow)) hint += NO_BUY_YET_HINT;
+  else if (!confirmed && !browsing && !addressAsked && !needsItems && !mismatch && !contactRequest && buyRisk(combinedMessage, orderingNow)) hint += NO_BUY_YET_HINT;
+  if (contactRequest && !bookingAllowed) hint += CONTACT_HINT;
   if (specQuestion) hint += SPEC_HINT;
+  if (bookingAllowed && itemsFromBot) {
+    hint += '\n\n[البند والعدد مذكورين بردك السابق: ممنوع تسأل «شكم قطعة رايد؟» من جديد. كمّل بالناقص من معلومات التوصيل، أو بالملخص إذا كلها كاملة.]';
+  }
+  if (addressGiven) {
+    hint += '\n\n[الزبون ذكر عنوانه أو محافظته بهالمحادثة: هذا هو العنوان المعتمد. ممنوع تذكر أو تقترح عنوان أي طلب سابق («نعتمد عنوانك السابق»)، حتى لو الاسم والرقم «نفسه».]';
+  }
+  hint += deliveryHint(delivery);
   // التصحيح آخر تنبيه حتى يغلب أي تعليمة فوقه
   const repeated = correctedBefore(mismatch, lastBotReply);
   if (mismatch) hint += mismatchHint(mismatch, { repeated });
@@ -508,7 +638,8 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
     hint,
     orderContext: {
       itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length,
-      explicitIntent, bookingAllowed, specQuestion, mismatch: mismatch ? { ...mismatch, repeated } : null,
+      explicitIntent, bookingAllowed, specQuestion, contactRequest, contactPhone: String(contactPhone ?? '').trim(), threadFresh, mismatch: mismatch ? { ...mismatch, repeated } : null,
+      itemsFromBot, addressGiven, delivery,
       catalog: items.map((p) => ({ name: p.name, color: p.color, price: p.price, colors: p.colors.map((c) => COLOR_LABEL[c] ?? c) })),
     },
   };
