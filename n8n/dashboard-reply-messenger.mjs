@@ -118,7 +118,7 @@ const sendNode = (page, position) => ({
     sendBody: true,
     specifyBody: 'json',
     jsonBody: SEND_BODY,
-    options: { timeout: 15000 },
+    options: { timeout: 10000 }, // أقل من مهلة التطبيق (15 ثانية) حتى يوصله سبب الفشل (n8n/network-resilience.mjs)
   },
 })
 
