@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { correctionText, dropPreviousAddress, fixDeliveryFee, guardCatalogReply, humanTouch } from '@/n8n/catalog-guard.js'
-import { deliveryFor, explicitBuyIntent, isContactRequest, normalizeCatalog, orderContextHint, quantityAnswer, specMismatch, stripPreviousAddress } from '@/n8n/order-context-hint.js'
+import { correctionText, dropPreviousAddress, fixDeliveryFee, greetingReply, guardCatalogReply, humanTouch } from '@/n8n/catalog-guard.js'
+import { deliveryFor, explicitBuyIntent, isContactRequest, isPureGreeting, normalizeCatalog, orderContextHint, quantityAnswer, specMismatch, stripPreviousAddress } from '@/n8n/order-context-hint.js'
 
 // محادثة ماسنجر 2026-10-24 (الزبون 28944586871867160): الغسالة الوحيدة بالمتجر بيضاء
 const WASHER = 'غسالة أوتوماتيك أل جي 8 كيلو'
@@ -312,6 +312,40 @@ describe('الطلب الجاري فعلاً — سياق قديم ما يفتح
     expect(fixDeliveryFee('أجور التوصيل 3,000 دينار لبغداد و5,000 دينار لباقي المحافظات.', d)).toBe('أجور التوصيل 3,000 دينار لبغداد و5,000 دينار لباقي المحافظات.')
     expect(fixDeliveryFee('المجموع الكلي: 353,000 دينار (350,000 + 3,000 توصيل).', d)).toBe('المجموع الكلي: 353,000 دينار (350,000 + 3,000 توصيل).')
     expect(fixDeliveryFee('المجموع الكلي: 355,000 دينار', {})).toBe('المجموع الكلي: 355,000 دينار')
+  })
+
+  it('التنفيذ 2126: «مرحبا» بعد ساعتين ونص من «عندك غساله سوده» ← تحية بس، بلا سجل قديم', () => {
+    const lastBot = 'الغسالة الـ 8 كيلو الموجودة عدنا لونها أبيض فقط، وسعرها 350,000 دينار.\n\nشنو رايد تسوي، رايد تفاصيل أكثر؟'
+    const r = ctx('مرحبا', [lastBot], { lastBotAt: '2026-10-25T12:10:57Z', recentMessages: ['مرحبا', 'مرحبا عندك غساله سوده'], now: Date.parse('2026-10-25T14:36:10Z') })
+    expect(r.orderContext.pureGreeting).toBe(true)
+    expect(r.hint).toContain('رسالة الزبون هسة تحية بس')
+    expect(r.hint).not.toContain('مرحبا عندك غساله سوده')
+    const reply = 'إي، الغسالة أوتوماتيك أل جي 8 كيلو لونها بيضاء وسعرها 350,000 دينار.\nSTAGE: 1'
+    expect(greetingReply(reply, r.orderContext)).toBe('هلا بيك نورتنا 🌷 شلون أكدر أساعدك اليوم؟\nSTAGE: 0')
+    // رد تحية صح (حتى بالتعريف باسم الموظف) يبقى
+    expect(greetingReply('هلا بيك نورتنا، أني محمد من فريق الرقمي 🌷 شلون أكدر أخدمك اليوم؟\nSTAGE: 0', r.orderContext))
+      .toBe('هلا بيك نورتنا، أني محمد من فريق الرقمي 🌷 شلون أكدر أخدمك اليوم؟\nSTAGE: 0')
+  })
+
+  it('«مرحبا» بلا سلام ← رد الوكيل «وعليكم السلام، هلا بيك…» يتشال منه رد السلام', () => {
+    const r = ctx('مرحبا', ['عدنا غسالة.'], { recentMessages: ['مرحبا', 'عندك غسالة؟'] })
+    expect(greetingReply('وعليكم السلام، هلا بيك نورتنا 🌷 شلون أكدر أساعدك اليوم؟\nSTAGE: 0', r.orderContext))
+      .toBe('هلا بيك نورتنا 🌷 شلون أكدر أساعدك اليوم؟\nSTAGE: 0')
+  })
+
+  it('«السلام عليكم ورحمة الله» ← «وعليكم السلام» أول الرد', () => {
+    const r = ctx('السلام عليكم ورحمة الله', [], {})
+    expect(r.orderContext.pureGreeting).toBe(true)
+    expect(greetingReply('شلون أكدر أساعدك اليوم؟\nSTAGE: 0', r.orderContext)).toBe('وعليكم السلام، هلا بيك نورتنا 🌷 شلون أكدر أساعدك اليوم؟\nSTAGE: 0')
+  })
+
+  it.each(['مرحبا عندك غساله سوده', 'هلا شكد السعر؟', 'الو موجود؟ اريد احجز', 'تمام'])('مو تحية بس: %s', (m) => {
+    expect(isPureGreeting(m)).toBe(false)
+  })
+
+  it('تحية بنص طلب جاري حديث ← مو استبدال (الوكيل يكمّل الطلب)', () => {
+    const r = ctx('هلا', [ASKED_ADDRESS], { lastBotAt: '2026-10-25T12:05:00Z', recentMessages: ['هلا', 'اريد وحدة'] })
+    expect(r.orderContext.pureGreeting).toBe(false)
   })
 
   it('«ما أعرف أقرا» طلب تواصل', () => {

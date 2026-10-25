@@ -198,6 +198,27 @@ export function fixDeliveryFee(text, ctx = {}) {
   return out === visible ? src : cgJoin(out, hidden)
 }
 
+// ————— تحية بس (التنفيذ 2126: «مرحبا» ← «إي، الغسالة… 350,000» جواب سؤال قبل ساعتين ونص) —————
+
+const GR_WORD = /هلا|اهلا|مرحب|عليكم\s+السلام|نورتنا|حياك|صباح\s+النور|مساء\s+النور/
+const GR_OFF = /\d{1,3}(?:,\d{3})+|\d{4,}|دينار/
+
+/** الزبون سلّم بس (ctx.pureGreeting): الرد لازم يكون تحية؛ إذا جاوب شي قديم أو ذكر سعر أو طلب، أو «Polish Reply Style» شال الترحيب، يتبدّل بالتحية */
+export function greetingReply(text, ctx = {}) {
+  const src = String(text ?? '')
+  if (!ctx || !ctx.pureGreeting || ctx.placingOrder || /NOTIFICATION_TYPE:/i.test(src)) return src
+  const split = cgSplit(src)
+  const hidden = split.hidden
+  // «وعليكم السلام» بس إذا الزبون سلّم (إعادة التشغيل للتنفيذ 2126: «مرحبا» ← «وعليكم السلام، هلا بيك…»)
+  const visible = ctx.salam ? split.visible : split.visible.replace(/^\s*وعليكم\s+السلام(?:\s+ورحمة\s+الله(?:\s+وبركاته)?)?\s*[،,.!]?\s*/, '')
+  const t = cgNorm(visible)
+  const names = (ctx.catalog || []).map((p) => cgNorm(p.name)).filter((n) => n.length >= 4)
+  const ok = GR_WORD.test(t) && !GR_OFF.test(t) && !cgSentences(visible).some((p) => cgOpensBooking(p) || cgPushes(p)) && !names.some((n) => t.includes(n))
+  if (ok && (!ctx.salam || /عليكم\s+السلام/.test(t))) return visible === split.visible ? src : cgJoin(visible, hidden)
+  const reply = (ctx.salam ? 'وعليكم السلام، ' : '') + 'هلا بيك نورتنا 🌷 شلون أكدر أساعدك اليوم؟'
+  return cgJoin(reply, hidden.map((l) => l.replace(/^(\s*STAGE\s*:\s*)\d+/i, (m, pre) => pre + '0')))
+}
+
 // ————— لمسة بشرية —————
 
 const HT_SALAM = /(?:^|\s)(?:ال)?سلام\s+عليكم/

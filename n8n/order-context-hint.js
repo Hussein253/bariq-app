@@ -517,6 +517,27 @@ export const deliveryHint = (d) => (d
     + fmtIqd(d.otherFee) + '. المجموع الكلي = سعر القطعة × العدد + ' + fmtIqd(d.fee) + '. استعمل هالرقم بكل رد وبالملخص وبـ create_order ورسالة التثبيت.]'
   : '');
 
+// ————— تحية بس (ماسنجر 2026-10-25، التنفيذ 2126) —————
+// الزبون كتب «مرحبا» بعد ساعتين ونص من سؤاله «عندك غساله سوده»، والبوت جاوب السؤال القديم («إي، الغسالة… 350,000») بدل ما يرد التحية:
+// سجل المحادثة بالتنبيه كان بيه السؤال القديم. التحية لحالها وبلا طلب جاري: رد تحية بس، بدون سجل قديم.
+const GREETING_WORDS = new Set([
+  'مرحبا', 'مرحبه', 'مراحب', 'هلا', 'هلو', 'هاي', 'اهلا', 'اهلين', 'هلاو', 'الو', 'سلام', 'السلام', 'عليكم', 'وعليكم', 'صباح', 'مساء', 'الخير', 'النور',
+  'شلونك', 'شلونكم', 'شلونج', 'hi', 'hello', 'hey', 'عيني', 'اخي', 'اخوي', 'حبيبي', 'استاذ', 'خالي', 'عمي', 'يا',
+  'ورحمه', 'الله', 'اله', 'وبركاته', 'بركاته', // «السلام عليكم ورحمة الله وبركاته» (squash تخلي «الله» «اله»)
+]);
+/** رسالة الزبون تحية بس («مرحبا»، «السلام عليكم»، «هلا اخوي»، «صباح الخير»)؟ */
+export function isPureGreeting(message) {
+  const msg = squash(norm(message)).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
+  const words = msg.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 6) return false;
+  if (!words.some((w) => /^(?:مرحب|مراحب|هلا|هلو|هاي|اهل|الو|سلام|السلام|صباح|مساء|hi|hello|hey)/.test(w))) return false;
+  return words.every((w) => GREETING_WORDS.has(w) || GREETING_WORDS.has(w.replace(/^و/, '')));
+}
+export const saidSalam = (message) => /(?:^|\s)(?:ال)?سلام(?:\s|$)/.test(norm(message));
+
+export const GREETING_HINT = '\n\n[رسالة الزبون هسة تحية بس: رد التحية بجملة دافية قصيرة وبعدها «شلون أكدر أساعدك اليوم؟». إذا سلّم ابدي بـ «وعليكم السلام».'
+  + ' ممنوع بهذا الرد تجاوب على أي سؤال قديم أو تذكر منتج أو سعر أو طلب أو عنوان، حتى لو اكو سجل محادثة قديم.]';
+
 // عنوان الطلب السابق (عقدة «Previous Address Hint») يبقى بالبرومت بس إذا الحجز مسموح، وإلا البوت يقترحه على استفسار
 const PREV_ADDRESS_BLOCK = /\n\n\[عنوان سابق للزبون[^\]]*\](?:\n\[تنبيه: هذي معلومات طلب سابق[^\]]*\])?/g;
 export const stripPreviousAddress = (userPrompt) => String(userPrompt ?? '').replace(PREV_ADDRESS_BLOCK, '');
@@ -589,8 +610,11 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   // طلب جاري وردك السابق ما عرض المبلغ الكلي: الزبون ما وافق على شي لهسة، فما ينحجز طلب
   const totalNotShown = !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || cart.length > 0 || orderingNow === true);
 
+  // تحية بس وبلا طلب جاري: رد تحية، وسجل المحادثة القديم ما يوصل للوكيل حتى ما يجاوب سؤال قديم (التنفيذ 2126)
+  const pureGreeting = !threadActive && isPureGreeting(combinedMessage);
+
   let hint = '';
-  if (earlier.length) {
+  if (earlier.length && !pureGreeting) {
     hint += '\n\n[سجل المحادثة — رسائل الزبون السابقة بهالمحادثة، الأقدم أول. هذي للفهم بس ومو رسائل جديدة:'
       + ' لا تجاوب عليها من جديد ولا ترحب من جديد، بس استعملها حتى تعرف شنو طلب الزبون قبل وشنو قاله إلك.\n'
       + earlier.join('\n') + ']';
@@ -633,13 +657,15 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   // التصحيح آخر تنبيه حتى يغلب أي تعليمة فوقه
   const repeated = correctedBefore(mismatch, lastBotReply);
   if (mismatch) hint += mismatchHint(mismatch, { repeated });
+  // أول تحية بلا سجل يكفيها ترحيب «بداية محادثة»؛ التنبيه للتحية الي قبلها سجل أو رد قديم
+  if (pureGreeting && (earlier.length || lastBotReply)) hint += GREETING_HINT;
 
   return {
     hint,
     orderContext: {
       itemsKnown: cart.length > 0, needsItems, askedToOrder, confirmedOnce: confirmed, browsing, singleProduct: single ? singleProductOf(productNames) : '', history: earlier.length,
       explicitIntent, bookingAllowed, specQuestion, contactRequest, contactPhone: String(contactPhone ?? '').trim(), threadFresh, mismatch: mismatch ? { ...mismatch, repeated } : null,
-      itemsFromBot, addressGiven, delivery,
+      itemsFromBot, addressGiven, delivery, pureGreeting, salam: saidSalam(combinedMessage),
       catalog: items.map((p) => ({ name: p.name, color: p.color, price: p.price, colors: p.colors.map((c) => COLOR_LABEL[c] ?? c) })),
     },
   };

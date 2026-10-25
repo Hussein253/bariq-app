@@ -25,13 +25,16 @@ N8N_KEY=… node n8n/<script>.mjs messenger whatsapp instagram
 
 | `sales-guardrails.mjs` (الجولة الثانية، 2026-10-25) | بعد أول تطبيق رجع البوت يأكد العنوان والطلب والزبون يستفسر: سؤال عنوان من أمس خلّى «شون أتصل عليك؟» جواب عليه (1997)، وسلة طلب انحجز بقت فـ«عندك غساله سوده» انعدّت طلب جاري (1999)، وسأل العدد ثلاث مرات (2018، 2034)، واقترح عنوان التاجي بعد ما الزبون كال الغزالية ثلاث مرات (2039)، وكتب للزبون 355,000 بأجرة 5,000 لبغداد والطلب 48 انحفظ 353,000 (2062–2071). هسة الطلب جاري بس إذا رد البوت الأخير حديث (6 ساعات، `last_reply_at`) وكان سؤال طلب، ورسالة الزبون جواب فعلي عليه، وقبلها نية شراء صريحة لشي متوفر (`intentBefore`)؛ والسلة بعد طلب انحجز ما تحسب. عنوان الطلب السابق ينشال من البرومت والرد إذا الحجز مو مسموح أو الزبون ذكر عنوان (`addressInThread`، `dropPreviousAddress`). البند المذكور برد البوت ما ينسأل عنه من جديد (`itemsStatedByBot`). أجرة التوصيل تنحسب من `delivery_fees` حسب محافظة الزبون وتتصحح بالرد حتى برسالة التثبيت (`deliveryFor`، `fixDeliveryFee`). «شون أتصل؟» و«ما أعرف أقرا» ← رقم التواصل وعرض موظف (`CONTACT_HINT`). «سوده» و«تمااام» تنفهم | ماسنجر وواتساب |
 
+| `log-on-arrival.mjs` | رسالة الزبون كانت تطلع باللوحة بس بعد رد البوت: «Log Incoming Message» يكتبها بـ conversation_log بعد الـ debounce والقفل وجلب البفر (التنفيذ 2126: وصلت 14:36:10، انكتبت 14:36:24، والرد 14:36:31). هسة «Log Incoming On Arrival» يكتب كل رسالة بعد «Upsert Customer Session» مباشرة (فرع فوق المسار الرئيسي، `onError: continue`، و intent «human_takeover» بوضع الموظف)، و«Log Incoming Message» و«Log Customer Msg (Human Mode)» منفصلات ومعطّلات، و«Tag Customer Msg (Error/Blocked)» يعلّمن رسائل الدفعة بوقتها (created_at ≥ أقدم صف انجلب) | ماسنجر |
+| `sales-guardrails.mjs` (تحية بس) | «مرحبا» بعد ساعتين ونص من «عندك غساله سوده» ← البوت جاوب السؤال القديم (التنفيذ 2126). تحية بس وبلا طلب جاري (`isPureGreeting`): سجل المحادثة القديم ما يوصل للوكيل، وتنبيه `GREETING_HINT`، وحارس `greetingReply` يرد تحية («وعليكم السلام» بس إذا الزبون سلّم) | ماسنجر وواتساب |
+
 `harden-order-flow.mjs` و`fix-order-context-and-presence.mjs` أقدم (تأكيد مرة وحدة، سياق الطلب)، و`order-context-node.mjs` يبني كود عقدة «سياق الطلب» من المصدر المختبَر `order-context-hint.js`.
 
 ## ترتيب التشغيل
 1. `direct-voice-reply.mjs` (يحقن `stripVoiceAck` بعقدة الحارس) ثم `premium-replies.mjs` (يبني عقدة الحارس من نسخة «قبل» ويضيف كتلتَي الاستفسار والمنتج الوحيد فوق كتلة البصمة).
 2. `first-order-discount-eligibility.mjs` (ماسنجر).
 3. `complaint-gate.mjs`.
-4. `buffer-race.mjs` ثم `sales-guardrails.mjs` (آخر شي: يحقن كتلة catalog-guard بعد نداء own-voice الي يحطه `premium-replies.mjs`، ويبني «سياق الطلب» من المصدر ويا الكتالوج).
+4. `buffer-race.mjs` ثم `log-on-arrival.mjs` (يحتاج «Buffer Has Messages?» من buffer-race) ثم `sales-guardrails.mjs` (آخر شي: يحقن كتلة catalog-guard بعد نداء own-voice الي يحطه `premium-replies.mjs`، ويبني «سياق الطلب» من المصدر ويا الكتالوج).
 
 ⚠️ `premium-replies.mjs` يبني برومتَي الدمج والتفريغ وعقدة الحارس وسياق الطلب (إنستغرام) **من نسخة «قبل»** المحفوظة، مو من الحي، فأي تعديل يدوي لهالعقد بعد النسخة ينكتب فوقه. عدّل بالمصدر (`n8n/*.js`) وأعد التشغيل.
 

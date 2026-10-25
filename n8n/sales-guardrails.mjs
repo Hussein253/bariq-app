@@ -86,10 +86,13 @@ const cgCall = (c) => [
   ...cgHead(c),
   "const cgCtx = { ...catalogCtx, placingOrder: ran('create_order') };",
   // العنوان السابق بعد عنوان جديد، لون أو سعة مو موجودة، حجز بلا نية شراء، لمسة بشرية، وأجرة التوصيل الصح (حتى برسالة التثبيت)
-  'text = fixDeliveryFee(humanTouch(guardCatalogReply(dropPreviousAddress(text, cgCtx), cgCtx), { message: customerMsg }), cgCtx);',
+  // وتحية بس تاخذ رد تحية (التنفيذ 2126)
+  'text = greetingReply(fixDeliveryFee(humanTouch(guardCatalogReply(dropPreviousAddress(text, cgCtx), cgCtx), { message: customerMsg }), cgCtx), cgCtx);',
 ].join('\n')
 // نداءات النسخ السابقة: تنشال قبل ما ينحقن النداء الجديد حتى ما يتكرر
 const cgLegacyCalls = (c) => [
+  [...cgHead(c), "const cgCtx = { ...catalogCtx, placingOrder: ran('create_order') };",
+    'text = fixDeliveryFee(humanTouch(guardCatalogReply(dropPreviousAddress(text, cgCtx), cgCtx), { message: customerMsg }), cgCtx);'].join('\n'),
   [...cgHead(c), "text = humanTouch(guardCatalogReply(text, { ...catalogCtx, placingOrder: ran('create_order') }), { message: customerMsg }); // لون أو سعة مو موجودة، حجز بلا نية شراء، ولمسة بشرية"].join('\n'),
 ]
 
