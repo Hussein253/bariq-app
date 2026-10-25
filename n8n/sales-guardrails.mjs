@@ -67,16 +67,31 @@ const SQL_CATALOG = SQL_ANCHOR + `
 
 const patchSql = (query, label) => (query.includes(SQL_MARKER) ? query : swap(query, SQL_ANCHOR, SQL_CATALOG, `${label}/sql`))
 
+// وقت آخر رد للبوت بعقدة «Load Recent Bot Replies»: سؤال طلب أقدم من 6 ساعات ما يُعدّ طلب جاري (التنفيذ 1997، سؤال عنوان من أمس)
+const BOT_ANCHOR = "SELECT coalesce(json_agg(message_text ORDER BY created_at DESC), '[]'::json) AS replies\n"
+const BOT_MARKER = 'last_reply_at'
+const BOT_SQL = "SELECT coalesce(json_agg(message_text ORDER BY created_at DESC), '[]'::json) AS replies,\n       max(created_at) AS last_reply_at\n"
+const patchBotReplies = (query, label) => (query.includes(BOT_MARKER) ? query : swap(query, BOT_ANCHOR, BOT_SQL, `${label}/bot-replies`))
+
 // ————— ٢. عقدة الحارس —————
 
 const CG_BEGIN = '// >>> catalog-guard (مولّد من n8n/catalog-guard.js — لا تعدّل هنا)'
 const CG_END = '// <<< catalog-guard'
 const VOICE_CALL = 'text = fixEchoedRequest(text, singleProduct); // «رايد وحدة من…» بلسان البوت تصير جملة اسمية' // من premium-replies.mjs
-const cgCall = (c) => [
+const cgHead = (c) => [
   `const catalogCtx = (() => { try { return $('${c.orderNode}').first().json.orderContext || {}; } catch (e) { return {}; } })();`,
   `const customerMsg = (() => { try { return String($('${c.prompt}').first().json.combinedMessage || ''); } catch (e) { return ''; } })();`,
-  "text = humanTouch(guardCatalogReply(text, { ...catalogCtx, placingOrder: ran('create_order') }), { message: customerMsg }); // لون أو سعة مو موجودة، حجز بلا نية شراء، ولمسة بشرية",
+]
+const cgCall = (c) => [
+  ...cgHead(c),
+  "const cgCtx = { ...catalogCtx, placingOrder: ran('create_order') };",
+  // العنوان السابق بعد عنوان جديد، لون أو سعة مو موجودة، حجز بلا نية شراء، لمسة بشرية، وأجرة التوصيل الصح (حتى برسالة التثبيت)
+  'text = fixDeliveryFee(humanTouch(guardCatalogReply(dropPreviousAddress(text, cgCtx), cgCtx), { message: customerMsg }), cgCtx);',
 ].join('\n')
+// نداءات النسخ السابقة: تنشال قبل ما ينحقن النداء الجديد حتى ما يتكرر
+const cgLegacyCalls = (c) => [
+  [...cgHead(c), "text = humanTouch(guardCatalogReply(text, { ...catalogCtx, placingOrder: ran('create_order') }), { message: customerMsg }); // لون أو سعة مو موجودة، حجز بلا نية شراء، ولمسة بشرية"].join('\n'),
+]
 
 const cgBlock = () => {
   const src = fs.readFileSync(path.join(HERE, 'catalog-guard.js'), 'utf8').replace(/^export /gm, '').trimEnd()
@@ -91,7 +106,7 @@ export const patchGuard = (code, c, label) => {
     if (e < 0) throw new Error(`[${label}] كتلة catalog-guard بدون نهاية`)
     out = out.slice(0, b) + out.slice(e + CG_END.length).replace(/^\n/, '')
   }
-  out = out.split(`\n${cgCall(c)}`).join('')
+  for (const call of [cgCall(c), ...cgLegacyCalls(c)]) out = out.split(`\n${call}`).join('')
   if (!out.includes("const ran = (node) =>")) throw new Error(`[${label}] ما لگيت ran() بعقدة الحارس`)
   out = swap(out, VOICE_CALL, `${VOICE_CALL}\n${cgCall(c)}`, `${label}/guard-call`)
   return cgBlock() + out
@@ -109,9 +124,10 @@ const SECTION = `${SECTION_MARKER} الكتالوج والمواصفات وني�
 - إذا الزبون طلب أو ذكر لون أو قياس أو سعة أو مواصفة مو موجودة بالكتالوج: لا توافقه أبداً، ولا تألف معلومة، ولا تحطها بطلبه، ولا تكتب «تم تأكيد طلبك»، ولا تطلب اسمه أو عنوانه. صحّح المعلومة بلطف وثقة، واعرض المتوفر حصراً، وبعدها سؤال واحد خفيف.
 - «تمام» أو «زين» أو «اوكي» بعد لون أو قياس مو موجود مو موافقة على شي: التصحيح يبقى، والحجز ما ينفتح لحد ما يختار شي متوفر.
 - أمثلة (من متجر عنده غسالة 8 كيلو بيضاء بس، للتوضيح؛ المعلومة دائماً من الكتالوج):
-  الزبون: «اريد وحدة لون أسود» ← «حياك الله عزيزي، الغسالة الـ 8 كيلو متوفرة عدنا باللون الأبيض بس (تصميمها أنيق وعملي)، والأسود للأسف مو متوفر حالياً. تحب أدزلك تفاصيل الأبيض المتوفر؟»
+  الزبون: «اريد وحدة لون أسود» ← «بخصوص الغسالة الـ 8 كيلو عزيزي، متوفرة عدنا باللون الأبيض بس (تصميمها أنيق وعملي)، والأسود للأسف مو متوفر حالياً. تحب أدزلك تفاصيل الأبيض المتوفر؟»
   الزبون بعدها: «لون أسود تمام» ← «أفهمك عزيزي، بس صدك حالياً ما عدنا أسود، المتوفر بس الأبيض. وإذا يناسبك الأبيض أني حاضر أخدمك.»
-  الزبون: «زين 5 كيلو» ← «الي عدنا هسة الغسالة الـ 8 كيلو بس، والـ 5 كيلو للأسف مو متوفرة حالياً. تحب أدزلك تفاصيل الـ 8 كيلو؟» (مو «تدلل… شكم قطعة رايد؟»)
+  الزبون: «زين 5 كيلو» ← «عزيزي، الي عدنا هسة الغسالة الـ 8 كيلو بس، والـ 5 كيلو للأسف مو متوفرة حالياً. تحب أدزلك تفاصيل الـ 8 كيلو؟» (مو «تدلل… شكم قطعة رايد؟»)
+  وبالمحادثة المستمرة لا تبدي التصحيح بـ «حياك الله» أو أي ترحيب.
 
 ٢. سؤال عن مواصفة مو مسجلة (امبير، استهلاك كهرباء، أبعاد، وزن، سرعة، برامج…)
 - ممنوع تستسلم أو تحوّل من أول كلمة، وممنوع تخترع رقم. جاوب بثقة بالمعروف (النوع والماركة والسعة من اسم المنتج، واللون، والسعر، والي مكتوب بمعلومات النشاط مثل الفحص عند الاستلام إذا مكتوب)، وبعدها قل إن هالتفصيلة بالذات ما مسجلة عندك هسة، واعرض بجملة قصيرة تحوّل سؤاله لموظف من الفريق يأكدها إذا يحب.
@@ -123,8 +139,18 @@ const SECTION = `${SECTION_MARKER} الكتالوج والمواصفات وني�
 - مو نية شراء: ذكر لون أو قياس أو سعة («لون أسود»، «5 كيلو»)، كلمات عابرة («تمام»، «زين»، «حلو»، «اوكي»)، «اريد أعرف…»، «اريد الألوان الموجودة»، سؤال عن سعر أو مواصفات أو توصيل، ستيكر أو لايك.
 - إذا النقاش بعده استفسار: جاوب وأقنع بالمعلومة الصحيحة بس، بدون طلب معلومات شخصية وبدون «شكم قطعة رايد؟» وبدون «تحب تطلب؟». الزبون يكمّل هو لما يقرر.
 - حتى ويا نية شراء صريحة: إذا الي طلبه مو موجود بالكتالوج، التصحيح أول (بند ١) وما ينفتح الحجز لحد ما يختار شي متوفر.
+- رد إلك قديم (من يوم سابق أو قبل ساعات)، أو طلب انحجز قبل، مو طلب جاري. وإذا الزبون سأل عن شي ثاني (اتصال، توصيل، مواصفات، لون) فهذا مو جواب على سؤال العنوان أو العدد: جاوب سؤاله بس، ولا تكمّل حجز قديم ولا تقترح عنوان طلب سابق.
+- ممنوع تفترض نية حجز ما قالها الزبون («فهمت إنك حاب تحجز…»)، وممنوع تقترح «نعتمد عنوانك السابق» إلا إذا الزبون طلب يشتري بصراحة بهالمحادثة ووصلتوا لمعلومات التوصيل.
 
-٤. أسلوب بايع حقيقي
+٤. أثناء الطلب (بعد نية الشراء الصريحة)
+- إذا ردك السابق ذكر البند والعدد («تم تأكيد طلبك… غسالة، وحدة»)، ممنوع تسأل «شكم قطعة رايد؟» من جديد؛ كمّل بالناقص من معلومات التوصيل أو بالملخص.
+- إذا الزبون ذكر عنوان أو محافظة بهالمحادثة، هذا هو العنوان المعتمد: ممنوع تذكر أو تقترح عنوان أي طلب سابق، حتى لو كال إن اسمه ورقمه «نفسه» (خذ الاسم والرقم من الطلب السابق بس إذا كال هيج، والعنوان الجديد يبقى).
+- أجور التوصيل: أجرة محافظة المتجر غير أجرة باقي المحافظات. إذا وصلك سطر «أجور التوصيل لهذا الزبون» التزم برقمه حرفياً بكل رد وبالملخص وبـ create_order وبرسالة التثبيت، والمجموع الكلي = سعر القطعة × العدد + هالأجرة.
+
+٥. الزبون يريد يتصل أو ما يعرف يقرا ويكتب
+- «شلون أتصل عليكم؟»، «انطيني رقمكم»، «ما أعرف أقرا، دزلي بصمة»: هذا مو طلب حجز. انطيه رقم التواصل المكتوب بمعلومات النشاط حرفياً (إذا مكتوب)، وقله: «وإذا تحب، موظف من الفريق يتصل بيك ويحچي وياك». جملتين قصار وواضحات، بدون أي سؤال عن الطلب أو العدد أو العنوان.
+
+٦. أسلوب بايع حقيقي
 - ردك جملة جواب، وجملة إقناع قصيرة إذا بمحلها (من معلومات حقيقية بس)، وسؤال واحد بالكثير.
 - إذا الزبون سلّم («السلام عليكم») رد السلام أول حتى لو بنص المحادثة.
 - ممنوع الخواتيم الآلية: «أكدر أساعدك بشي ثاني؟»، «إذا تحتاج شي ثاني أو عندك أي استفسار كلي»، «تخبرني بخصوص هالموضوع؟»، «شنو رايد تسأل أكثر؟».
@@ -230,6 +256,9 @@ export const patchWorkflow = (wf, c, label) => {
 
   const merchant = by(c.merchant)
   const sql = set('عمود catalog بـ ' + c.merchant, () => merchant.parameters.query, (v) => { merchant.parameters.query = v }, patchSql(merchant.parameters.query, label))
+
+  const bot = by(c.orderCtx.bot)
+  set('وقت آخر رد بـ ' + c.orderCtx.bot, () => bot.parameters.query, (v) => { bot.parameters.query = v }, patchBotReplies(bot.parameters.query, label))
 
   const order = by(c.orderNode)
   const orderCode = set('كود ' + c.orderNode + ' من n8n/order-context-hint.js', () => order.parameters.jsCode, (v) => { order.parameters.jsCode = v }, nodeCode(c.orderCtx))
