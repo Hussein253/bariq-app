@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
   Bot,
   Check,
+  CircleAlert,
+  CircleHelp,
+  Clock,
   Inbox,
   MessageCircle,
   Phone,
   RefreshCw,
+  RotateCw,
   Search,
   Send,
   UserRound,
@@ -36,6 +41,7 @@ import {
   voiceNotePaths,
   waLink,
 } from '@/lib/conversations'
+import { canResendMessage, effectiveDeliveryStatus } from '@/lib/message-delivery'
 import VoiceNote from '@/components/VoiceNote'
 // عميل مربوط بجلسة المستخدم: اشتراك Realtime صار مُصادَقاً، فتحكمه سياسة
 // conversations_select_scoped (ترحيل ٠١٢) ويرى التاجر محادثاته وحده.
@@ -94,6 +100,9 @@ export default function LiveConversations({
   const [botFilter, setBotFilter] = useState<BotFilter>('all')
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
+  const [resendingId, setResendingId] = useState<string | null>(null)
+  // ساعة العرض لحالة pending العالقة (تنقلب «غير مؤكد» بعد دقيقتين)
+  const [now, setNow] = useState(() => Date.now())
   const [togglingBot, setTogglingBot] = useState(false)
   const [connected, setConnected] = useState(false)
   // عدّاد رسائل الزبون غير المقروءة لكل محادثة — يُصفَّر عند فتحها
@@ -236,6 +245,11 @@ export default function LiveConversations({
     }
   }, [])
 
+  // تحديث صف موجود (حالة التوصيل) — رسالة غير محمّلة بالنافذة المفتوحة تُتجاهل
+  const applyMessageUpdate = useCallback((msg: Message) => {
+    setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)))
+  }, [])
+
   // ------------------------------------------------------------------
   // إعادة تحميل القائمة من الخادم (احتياطي عند انقطاع Realtime)
   // ------------------------------------------------------------------
@@ -280,6 +294,13 @@ export default function LiveConversations({
         )
         .on(
           'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'messages' },
+          // حالة توصيل رد الموظف (الترحيل ٠٣٠): pending ← sent/failed/unknown، ومن لوحة ثانية أيضاً
+          (payload: RealtimePostgresUpdatePayload<Message>) =>
+            applyMessageUpdate(payload.new as Message)
+        )
+        .on(
+          'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'conversations' },
           (payload: RealtimePostgresUpdatePayload<Conversation>) => {
             const row = payload.new as Conversation
@@ -321,7 +342,15 @@ export default function LiveConversations({
       if (retryTimer) clearTimeout(retryTimer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [applyIncomingMessage])
+  }, [applyIncomingMessage, applyMessageUpdate])
+
+  // pending عالقة تنقلب «غير مؤكد» بعد دقيقتين حتى بلا حدث جديد — نعيد الرسم كل 30 ثانية ما دامت موجودة
+  const hasPending = messages.some((m) => m.delivery_status === 'pending')
+  useEffect(() => {
+    if (!hasPending) return
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [hasPending])
 
   // التمرير لآخر رسالة
   useEffect(() => {
@@ -430,6 +459,9 @@ export default function LiveConversations({
 
       if (!json.channel_send_supported) {
         setError(t.savedChannelUnsupported)
+      } else if (json.n8n_error === 'outside_24h_window') {
+        // سبب يقدر عليه الموظف نفسه — يظهر للتاجر أيضاً
+        setError(t.deliveryOutsideWindow)
       } else if (!json.n8n_sent) {
         // سبب فشل n8n التقني لفريق برق وحده — التاجر يكفيه أن الرد لم يصل
         setError(
@@ -444,6 +476,28 @@ export default function LiveConversations({
       setError(msg)
     } finally {
       setSending(false)
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // إعادة إرسال رد لم يصل (failed) أو حالته مجهولة (unknown — بتأكيد: ممكن وصل)
+  // ------------------------------------------------------------------
+  const handleResend = async (msg: Message) => {
+    if (!selected || resendingId) return
+    if (effectiveDeliveryStatus(msg) === 'unknown' && !window.confirm(t.resendUnknownConfirm)) return
+    setResendingId(msg.id)
+    try {
+      const res = await fetch(`/api/conversations/${selected.id}/messages/${msg.id}/resend`, { method: 'POST' })
+      const json = await res.json()
+      if (json.live_message) applyMessageUpdate(json.live_message as Message)
+      if (!res.ok || !json.success) throw new Error(json.error || t.sendFailed)
+      setError(json.delivery_error === 'outside_24h_window' ? t.deliveryOutsideWindow : null)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t.sendFailed
+      console.error('[LIVE_CONVERSATIONS][RESEND]', message)
+      setError(message)
+    } finally {
+      setResendingId(null)
     }
   }
 
@@ -783,8 +837,28 @@ export default function LiveConversations({
                               }`}
                             >
                               {formatTime(msg.created_at, locale)}
+                              {fromAgent && <DeliveryBadge msg={msg} now={now} t={t} />}
                             </div>
                           </div>
+                          {fromAgent && canResendMessage(msg, new Date(now)) && (
+                            <div className="flex items-center gap-2 mt-1 max-w-[75%] text-[10px]">
+                              <span className="text-red-600 break-words">
+                                {msg.delivery_error === 'outside_24h_window'
+                                  ? t.deliveryOutsideWindow
+                                  : variant === 'staff' && msg.delivery_error
+                                    ? msg.delivery_error
+                                    : null}
+                              </span>
+                              <button
+                                onClick={() => void handleResend(msg)}
+                                disabled={resendingId !== null}
+                                className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-red-200 bg-white text-red-600 font-semibold hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <RotateCw size={10} className={resendingId === msg.id ? 'animate-spin' : ''} />
+                                {t.resend}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )
@@ -827,5 +901,37 @@ export default function LiveConversations({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * حالة توصيل رد الموظف داخل الفقاعة (الترحيل ٠٣٠). رد قبل الترحيل (null) بلا علامة:
+ * ما عدنا سجل دقيق لحالته، فما ندّعي إنه وصل أو ما وصل.
+ */
+function DeliveryBadge({
+  msg,
+  now,
+  t,
+}: {
+  msg: Message
+  now: number
+  t: Dictionary['app']['chats']
+}) {
+  const status = effectiveDeliveryStatus(msg, new Date(now))
+  if (!status) return null
+
+  const view = {
+    pending: { icon: <Clock size={9} />, label: t.deliveryPending, cls: '' },
+    sent: { icon: <Check size={9} />, label: t.deliverySent, cls: '' },
+    failed: { icon: <CircleAlert size={10} />, label: t.deliveryFailed, cls: 'bg-red-600 text-white px-1.5 rounded-full font-bold' },
+    unknown: { icon: <CircleHelp size={10} />, label: t.deliveryUnknown, cls: 'bg-amber-500 text-white px-1.5 rounded-full font-bold' },
+    not_supported: { icon: <Archive size={9} />, label: t.deliveryNotSupported, cls: '' },
+  }[status]
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 ms-1 ${view.cls}`} title={view.label}>
+      {view.icon}
+      {view.label}
+    </span>
   )
 }

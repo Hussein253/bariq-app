@@ -72,6 +72,7 @@ describe('sendDashboardReply', () => {
 
     expect(await sendDashboardReply(PAYLOAD)).toEqual({
       sent: false,
+      kind: 'rejected',
       error: 'n8n 409: outside_24h_window',
     })
   })
@@ -81,6 +82,7 @@ describe('sendDashboardReply', () => {
 
     expect(await sendDashboardReply(PAYLOAD)).toEqual({
       sent: false,
+      kind: 'rejected',
       error: 'n8n responded with status 404',
     })
   })
@@ -88,7 +90,29 @@ describe('sendDashboardReply', () => {
   it('يحوّل انقطاع الشبكة إلى فشل لا استثناء', async () => {
     fetchMock.mockRejectedValue(new Error('fetch failed'))
 
-    expect(await sendDashboardReply(PAYLOAD)).toEqual({ sent: false, error: 'fetch failed' })
+    expect(await sendDashboardReply(PAYLOAD)).toEqual({ sent: false, kind: 'network', error: 'fetch failed' })
+  })
+
+  it('اتصال ما انفتح (جهاز n8n طافي) ← unreachable: الطلب أكيد ما وصل', async () => {
+    fetchMock.mockRejectedValue(new Error('fetch failed', { cause: { code: 'ECONNREFUSED' } }))
+
+    expect(await sendDashboardReply(PAYLOAD)).toEqual({
+      sent: false,
+      kind: 'unreachable',
+      error: 'fetch failed (ECONNREFUSED)',
+    })
+  })
+
+  it('انتهاء مهلتنا ← timeout: n8n ممكن بعده يرسل (التنفيذ 1946)', async () => {
+    fetchMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+
+    expect(await sendDashboardReply(PAYLOAD)).toEqual({ sent: false, kind: 'timeout', error: 'timeout 15s' })
+  })
+
+  it('رابط أو سرّ ناقص ← config', async () => {
+    vi.stubEnv('N8N_WEBHOOK_URL', '')
+
+    expect(await sendDashboardReply(PAYLOAD)).toMatchObject({ sent: false, kind: 'config' })
   })
 })
 
@@ -126,6 +150,7 @@ describe('ماسنجر: نفس العقد بقناة وصفحة', () => {
 
     expect(await sendDashboardReply({ ...MESSENGER, account_external_id: null })).toEqual({
       sent: false,
+      kind: 'rejected',
       error: 'n8n 400: missing_account_external_id',
     })
   })
@@ -133,7 +158,12 @@ describe('ماسنجر: نفس العقد بقناة وصفحة', () => {
   it('فشل Meta (502) يظهر بسببه', async () => {
     fetchMock.mockResolvedValue(jsonResponse(502, { ok: false, error: 'messenger_send_failed', detail: '(#10) outside window' }))
 
-    expect(await sendDashboardReply(MESSENGER)).toEqual({ sent: false, error: 'n8n 502: messenger_send_failed' })
+    expect(await sendDashboardReply(MESSENGER)).toEqual({
+      sent: false,
+      kind: 'rejected',
+      error: 'n8n 502: messenger_send_failed',
+      detail: '(#10) outside window',
+    })
   })
 })
 

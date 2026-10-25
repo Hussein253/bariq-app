@@ -3,14 +3,14 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { recordMessage, setBotActive } from '@/lib/conversations-server'
 import { requireSession } from '@/lib/api-session'
 import { maskPhone, maskText } from '@/lib/log'
-import { sendDashboardReply } from '@/lib/n8n-outbound'
+import { deliverAgentReply, saveDeliveryOutcome } from '@/lib/message-delivery-server'
 
 /**
  * API Route لإرسال رسالة واتساب يدوياً من لوحة التحكم
  * ---------------------------------------------------
- * 1. يستقبل طلب POST من الواجهة (LiveConversations.tsx)
- * 2. يرسل الرسالة إلى n8n Webhook لإرسالها فعلياً إلى هاتف العميل
- * 3. يسجّل الرسالة في نموذج المحادثات (conversations / messages) — المصدر الوحيد
+ * 1. يستقبل طلب POST (الواجهة الحالية تستعمل /api/conversations/:id/reply)
+ * 2. يسجّل الرسالة في نموذج المحادثات (conversations / messages) بحالة pending
+ * 3. يفحص نافذة 24 ساعة ويرسلها عبر n8n، ويكتب حالة التوصيل عليها (الترحيل ٠٣٠)
  */
 
 export async function POST(req: NextRequest) {
@@ -28,55 +28,47 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // إرسال الرسالة إلى n8n Webhook
-    let n8nSent = false
-    let n8nError: string | null = null
-
-    const result = await sendDashboardReply({
-      phone_number,
-      message_text,
-      channel: 'whatsapp',
-      source: 'bariq-dashboard',
+    // تسجيل الرد أولاً (pending) في نموذج المحادثات — المصدر الوحيد — حتى ما ينرسل للزبون رد بلا أثر بالنظام.
+    // sender_type = 'agent' لأن الرد صادر من موظف عبر لوحة التحكم.
+    // ⚠️ بالرقم وحده بلا حساب أعمال: يمرّ بالقاعدة القديمة (الترحيل ٠١٩).
+    // الرد على محادثة بعينها مساره /api/conversations/:id/reply
+    const { message: recorded, conversation } = await recordMessage({
+      customerPhone: phone_number,
+      content: message_text,
+      senderType: 'agent',
+      platform: 'whatsapp',
+      deliveryStatus: 'pending',
     })
 
-    if (result.sent) {
-      n8nSent = true
+    if (!recorded) {
+      console.error('[SEND_WHATSAPP][RECORD_MESSAGE_FAILED]', { phone: maskPhone(phone_number) })
+      return NextResponse.json(
+        { success: false, error: 'تعذر تسجيل الرسالة في قاعدة البيانات', n8n_sent: false },
+        { status: 500 }
+      )
+    }
+
+    // نافذة 24 ساعة ثم n8n، والنتيجة تنكتب على الرسالة
+    const outcome = await deliverAgentReply({
+      phone: phone_number,
+      channel: 'whatsapp',
+      accountExternalId: null, // الرقم القديم، كما كان هذا المسار يرسل دوماً
+      text: message_text,
+    })
+    const n8nSent = outcome.status === 'sent'
+    const n8nError = outcome.error
+
+    if (n8nSent) {
       // مُقنَّعان: سجلات Vercel بلا RLS، وسياسة الخصوصية تَعِد بذلك (lib/log.ts)
       console.log('[SEND_WHATSAPP][N8N_SUCCESS]', {
         phone: maskPhone(phone_number),
         text: maskText(message_text),
       })
     } else {
-      n8nError = result.error
-      console.error('[SEND_WHATSAPP][N8N_ERROR]', n8nError)
+      console.error('[SEND_WHATSAPP][DELIVERY]', outcome.status, n8nError)
     }
 
-    // تسجيل الرد في نموذج المحادثات (conversations / messages) — المصدر الوحيد
-    // sender_type = 'agent' لأن الرد صادر من موظف عبر لوحة التحكم.
-    // ⚠️ بالرقم وحده بلا حساب أعمال: يمرّ بالقاعدة القديمة (الترحيل ٠١٩).
-    // الرد على محادثة بعينها مساره /api/conversations/:id/reply
-    const { message: liveMessage, conversation } = await recordMessage({
-      customerPhone: phone_number,
-      content: message_text,
-      senderType: 'agent',
-      platform: 'whatsapp',
-    })
-
-    // فشل التسجيل خطأ فعلي: الرسالة قد تكون أُرسلت للزبون دون أثر في النظام
-    if (!liveMessage) {
-      console.error('[SEND_WHATSAPP][RECORD_MESSAGE_FAILED]', {
-        phone: maskPhone(phone_number),
-        n8n_sent: n8nSent,
-      })
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'تعذر تسجيل الرسالة في قاعدة البيانات',
-          n8n_sent: n8nSent,
-        },
-        { status: 500 }
-      )
-    }
+    const liveMessage = (await saveDeliveryOutcome(recorded.id, outcome)) ?? recorded
 
     // تعطيل البوت لهذه المحادثة (bot_active = false) عند الرد اليدوي
     // حتى لا يستمر البوت بالرد تلقائياً أثناء تدخل الموظف

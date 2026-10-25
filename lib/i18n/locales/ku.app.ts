@@ -674,6 +674,14 @@ export const kuApp: AppDictionary = {
     sendFailed: 'ناردنی وەڵام سەرکەوتوو نەبوو',
     savedChannelUnsupported: 'وەڵامەکە لە ناوخۆدا پاشەکەوت کرا — هێشتا ناردن لەم کەناڵەوە نەبەستراوە.',
     savedNotDelivered: 'وەڵامەکە پاشەکەوت کرا، بەڵام نەگەیشتە کڕیار.',
+    deliveryPending: 'دەنێردرێت…',
+    deliverySent: 'نێردرا',
+    deliveryFailed: 'نەنێردرا',
+    deliveryUnknown: 'دڵنیا نییە',
+    deliveryNotSupported: 'لە ناوخۆدا پاشەکەوت کرا',
+    deliveryOutsideWindow: 'زیاتر لە 24 کاتژمێر بەسەر دوایین نامەی کڕیاردا تێپەڕیوە — تا دووبارە نامە نەنێرێت ناگات.',
+    resend: 'دووبارە ناردنەوە',
+    resendUnknownConfirm: 'نازانین ئەم نامەیە گەیشتووەتە کڕیار یان نا، و دووبارە ناردنەوەی لەوانەیە دووبارەی بکاتەوە. دووبارە بینێریتەوە؟',
     senders: {
       customer: 'کڕیار',
       bot: 'بۆت',
@@ -969,6 +977,7 @@ export const kuApp: AppDictionary = {
       recordFailed: 'تۆمارکردنی نامەکە سەرکەوتوو نەبوو',
       botActiveInvalid: 'خانەی bot_active پێویستە و بەهاکەی true یان false ە',
       updateFailed: 'نوێکردنەوەی دۆخی بۆت سەرکەوتوو نەبوو',
+      resendNotAllowed: 'ناتوانرێت ئەم نامەیە دووبارە بنێردرێتەوە — گەیشتووە، یان ئێستا دەنێردرێت، یان کەسێکی تر ئێستا ناردیەوە',
     },
   },
 

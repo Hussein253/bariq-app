@@ -37,8 +37,17 @@ Authorization: Bearer {BARIQ_N8N_OUTBOUND_SECRET}
 | 409 | `{ ok: false, error: 'outside_24h_window', last_incoming_at }` | لم يراسل الزبون خلال 24 ساعة (على منصة القناة نفسها) |
 | 502 | `{ ok: false, error: '<channel>_send_failed', detail }` | رفض Meta الإرسال (`whatsapp_send_failed` أو `messenger_send_failed`) |
 
-أي حالة غير 2xx تظهر في اللوحة «حُفظ الرد، لكن تعذّر إيصاله إلى الزبون»،
-ويرى فريق برق رمز السبب بجانبها (`n8n 409: outside_24h_window` مثلاً).
+أي حالة غير 2xx تنكتب على الرسالة نفسها (الترحيل ٠٣٠، `lib/message-delivery.ts`) وتظهر على فقاعة الرد
+بزر «إعادة الإرسال»، ويرى فريق برق رمز السبب بجانبها (`n8n 502: messenger_send_failed — …` مثلاً):
+
+| نتيجة الإرسال | `delivery_status` |
+|---|---|
+| 200 | `sent` (+ `external_message_id`) |
+| 4xx، 502 برفض صريح من Meta، n8n ما ينوصل (`ECONNREFUSED`…)، خارج النافذة | `failed` — أكيد ما وصل |
+| مهلة التطبيق (15 ث)، انقطاع بعد الاتصال، 502 بانقطاع n8n عن Meta | `unknown` — ممكن وصل، الإعادة بتأكيد |
+
+الإعادة: `POST /api/conversations/:id/messages/:messageId/resend` — حجز بتحديث مشروط (`delivery_attempts`)
+فضغطتان ما ترسلان مرتين.
 
 ## خطوات المسار
 
@@ -48,9 +57,11 @@ Authorization: Bearer {BARIQ_N8N_OUTBOUND_SECRET}
 3. **السر صحيح؟** — يقارن البصمة بالمحفوظة ← وإلا 401. المسار لا يحفظ السرّ
    نفسه، فتسرّب المسار لا يكشفه.
 4. **البيانات صالحة؟** ← وإلا 400.
-5. **فحص نافذة 24 ساعة** — آخر رسالة واردة من الرقم في `conversation_log`.
-   خارج النافذة ← 409. **إن تعذّر الفحص يُرسل على أي حال**: عطل في القاعدة
-   لا يوقف ردود الموظفين.
+5. ~~فحص نافذة 24 ساعة~~ — انتقل للتطبيق (`lib/message-delivery-server.ts`، نفس الاستعلام على
+   `conversation_log`) ويُشال من المسار بـ `n8n/dashboard-reply-app-window.mjs`: عقدة Postgres علقت
+   21 ثانية بالتنفيذ 1946 (جهاز n8n يتقطع اتصاله بـ Supabase) فتجاوز المسار مهلة التطبيق. خارج
+   النافذة التطبيق ما يستدعي n8n أصلاً (`failed`, `outside_24h_window`)، وإن تعذّر الفحص يُرسل على أي حال.
+   رمز 409 يبقى بالجدول أعلاه لنسخة المسار القديمة بس.
 6. **قناة الرد** — توجّه حسب `channel`:
    - **واتساب:** بحساب `WhatsApp account`، ومن `account_external_id` أو الرقم القديم `1245317385330588`.
    - **ماسنجر:** **صفحة ماسنجر** تختار توكن الصفحة من `account_external_id` (ستايل بغداد `1321149431082632`، المميز

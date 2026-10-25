@@ -676,6 +676,14 @@ export const enApp: AppDictionary = {
     sendFailed: 'Couldn’t send the reply',
     savedChannelUnsupported: 'Reply saved internally — sending on this channel isn’t connected yet.',
     savedNotDelivered: 'Reply saved, but it couldn’t be delivered to the customer.',
+    deliveryPending: 'Sending…',
+    deliverySent: 'Sent',
+    deliveryFailed: 'Not sent',
+    deliveryUnknown: 'Unconfirmed',
+    deliveryNotSupported: 'Saved internally',
+    deliveryOutsideWindow: 'More than 24 hours since the customer’s last message — it can’t be delivered until they message again.',
+    resend: 'Resend',
+    resendUnknownConfirm: 'We don’t know whether this message reached the customer, and resending it may duplicate it. Resend anyway?',
     senders: {
       customer: 'Customer',
       bot: 'Bot',
@@ -971,6 +979,7 @@ export const enApp: AppDictionary = {
       recordFailed: 'Couldn’t record the message',
       botActiveInvalid: 'The bot_active field is required and must be true or false',
       updateFailed: 'Couldn’t update the bot status',
+      resendNotAllowed: 'This message can’t be resent — it was delivered, is being sent, or someone just resent it',
     },
   },
 

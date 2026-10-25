@@ -680,6 +680,14 @@ export const arApp = {
     sendFailed: 'تعذّر إرسال الرد',
     savedChannelUnsupported: 'حُفظ الرد داخلياً — لا يوجد بعد تكامل فعلي لإرسال الرسائل عبر هذه القناة.',
     savedNotDelivered: 'حُفظ الرد، لكن تعذّر إيصاله إلى الزبون.',
+    deliveryPending: 'جارٍ الإرسال…',
+    deliverySent: 'أُرسلت',
+    deliveryFailed: 'لم تُرسل',
+    deliveryUnknown: 'غير مؤكد',
+    deliveryNotSupported: 'محفوظ داخلياً',
+    deliveryOutsideWindow: 'مرّت 24 ساعة على آخر رسالة من الزبون — لن تصله حتى يراسلكم من جديد.',
+    resend: 'إعادة الإرسال',
+    resendUnknownConfirm: 'لا نعرف إن كانت هذه الرسالة وصلت للزبون، وإعادتها قد تكررها عنده. هل تعيد إرسالها؟',
     senders: {
       customer: 'الزبون',
       bot: 'البوت',
@@ -975,6 +983,7 @@ export const arApp = {
       recordFailed: 'تعذّر تسجيل الرسالة',
       botActiveInvalid: 'الحقل bot_active مطلوب وقيمته true أو false',
       updateFailed: 'تعذّر تحديث حالة البوت',
+      resendNotAllowed: 'لا يمكن إعادة إرسال هذه الرسالة — وصلت، أو تُرسل الآن، أو أعادها غيرك للتو',
     },
   },
 
