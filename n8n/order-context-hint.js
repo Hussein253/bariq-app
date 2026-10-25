@@ -339,6 +339,7 @@ const mentioned = (catalog, message) => {
 
 /**
  * الزبون ذكر لون أو سعة مو موجودة بالكتالوج؟ (المقارنة بس على المنتجات الي لونها أو سعتها مسجلة)
+ * @param {{ message?: string, catalog?: ReturnType<typeof normalizeCatalog> }} [input]
  * @returns {null | { kind: 'color'|'capacity', requested: string, requestedLabel: string, available: string[], product: string }}
  */
 export function specMismatch({ message = '', catalog = [] } = {}) {
@@ -365,6 +366,7 @@ export function specMismatch({ message = '', catalog = [] } = {}) {
 const SPEC_Q = /امبير|واط|استهلاك|تسحب|كهربا|مواصفات|مواصفه|ابعاد|حجمها|حجمه|وزنها|وزنه|طولها|عرضها|ارتفاع|سرعه|دوران|برامج|موديل|سنه الصنع|منشا|صنع وين/;
 export const isSpecQuestion = (message) => SPEC_Q.test(norm(message));
 
+/** @param {ReturnType<typeof normalizeCatalog>} [catalog] */
 export function catalogFactsHint(catalog = []) {
   if (!catalog.length) return '';
   const lines = catalog.slice(0, 30).map((p) => '- ' + p.name
