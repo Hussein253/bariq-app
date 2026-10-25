@@ -9,7 +9,25 @@ import {
 } from '@/n8n/human-ack.js'
 
 type Link = { node: string; type: string; index: number }
-type Node = { name: string; [k: string]: any }
+type Condition = { id: string; leftValue: string; operator: { operation: string; [k: string]: unknown }; [k: string]: unknown }
+type Field = { fieldId: string; fieldValue: string }
+type Node = {
+  name: string
+  type?: string
+  alwaysOutputData?: boolean
+  webhookId?: string
+  credentials?: Record<string, { id: string; name: string }>
+  parameters: {
+    query?: string
+    jsonBody?: string
+    tableId?: string
+    options?: { queryReplacement?: string; [k: string]: unknown }
+    conditions?: { conditions: Condition[]; [k: string]: unknown }
+    fieldsUi?: { fieldValues: Field[] }
+    [k: string]: unknown
+  }
+  [k: string]: unknown
+}
 type Workflow = { nodes: Node[]; connections: Record<string, { main: Link[][] }> }
 
 const link = (node: string): Link[] => [{ node, type: 'main', index: 0 }]
@@ -122,6 +140,8 @@ const node = (wf: Workflow, name: string) => {
   if (!n) throw new Error(`missing ${name}`)
   return n
 }
+const conditionsOf = (n: Node) => n.parameters.conditions?.conditions ?? []
+const fieldsOf = (n: Node) => n.parameters.fieldsUi?.fieldValues ?? []
 const next = (wf: Workflow, name: string) => (wf.connections[name]?.main ?? []).map((out) => (out ?? []).map((l) => l.node))
 
 // يقيّم تعبير n8n «={{ … }}» بقيمة $json
@@ -177,7 +197,7 @@ describe('patchHumanAck — رد انتظار واحد بعد التحويل ل�
     expect(claim.credentials).toEqual({ postgres: { id: 'jMEQ9bmnbStdptDT', name: 'Postgres account' } })
     expect(claim.alwaysOutputData).toBe(true)
     expect(claim.parameters.query).toBe(HUMAN_ACK_CLAIM_SQL)
-    expect(claim.parameters.options.queryReplacement).toBe(
+    expect(claim.parameters.options?.queryReplacement).toBe(
       "={{ $('Session Context').first().json.phone }},{{ $('Message Data').first().json.phoneNumberId }}",
     )
   })
@@ -197,20 +217,20 @@ describe('patchHumanAck — رد انتظار واحد بعد التحويل ل�
   it('البوابة تعدّي بس لو الحجز رجّع صف', () => {
     const wf = fixture()
     patchHumanAck(wf)
-    const [cond] = node(wf, ACK_NODES.gate).parameters.conditions.conditions
+    const [cond] = conditionsOf(node(wf, ACK_NODES.gate))
     expect(cond.leftValue).toBe('={{ $json.phone_number }}')
     expect(cond.operator.operation).toBe('notEmpty')
     expect(cond.id).toBe('human-ack-claimed')
     // نسخة، مو نفس الكائن: «Lock Acquired?» تبقى كما هي
-    expect(node(wf, ANCHORS.gateTemplate).parameters.conditions.conditions[0].id).toBe('lock-ok')
+    expect(conditionsOf(node(wf, ANCHORS.gateTemplate))[0].id).toBe('lock-ok')
   })
 
   it('كل صفحة ترسل بتوكنها، بنفس قواعد سويتش الاعتذار', () => {
     const wf = fixture()
     patchHumanAck(wf)
     expect(node(wf, ACK_NODES.page).parameters).toEqual(node(wf, ANCHORS.pageTemplate).parameters)
-    expect(node(wf, ACK_NODES.send[0]).credentials.facebookGraphApi.name).toBe('Meta_Messenger_StyleBaghdad')
-    expect(node(wf, ACK_NODES.send[1]).credentials.facebookGraphApi.name).toBe('Meta_Messenger_Bariq_All')
+    expect(node(wf, ACK_NODES.send[0]).credentials?.facebookGraphApi.name).toBe('Meta_Messenger_StyleBaghdad')
+    expect(node(wf, ACK_NODES.send[1]).credentials?.facebookGraphApi.name).toBe('Meta_Messenger_Bariq_All')
     // الاعتذار الأصلي ما تغيّر
     expect(node(wf, ANCHORS.sendTemplates[0]).parameters.jsonBody).toContain('$json.fallbackReply')
   })
@@ -219,7 +239,7 @@ describe('patchHumanAck — رد انتظار واحد بعد التحويل ل�
     const wf = fixture()
     patchHumanAck(wf)
     for (const name of ACK_NODES.send) {
-      const body = node(wf, name).parameters.jsonBody
+      const body = node(wf, name).parameters.jsonBody ?? ''
       expect(body).toBe(SEND_BODY)
       expect(JSON.parse(evalExpr(body, { phone_number: '28944586871867160' }))).toEqual({
         recipient: { id: '28944586871867160' },
@@ -234,7 +254,7 @@ describe('patchHumanAck — رد انتظار واحد بعد التحويل ل�
     patchHumanAck(wf)
     const log = node(wf, ACK_NODES.log)
     expect(log.parameters.tableId).toBe('conversation_log')
-    const fields = Object.fromEntries(log.parameters.fieldsUi.fieldValues.map((f: { fieldId: string; fieldValue: string }) => [f.fieldId, f.fieldValue]))
+    const fields = Object.fromEntries(fieldsOf(log).map((f) => [f.fieldId, f.fieldValue]))
     expect(fields).toEqual({
       phone_number: "={{ $('Session Context').first().json.phone }}",
       message_text: HUMAN_ACK_TEXT,
@@ -244,7 +264,7 @@ describe('patchHumanAck — رد انتظار واحد بعد التحويل ل�
       platform: 'messenger',
       account_external_id: "={{ $('Message Data').first().json.phoneNumberId }}",
     })
-    expect(node(wf, ANCHORS.logTemplate).parameters.fieldsUi.fieldValues).toEqual([{ fieldId: 'intent', fieldValue: 'bot_error' }])
+    expect(fieldsOf(node(wf, ANCHORS.logTemplate))).toEqual([{ fieldId: 'intent', fieldValue: 'bot_error' }])
   })
 
   it('نص الرد ما يوعد بوقت', () => {
