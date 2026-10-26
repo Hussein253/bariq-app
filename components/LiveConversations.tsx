@@ -30,10 +30,13 @@ import {
   type Conversation,
   type ConversationOverview,
   type Message,
+  MESSAGE_WINDOW,
+  botTypingUntil,
   displayPhone,
   formatDayLabel,
   formatTime,
   isSameDay,
+  mergeMessages,
   phoneInitials,
   platformLabel,
   relativeTime,
@@ -75,6 +78,24 @@ interface Props extends ChatsProps {
 
 function firstIdForPlatform(list: ConversationOverview[], platform: ChannelPlatform): string | null {
   return list.find((c) => (c.platform || 'whatsapp').toLowerCase() === platform)?.id ?? null
+}
+
+/** شبكة أمان: كل كم نستدرك آخر الرسائل والتبويب ظاهر، حتى لو فات حدث بلا انقطاع ملحوظ */
+const RESYNC_INTERVAL_MS = 30_000
+const RESYNC_TAIL = 50
+
+/**
+ * أحدث `limit` رسالة بترتيب زمني. الترتيب التنازلي ثم القلب ضروري: تصاعدي مع limit
+ * يرجّع الأقدم، فمحادثة فوق الحد تفقد آخر رسائلها من العرض.
+ */
+async function fetchLatestMessages(conversationId: string, limit: number) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  return { data: ((data as Message[]) || []).reverse(), error }
 }
 
 export default function LiveConversations({
@@ -136,12 +157,7 @@ export default function LiveConversations({
     let cancelled = false
 
     const load = async () => {
-      const { data, error: qErr } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-        .limit(500)
+      const { data, error: qErr } = await fetchLatestMessages(conversationId, MESSAGE_WINDOW)
 
       if (cancelled) return // تجاهل نتيجة محادثة تم تركها
 
@@ -152,7 +168,14 @@ export default function LiveConversations({
         return
       }
 
-      setMessages((data as Message[]) || [])
+      // دمج لا استبدال: حدث Realtime وصل أثناء الجلب (بعد لقطة الاستعلام) يبقى
+      setMessages((prev) =>
+        mergeMessages(
+          prev.filter((m) => m.conversation_id === conversationId),
+          data
+        )
+      )
+      setNow(Date.now())
       setError(null)
       setLoadingMessages(false)
     }
@@ -233,9 +256,10 @@ export default function LiveConversations({
       })
     }
 
-    // إضافة الرسالة لنافذة المحادثة المفتوحة (مع حماية من الازدواج)
+    // إضافة الرسالة لنافذة المحادثة المفتوحة (مع حماية من الازدواج، وبترتيبها الزمني)
     if (msg.conversation_id === selectedIdRef.current) {
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : mergeMessages(prev, [msg])))
+      setNow(Date.now()) // علامة «يكتب» تُحسب من ساعة حديثة
     } else if (msg.sender_type === 'customer') {
       // رسالة زبون لمحادثة غير مفتوحة — تُعلَّم كغير مقروءة.
       // هذا جوهري في وضع «إدارة موظف»: الموظف يحتاج إشارة بصرية
@@ -271,6 +295,45 @@ export default function LiveConversations({
   }, [refreshConversations])
 
   // ------------------------------------------------------------------
+  // استدراك ما فات Realtime
+  // ------------------------------------------------------------------
+  // ما يُرسل والمقبس منقطع يضيع بلا رجعة، وما كان شي يعيد جلبه: رسالة الزبون
+  // 11:26:10 (ماسنجر 2026-10-26، التنفيذ 2167) انكتبت بقاعدة البيانات، والمقبس
+  // انقطع ورجع 11:26:11، فما طلعت باللوحة إلا بإعادة تحميل الصفحة.
+  // full: بعد عودة الاتصال أو التبويب — نافذة الرسائل كاملة والقائمة (عدد الرسائل وآخرها).
+  // غيره: شبكة الأمان الدورية — آخر RESYNC_TAIL رسالة للمحادثة المفتوحة.
+  const resync = useCallback(async (full: boolean) => {
+    const conversationId = selectedIdRef.current
+    if (conversationId) {
+      const { data, error: qErr } = await fetchLatestMessages(conversationId, full ? MESSAGE_WINDOW : RESYNC_TAIL)
+      if (qErr) {
+        console.error('[LIVE_CONVERSATIONS][RESYNC]', qErr.message)
+      } else if (conversationId === selectedIdRef.current) {
+        setMessages((prev) => mergeMessages(prev, data))
+        setNow(Date.now())
+      }
+    }
+    if (full) await refreshConversationsRef.current?.()
+  }, [])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void resync(true)
+    }
+    const onOnline = () => void resync(true)
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void resync(false)
+    }, RESYNC_INTERVAL_MS)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [resync])
+
+  // ------------------------------------------------------------------
   // الاشتراك في Realtime
   // ------------------------------------------------------------------
   // • INSERT على messages  → المحرّك الأساسي للواجهة (رسائل البوت والزبون)
@@ -279,6 +342,8 @@ export default function LiveConversations({
   useEffect(() => {
     let mounted = true
     let retries = 0
+    // SUBSCRIBED بعد الأول = اتصال رجع (المكتبة تعيد الانضمام وحدها، أو إعادتنا تحت) — نستدرك
+    let everSubscribed = false
     const MAX_RETRIES = 5
     let channel: ReturnType<typeof supabase.channel> | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -318,6 +383,8 @@ export default function LiveConversations({
           if (status === 'SUBSCRIBED') {
             setConnected(true)
             retries = 0
+            if (everSubscribed) void resync(true)
+            everSubscribed = true
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             setConnected(false)
             if (retries < MAX_RETRIES) {
@@ -342,7 +409,7 @@ export default function LiveConversations({
       if (retryTimer) clearTimeout(retryTimer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [applyIncomingMessage, applyMessageUpdate])
+  }, [applyIncomingMessage, applyMessageUpdate, resync])
 
   // pending عالقة تنقلب «غير مؤكد» بعد دقيقتين حتى بلا حدث جديد — نعيد الرسم كل 30 ثانية ما دامت موجودة
   const hasPending = messages.some((m) => m.delivery_status === 'pending')
@@ -385,6 +452,18 @@ export default function LiveConversations({
     () => platformConversations.find((c) => c.id === selectedId) || null,
     [platformConversations, selectedId]
   )
+
+  // «البوت يكتب…»: آخر رسالة من الزبون والبوت مفعّل — رد البوت يطفئها، والمهلة تطفئها لو ما وصل
+  const typingUntil = selected ? botTypingUntil(messages, selected.bot_active) : null
+  const botTyping = typingUntil !== null && now < typingUntil
+  useEffect(() => {
+    if (typingUntil === null) return
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, typingUntil - Date.now()) + 50)
+    return () => clearTimeout(timer)
+  }, [typingUntil])
+  useEffect(() => {
+    if (botTyping) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [botTyping])
 
   const botActiveCount = useMemo(
     () => platformConversations.filter((c) => c.bot_active).length,
@@ -863,6 +942,25 @@ export default function LiveConversations({
                       </div>
                     )
                   })
+                )}
+                {botTyping && !loadingMessages && (
+                  <div className="flex flex-col items-end" role="status" aria-live="polite">
+                    <div className="rounded-2xl rounded-ee-md px-4 py-2.5 shadow-sm bg-[#253765] text-white">
+                      <div className="flex items-center gap-1 text-[9px] font-bold text-white/70">
+                        <Bot size={9} />
+                        {t.botTyping}
+                      </div>
+                      <div className="flex items-center gap-1 mt-1.5" aria-hidden="true">
+                        {[0, 150, 300].map((delay) => (
+                          <span
+                            key={delay}
+                            className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce"
+                            style={{ animationDelay: `${delay}ms` }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
                 <div ref={bottomRef} />
               </div>

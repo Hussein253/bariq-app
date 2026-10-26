@@ -101,6 +101,36 @@ export function canActOnConversation(
   return role === 'merchant' && sessionMerchantId !== null && conversationMerchantId === sessionMerchantId
 }
 
+/** أقصى عدد رسائل تُعرض للمحادثة المفتوحة — الأحدث دائماً، لا الأقدم */
+export const MESSAGE_WINDOW = 500
+
+/**
+ * دمج رسائل جلبٍ جديد مع المعروضة — لا تُحذف رسالة معروضة أبداً.
+ * الجلب يكمّل ما فات Realtime (انقطاع المقبس، تبويب بالخلفية، حدث وصل أثناء الجلب)،
+ * فلا يجوز أن يستبدل القائمة: نسخة الجلب لصف معروض تحدّثه (حالة التوصيل)، والترتيب بالوقت.
+ */
+export function mergeMessages(current: Message[], fetched: Message[]): Message[] {
+  const byId = new Map(current.map((m) => [m.id, m]))
+  for (const m of fetched) byId.set(m.id, { ...byId.get(m.id), ...m })
+  const at = (m: Message) => (m.created_at ? Date.parse(m.created_at) : Number.POSITIVE_INFINITY)
+  return [...byId.values()].sort((a, b) => at(a) - at(b))
+}
+
+/** مدة علامة «البوت يكتب…» بعد آخر رسالة زبون — أبطأ رد مرصود ٥٢ ثانية (التنفيذ 2167) */
+export const BOT_TYPING_WINDOW_MS = 120_000
+
+/**
+ * متى تنطفئ علامة «البوت يكتب…»؟ null = لا علامة.
+ * تظهر ما دام البوت مفعّلاً وآخر رسالة من الزبون ولم يمرّ BOT_TYPING_WINDOW_MS:
+ * رد البوت يطفئها بوصوله، ورد لم يصل لا يتركها معلّقة للأبد.
+ */
+export function botTypingUntil(messages: Message[], botActive: boolean): number | null {
+  const last = messages[messages.length - 1]
+  if (!botActive || !last || last.sender_type !== 'customer' || !last.created_at) return null
+  const at = Date.parse(last.created_at)
+  return Number.isNaN(at) ? null : at + BOT_TYPING_WINDOW_MS
+}
+
 /** هل الرسالة صادرة من جهتنا (بوت أو موظف)؟ */
 export function isOutbound(senderType: string): boolean {
   return senderType !== 'customer'

@@ -19,7 +19,9 @@ export function getBrowserSupabase() {
     browserClient = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { realtime: { params: { eventsPerSecond: 10 } } }
+      // worker: نبض المقبس من Web Worker — المتصفّح يخنق مؤقّتات التبويب الذي بالخلفية،
+      // فيفوت النبض وينقطع المقبس ويضيع ما يُرسل بالانقطاع (اللوحة مفتوحة جنب ماسنجر)
+      { realtime: { params: { eventsPerSecond: 10 }, worker: true } }
     )
   }
   return browserClient

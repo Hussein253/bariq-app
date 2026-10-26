@@ -664,6 +664,7 @@ export const kuApp: AppDictionary = {
     openWhatsapp: 'کردنەوە لە واتسئاپ',
     loadingMessages: 'نامەکان بار دەکرێن...',
     noMessages: 'هیچ نامەیەک لەم گفتوگۆیەدا نییە',
+    botTyping: 'بۆت دەنووسێت…',
     voiceNote: 'نامەی دەنگی کڕیار',
     voiceNoteUnavailable: 'بارکردنی نامە دەنگییەکە سەرکەوتوو نەبوو',
     manualReplyNote: 'ناردنی وەڵامی دەستی بۆت لەم گفتوگۆیەدا ڕادەگرێت.',
