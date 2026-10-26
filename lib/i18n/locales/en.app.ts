@@ -666,6 +666,7 @@ export const enApp: AppDictionary = {
     openWhatsapp: 'Open in WhatsApp',
     loadingMessages: 'Loading messages…',
     noMessages: 'No messages in this conversation',
+    botTyping: 'Bot is typing…',
     voiceNote: 'Customer voice note',
     voiceNoteUnavailable: 'Could not load the voice note',
     manualReplyNote: 'Sending a manual reply pauses the bot in this conversation.',

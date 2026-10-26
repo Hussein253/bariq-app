@@ -670,6 +670,7 @@ export const arApp = {
     openWhatsapp: 'فتح في واتساب',
     loadingMessages: 'جارِ تحميل الرسائل...',
     noMessages: 'لا توجد رسائل في هذه المحادثة',
+    botTyping: 'البوت يكتب…',
     voiceNote: 'رسالة صوتية من الزبون',
     voiceNoteUnavailable: 'تعذّر تحميل الرسالة الصوتية',
     manualReplyNote: 'إرسال رد يدوي سيوقف البوت تلقائياً في هذه المحادثة.',

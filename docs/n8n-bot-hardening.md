@@ -27,6 +27,7 @@ N8N_KEY=… node n8n/<script>.mjs messenger whatsapp instagram
 
 | `log-on-arrival.mjs` | رسالة الزبون كانت تطلع باللوحة بس بعد رد البوت: «Log Incoming Message» يكتبها بـ conversation_log بعد الـ debounce والقفل وجلب البفر (التنفيذ 2126: وصلت 14:36:10، انكتبت 14:36:24، والرد 14:36:31). هسة «Log Incoming On Arrival» يكتب كل رسالة بعد «Upsert Customer Session» مباشرة (فرع فوق المسار الرئيسي، `onError: continue`، و intent «human_takeover» بوضع الموظف)، و«Log Incoming Message» و«Log Customer Msg (Human Mode)» منفصلات ومعطّلات، و«Tag Customer Msg (Error/Blocked)» يعلّمن رسائل الدفعة بوقتها (created_at ≥ أقدم صف انجلب) | ماسنجر |
 | `sales-guardrails.mjs` (تحية بس) | «مرحبا» بعد ساعتين ونص من «عندك غساله سوده» ← البوت جاوب السؤال القديم (التنفيذ 2126). تحية بس وبلا طلب جاري (`isPureGreeting`): سجل المحادثة القديم ما يوصل للوكيل، وتنبيه `GREETING_HINT`، وحارس `greetingReply` يرد تحية («وعليكم السلام» بس إذا الزبون سلّم) | ماسنجر وواتساب |
+| `typing-refresh.mjs` (2026-10-26) | علامة «يكتب» كانت تنطفي والزبون ينتظر: «Typing On» بأول 6 ثواني بس وماسنجر يطفّيها بعد ~20 ثانية، والرد بالتنفيذ 2167 طلع 51.8 ثانية («Complaint Check» خلصت مهلته مرتين) فبقى 24 ثانية بلا علامة. هسة «Refresh Typing (Complaint)?» قبل «Complaint Check» و«Refresh Typing (Agent)?» قبل «Iraqi Store AI Agent»: فرع فوق المسار الرئيسي يرجع لـ «Typing Page?» (نفس عقد Typing On وتوكن كل صفحة)، بشرط «Early Typing Allowed?» على «Re-read Customer Session»، و `onError: continue`. الكلفة ~1.5 ثانية لكل نداء قبل الرد | ماسنجر |
 
 `harden-order-flow.mjs` و`fix-order-context-and-presence.mjs` أقدم (تأكيد مرة وحدة، سياق الطلب)، و`order-context-node.mjs` يبني كود عقدة «سياق الطلب» من المصدر المختبَر `order-context-hint.js`.
 
@@ -35,6 +36,7 @@ N8N_KEY=… node n8n/<script>.mjs messenger whatsapp instagram
 2. `first-order-discount-eligibility.mjs` (ماسنجر).
 3. `complaint-gate.mjs`.
 4. `buffer-race.mjs` ثم `log-on-arrival.mjs` (يحتاج «Buffer Has Messages?» من buffer-race) ثم `sales-guardrails.mjs` (آخر شي: يحقن كتلة catalog-guard بعد نداء own-voice الي يحطه `premium-replies.mjs`، ويبني «سياق الطلب» من المصدر ويا الكتالوج).
+5. `typing-refresh.mjs` (ماسنجر، مستقل: يحتاج «Typing Page?» و«Order Context Hint» بس).
 
 ⚠️ `premium-replies.mjs` يبني برومتَي الدمج والتفريغ وعقدة الحارس وسياق الطلب (إنستغرام) **من نسخة «قبل»** المحفوظة، مو من الحي، فأي تعديل يدوي لهالعقد بعد النسخة ينكتب فوقه. عدّل بالمصدر (`n8n/*.js`) وأعد التشغيل.
 
