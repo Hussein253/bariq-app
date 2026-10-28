@@ -112,7 +112,7 @@ export const ASKS_FOR_HUMAN = /موظف|مشرف|مسؤول|مسئول|مدير|
 // الزبون يستفسر بس («عندك غسالة؟»، «شكد سعرها؟»، «شنو أيام الدوام؟») وما قال إنه يريد يطلب: الرد جواب وبس. بدون هالفصل
 // البوت يعامل «عندك منتجات غسالة؟» كطلب، فيكتب «تمام هيج؟» ويقترح عنوان الطلب السابق (ماسنجر 2026-10-24، التنفيذ 864).
 // النية تتبع explicitBuyIntent (نية شراء صريحة): «أريد أعرف شكد سعرها» هسة استفسار، والزبون يكمّل الطلب هو لما يقرر.
-const INQUIRY = /عندك|عندكم|عدكم|عدك|اكو|ماكو|موجود|متوفر|تتوفر|توفر|شنو|شكد|بكم|سعر|اسعار|دوام|ساعات|توصيل|توصلون|هل |[?؟]/;
+const INQUIRY = /عندك|عندكم|عدكم|عدك|اكو|ماكو|موجود|متوفر|تتوفر|توفر|شنو|شكد|بكم|سعر|اسعار|دوام|ساعات|توصيل|توصلون|موقع|لوكيشن|لوكيشين|location|عنوانكم|عنوان المحل|محلكم|وين المحل|وين محل|وينكم|خريطه|هل |[?؟]/;
 
 // نية شراء صريحة بكلام الزبون نفسه (توجيه صاحب المتجر 2026-10-25): الحجز («تم تأكيد طلبك» وسؤال العنوان) ما ينفتح على ذكر لون أو كلمة
 // عابرة. كانت كلمة «اريد» لحالها تكفي، فـ«زين اريد الالوان الموجودة» (التنفيذ 1929) طلع «شكم قطعة رايد؟». هسة فعل الحجز أو الشراء،
@@ -392,10 +392,11 @@ export function mismatchHint(m, { repeated = false } = {}) {
       + '، و' + m.requestedLabel + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل ' + avail + '؟»'
     : '«عزيزي، الي عدنا هسة ' + (m.product || 'بس الـ ' + avail) + (m.product ? ' بس' : '') + '، والـ ' + m.requestedLabel
       + ' للأسف ما عدنا حالياً. تحب أدزلك تفاصيل الـ ' + avail + '؟»';
-  return '\n\n[تنبيه حاسم (فوق أي تنبيه ثاني): الزبون ذكر ' + what + ' وهذا مو متوفر بالكتالوج (المتوفر: ' + avail + ' بس).'
+  return '\n\n[تنبيه حاسم (فوق أي تنبيه عن الطلب): الزبون ذكر ' + what + ' وهذا مو متوفر بالكتالوج (المتوفر: ' + avail + ' بس).'
+    + ' وإذا سأل بنفس الرسالة عن شي ثاني (الموقع، الدوام، التوصيل، السعر…) جاوبه عليه أول وبوضوح، وبعدها التصحيح بجملة قصيرة؛ ممنوع تتجاهل سؤاله (التنفيذ 2147: «دزلي موقع مالكم… واريد لون اسود» ← تصحيح اللون بس).'
     + ' ممنوع توافقه أو تكتب إنه متوفر أو تحطه بطلبه، وممنوع بهذا الرد «تم تأكيد طلبك» و«طلبك هسة صار» وأي طلب للاسم أو العنوان أو الرقم، وممنوع سؤال عن العدد.'
     + (repeated
-      ? ' ردك السابق صحّحله نفس الشي وهو رجع عليه: لا تعيد نفس الجملة؛ قله بلطف إنه حالياً ماكو غير ' + avail + ' وإذا يناسبه إنت حاضر تخدمه، بدون سؤال ثاني.]'
+      ? ' ردك السابق صحّحله نفس الشي وهو رجع عليه: لا تعيد نفس الجملة ولا نفس العرض («إذا يناسبك…»، «حاضر أخدمك»)؛ ذكّره بكلمتين إن المتوفر ' + avail + ' بس، بدون سؤال ثاني.]'
       : ' صحّح المعلومة بلطف وثقة مثل بايع شاطر: المتوفر ' + avail + ' بس و' + m.requestedLabel + ' مو متوفر حالياً، وبعدها سؤال واحد خفيف إذا يحب تفاصيل المتوفر. مثال: ' + example + ']');
 }
 
@@ -524,13 +525,18 @@ const GREETING_WORDS = new Set([
   'مرحبا', 'مرحبه', 'مراحب', 'هلا', 'هلو', 'هاي', 'اهلا', 'اهلين', 'هلاو', 'الو', 'سلام', 'السلام', 'عليكم', 'وعليكم', 'صباح', 'مساء', 'الخير', 'النور',
   'شلونك', 'شلونكم', 'شلونج', 'hi', 'hello', 'hey', 'عيني', 'اخي', 'اخوي', 'حبيبي', 'استاذ', 'خالي', 'عمي', 'يا',
   'ورحمه', 'الله', 'اله', 'وبركاته', 'بركاته', // «السلام عليكم ورحمة الله وبركاته» (squash تخلي «الله» «اله»)
+  // «السلام عليكم كيف الحال موجودين؟» (ماسنجر 2026-10-26، التنفيذ 2135): السؤال عن الحال أو التواجد جزء من التحية
+  'كيف', 'الحال', 'حالك', 'حالكم', 'الاحوال', 'احوالك', 'احوالكم', 'شلون', 'شخبارك', 'شخباركم', 'اخبارك', 'اخباركم',
+  'موجود', 'موجودين', 'متواجد', 'متواجدين', 'اكو', 'احد', 'بخير', 'الحمد', 'لله', 'الحمدلله', 'تمام', 'زين',
 ]);
 /** رسالة الزبون تحية بس («مرحبا»، «السلام عليكم»، «هلا اخوي»، «صباح الخير»)؟ */
 export function isPureGreeting(message) {
-  const msg = squash(norm(message)).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
+  // البصمة توصل «[رسالة صوتية]: السلام عليكم…»: الوسم مو من كلام الزبون (التنفيذ 2135)
+  const spoken = String(message ?? '').replace(/\[رسال[ةه] صوتي[ةه][^\]]*\]\s*:?/g, ' ');
+  const msg = squash(norm(spoken)).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
   const words = msg.split(/\s+/).filter(Boolean);
-  if (!words.length || words.length > 6) return false;
-  if (!words.some((w) => /^(?:مرحب|مراحب|هلا|هلو|هاي|اهل|الو|سلام|السلام|صباح|مساء|hi|hello|hey)/.test(w))) return false;
+  if (!words.length || words.length > 9) return false;
+  if (!words.some((w) => /^(?:مرحب|مراحب|هلا|هلو|هاي|اهل|الو|سلام|السلام|صباح|مساء|موجود|متواجد|شلون|شخبار|كيف|hi|hello|hey)/.test(w))) return false;
   return words.every((w) => GREETING_WORDS.has(w) || GREETING_WORDS.has(w.replace(/^و/, '')));
 }
 export const saidSalam = (message) => /(?:^|\s)(?:ال)?سلام(?:\s|$)/.test(norm(message));
@@ -583,11 +589,16 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   const placed = ALREADY_PLACED.test(lastBotNorm);
   const threadActive = threadFresh && !placed && orderThread(lastBotNorm);
   const answering = threadActive && answersThread(combinedMessage);
+  // سلة باقية من طلب انحجز ورد البوت الأخير من أمس خلّت تحية تنجاوب بـ «اطلب الناقص» (التنفيذ 2135): السلة تنحسب بس ويا خيط حديث
+  const liveCart = threadFresh && !placed ? cart : [];
+  // فاحص الشكاوى (نموذج) يكول ordering_now حتى على «دزلي الموقع مالكم» أو لون مو موجود، فيطلع «شكم وحدة رايد؟» (التنفيذين 2147 و2155):
+  // إذا رد البوت الأخير معروف لازم يكون سؤال طلب فعلاً
+  const orderingLive = orderingNow === true && threadFresh && !placed && (!lastBotNorm || orderThread(lastBotNorm));
   const addressAsked = !confirmed && answering && PREV_ADDRESS_ASKED.test(lastBotNorm);
   // استفسار بس: «شنو عندك شاشة سمارت؟» أو «ما عندك بس غسالة؟». الحكم يتبع رسالة الزبون الحالية والسلة ورد البوت الأخير، مو كلمة «احجزلي» قبل ساعات
   // بسجل اليوم (ماسنجر 2026-10-24، التنفيذ 1638: سجل بيه «احجزلي» خلّى استفسار يتعامل كطلب والبوت رد «عدنا غسالة… شكم قطعة رايد؟» بدل الجواب)
   const browsing = isBrowsing({
-    message: combinedMessage, cartLength: cart.length, orderingNow, askedToOrder: WANTS_ORDER.test(current), confirmed,
+    message: combinedMessage, cartLength: liveCart.length, orderingNow: orderingLive, askedToOrder: WANTS_ORDER.test(current), confirmed,
     lastBotReply: Array.isArray(botReplies) ? botReplies[0] : '',
   });
   // الكتالوج ونية الشراء: لون أو سعة مو موجودة تتصحح أول، والحجز ما ينفتح إلا بنية شراء صريحة أو بطلب جاري فعلاً
@@ -606,9 +617,9 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
   const itemsFromBot = threadActive && itemsStatedByBot(lastBotNorm);
   const addressGiven = addressInThread({ message: combinedMessage, recentMessages, recentTimes, now });
   const delivery = deliveryFor({ deliveryFees, message: combinedMessage, recentMessages, recentTimes, now });
-  const needsItems = !mismatch && !confirmed && !itemsFromMessage && !itemsFromBot && !addressAsked && !browsing && cart.length === 0 && (askedToOrder || orderingNow === true);
+  const needsItems = !mismatch && !confirmed && !itemsFromMessage && !itemsFromBot && !addressAsked && !browsing && liveCart.length === 0 && (askedToOrder || orderingLive);
   // طلب جاري وردك السابق ما عرض المبلغ الكلي: الزبون ما وافق على شي لهسة، فما ينحجز طلب
-  const totalNotShown = !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || cart.length > 0 || orderingNow === true);
+  const totalNotShown = !mismatch && !confirmed && !placed && !browsing && !SHOWED_TOTAL.test(lastBotNorm) && (askedToOrder || liveCart.length > 0 || orderingLive);
 
   // تحية بس وبلا طلب جاري: رد تحية، وسجل المحادثة القديم ما يوصل للوكيل حتى ما يجاوب سؤال قديم (التنفيذ 2126)
   const pureGreeting = !threadActive && isPureGreeting(combinedMessage);
@@ -632,19 +643,19 @@ export function orderContextHint({ combinedMessage = '', sessionData = null, rec
 
   if (browsing) hint += BROWSING_HINT;
 
-  const single = mismatch || itemsFromBot ? '' : singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow });
+  const single = mismatch || itemsFromBot ? '' : singleProductNote({ productNames, message: combinedMessage, needsItems, askedToOrder, orderingNow: orderingLive });
   hint += single;
 
   // الحجز النهائي (create_order) بموافقة الزبون الصريحة على المبلغ الكلي بس. «اعتمد» جواب على سؤال العنوان مو موافقة على الطلب
   // (ماسنجر 2026-10-24، التنفيذ 1591: «اعتمد» ← create_order والزبون ما شاف المبلغ، طلب 47).
   if (addressAsked) hint += ADDRESS_ANSWER_HINT;
-  else if (totalNotShown) hint += NO_ORDER_YET_HINT;
+  else if (totalNotShown && !pureGreeting) hint += NO_ORDER_YET_HINT;
 
   // التأكيد الواصل له تنبيهه الخاص (ثبّت وبس)، والاستفسار جواب وبس، وجواب سؤال العنوان ما يرجع يفتتح بـ «تم تأكيد طلبك» من جديد
   // (التنفيذ 1588: «تمام اعتمد العنوان» ← نفس الافتتاحية ونفس سؤال العنوان)
   if (!confirmed && !browsing && !addressAsked && bookingAllowed) hint += ownVoiceNote({ message: combinedMessage, productNames, needsItems });
   // بلا نية شراء صريحة وبلا طلب جاري: جواب وإقناع بس، بدون فتح حجز (تنبيه البنود والاستفسار عدهم قواعدهم). التحية لحالها ما تحتاجه
-  else if (!confirmed && !browsing && !addressAsked && !needsItems && !mismatch && !contactRequest && buyRisk(combinedMessage, orderingNow)) hint += NO_BUY_YET_HINT;
+  else if (!confirmed && !browsing && !addressAsked && !needsItems && !mismatch && !contactRequest && buyRisk(combinedMessage, orderingLive)) hint += NO_BUY_YET_HINT;
   if (contactRequest && !bookingAllowed) hint += CONTACT_HINT;
   if (specQuestion) hint += SPEC_HINT;
   if (bookingAllowed && itemsFromBot) {
