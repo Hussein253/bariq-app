@@ -38,7 +38,8 @@ export const CHANNELS = {
 
 const MARK = 'n8n/answer-accuracy.js'
 const NAMES = ['qNorm', 'SIZE_LABEL', 'sizeLabels', 'SIZE_FIT_Q', 'isSizeFitQuestion', 'SIZE_FIT_HINT', 'Q_TOPICS', 'questionTopics', 'MULTI_Q_HINT',
-  'WHOLESALE_Q', 'isWholesaleQuestion', 'WHOLESALE_HINT', 'PHOTO_STOP_WORDS', 'AREA_HINT_GUARD', 'EN_TO_CATALOG', 'arabizeEnglish', 'PHONE_ANY', 'normalizePhones', 'forOrderChecks']
+  'WHOLESALE_Q', 'isWholesaleQuestion', 'WHOLESALE_HINT', 'PHOTO_STOP_WORDS', 'AREA_HINT_GUARD', 'EN_TO_CATALOG', 'arabizeEnglish', 'PHONE_ANY', 'normalizePhones', 'forOrderChecks',
+  'ASKS_DETAIL', 'DETAILS', 'askedDetails', 'detailsHint']
 
 const CATALOG_ANCHOR = '/** @param {ReturnType<typeof normalizeCatalog>} [catalog] */\nfunction catalogFactsHint('
 const SIZE_OLD = "(p.size ? ' — القياس: ' + p.size : '')"
@@ -123,7 +124,7 @@ export const patchWorkflow = (wf, c) => {
       if (!code.includes(withEol(HINT_ADD, eol))) throw new Error(`${c.context}: سطور التنبيهات مو بالشكل المتوقع`)
       if (code !== before) {
         node.parameters.jsCode = code
-        changes.push(`${c.context}: ${MARK} محدّث (الجملة، والجواب على قدّ السؤال، والإنكليزي)`)
+        changes.push(`${c.context}: ${MARK} محدّث من المصدر (آخرها: المنتج باسمه بس والتفاصيل إذا سألها)`)
       }
     }
   }

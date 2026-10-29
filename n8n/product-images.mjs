@@ -38,6 +38,7 @@ export const CHANNELS = {
     agent: 'Iraqi Store AI Agent',
     prompt: 'Build User Prompt',
     lastBot: 'Load Last Bot Message',
+    recentBot: 'Load Recent Bot Replies',
     parsed: 'Parse Agent Output',
     after: ['Send WhatsApp Reply'],
     phone: "$('Message Data').first().json.phone",
@@ -59,8 +60,9 @@ export const CHANNELS = {
     agent: 'Iraqi Store AI Agent',
     prompt: 'Build User Prompt',
     lastBot: 'Load Last Bot Message',
+    recentBot: 'Load Recent Bot Replies',
     parsed: 'Parse Agent Output',
-    after: ['Send Messenger Reply', 'Send Messenger Reply (المميز)', 'Send Voice Reply (style)', 'Send Voice Reply (premium)'],
+    after: ['Send Messenger Reply','Send Messenger Reply (المميز)', 'Send Voice Reply (style)', 'Send Voice Reply (premium)'],
     phone: "$('Message Data').first().json.phone",
     names: {
       marker: 'Product Images Marker',
@@ -83,6 +85,7 @@ export const CHANNELS = {
     agent: 'وكيل المبيعات (علاء)',
     prompt: 'تجهيز رسالة الوكيل',
     lastBot: 'تحميل آخر رد للبوت',
+    recentBot: 'تحميل ردود البوت الأخيرة',
     parsed: 'تحليل مخرجات الوكيل',
     after: ['إرسال رد Instagram'],
     phone: "$('بيانات الرسالة').first().json.phone",
@@ -120,12 +123,21 @@ const ANY_PROMPT_EXPR = new RegExp(escapeRe(PROMPT_EXPR_HEAD) + '[\\s\\S]*?' + e
 export const markerCode = (c) => MODULE.replace(/^export /gm, '').trimEnd() + `
 
 // ---- n8n: المدخلات من عقد هذا المسار (مولّد من n8n/product-images.js — لا تعدّل هنا) ----
-const NODES = ${JSON.stringify({ prompt: c.prompt, lastBot: c.lastBot })};
+const NODES = ${JSON.stringify({ prompt: c.prompt, lastBot: c.lastBot, recentBot: c.recentBot, merchant: MERCHANT })};
 const j = $input.item.json || {};
 const customerMessage = (() => { try { return String($(NODES.prompt).first().json.combinedMessage || ''); } catch (e) { return ''; } })();
-const lastBotReply = (() => { try { return String($(NODES.lastBot).first().json.last_bot || ''); } catch (e) { return ''; } })();
+// «${c.lastBot}» يشتغل بمسار الصوت بس؛ بمسار النص آخر رد من «${c.recentBot}»
+const lastBotReply = (() => { try { return String($(NODES.lastBot).first().json.last_bot || ''); } catch (e) { return ''; } })()
+  || (() => {
+    try {
+      let r = $(NODES.recentBot).first().json.replies;
+      if (typeof r === 'string') r = JSON.parse(r);
+      return Array.isArray(r) ? String(r[0] || '') : '';
+    } catch (e) { return ''; }
+  })();
+const list = (() => { try { return String($(NODES.merchant).first().json.${SECTION_FIELD} || ''); } catch (e) { return ''; } })();
 try {
-  const r = productImagesMarker({ output: j.output ?? j.text ?? '', customerMessage, lastBotReply });
+  const r = productImagesMarker({ output: j.output ?? j.text ?? '', customerMessage, lastBotReply, list });
   return { json: { ...j, output: r.output, productImageCodes: r.codes, productImageCodesDropped: r.dropped } };
 } catch (e) {
   // الصور إضافة: أي خطأ هنا ما يوقف الرد، يمشي بدون صور

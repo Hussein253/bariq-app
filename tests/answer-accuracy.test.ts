@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ASKS_DETAIL,
   PHOTO_STOP_WORDS,
   arabizeEnglish,
+  askedDetails,
+  detailsHint,
   isSizeFitQuestion,
   englishHint,
   forOrderChecks,
@@ -122,12 +125,52 @@ describe('scopeHints — الجواب على قدّ السؤال، والإنك�
     expect(scopeHints('ماجاوبتني')).toContain('آخر سؤال إله ما انجاوب')
   })
 
-  it('سؤال عن كل المنتجات: الكتالوج هو الجواب، بلا تنبيه تقييد', () => {
-    expect(scopeHints('شنو عدكم منتجات')).toBe('')
+  it('سؤال عن كل المنتجات: بلا تنبيه «سؤال واحد»، بس المنتج باسمه وبلا قياسات (قاعدة صاحب المتجر 2026-10-29)', () => {
+    const h = scopeHints('شنو عدكم منتجات')
+    expect(h).not.toContain('جاوب على قدّ سؤاله')
+    expect(h).toBe(detailsHint('شنو عدكم منتجات'))
+    expect(h).toContain('«عدنا [اسم المنتج]» بس')
+    expect(h).toContain('ممنوع تعدّد القياسات ولا الألوان ولا السعر')
   })
 
   it.each(['تمام', 'اوك', 'ok', '👍', 'اي ثبت'])('«%s» مو مجاملة (ممكن موافقة على الطلب)', (m) => {
     expect(isCourtesyOnly(m)).toBe(false)
+  })
+})
+
+describe('detailsHint — المنتج باسمه بس، والتفاصيل الي سألها (قاعدة صاحب المتجر 2026-10-29)', () => {
+  it.each([
+    ['شنو عدكم منتجات', []],
+    ['عندك هودي؟', []],
+    ['شنو القياسات الموجودة', ['sizes']],
+    ['اني طولي ١٧٠ شنو يجيني', ['sizes']],
+    ['عندك XL؟', ['sizes']],
+    ['عندك لون أسود؟', ['colors']],
+    ['Red', ['colors']],
+    ['شكد سعره', ['price']],
+    ['شنو الألوان وشكد سعرها', ['colors', 'price']],
+  ])('«%s» ← %j', (m, asked) => {
+    expect(askedDetails(m)).toEqual(asked)
+  })
+
+  it('سأل عن السعر بس: يجاوبه، والقياسات والألوان ممنوعة', () => {
+    const h = detailsHint('شكد سعره')
+    expect(h).toContain('سأل بهالرسالة عن السعر')
+    expect(h).toContain('ممنوع تعدّد القياسات ولا الألوان بهالرد')
+  })
+
+  it('سأل عن الكل: ماكو ممنوع', () => {
+    expect(detailsHint('شنو الألوان والقياسات وشكد السعر')).not.toContain('ممنوع تعدّد')
+  })
+
+  it('«ماجاوبتني» والمجاملة: المجاملة بلا تنبيه تفاصيل', () => {
+    expect(scopeHints('ماجاوبتني')).toContain('قاعدة عامة من صاحب المتجر')
+    expect(scopeHints('شكراً حبيبي')).not.toContain('قاعدة عامة من صاحب المتجر')
+  })
+
+  it('نفس تعبير القياس بالحارس الأخير (n8n/reply-scope.js)', async () => {
+    const { ASKS_SIZES } = await import('@/n8n/reply-scope.js')
+    expect(ASKS_SIZES.source).toBe(ASKS_DETAIL.sizes.source)
   })
 })
 

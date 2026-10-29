@@ -197,13 +197,41 @@ export function normalizePhones(message) {
 /** الرسالة كما تشوفها فحوص الطلب: ألوان وقياسات الكتالوج بالعربي، ورقم الموبايل بصيغة 07. */
 export const forOrderChecks = (message) => normalizePhones(arabizeEnglish(message))
 
+/**
+ * قاعدة صاحب المتجر (2026-10-29): «يذكر فقط المنتج بعيداً عن التفاصيل… ما يذكر القياسات حتى ما يطلب الزبون القياس».
+ * البوت جان يعيد «- أسود: سمول، ميديم، لارج…» لكل لون بأغلب الردود (التنفيذات 2782، 2809، 2819، 2845، 2940).
+ * التفاصيل الي سأل عنها الزبون بهالرسالة تنذكر، والباقي لا. نفس ASKS_SIZES بـ n8n/reply-scope.js (الاختبار يتأكد).
+ */
+export const ASKS_DETAIL = {
+  sizes: /قياس|مقاس|حجم|احجام|حجوم|سايز|size|طولي|وزني|سمول|ميديم|ميديوم|لارج|(?<![a-z])(?:xs|x?xl|[23]xl|small|medium|large)(?![a-z])/,
+  colors: /لون|الوان|اللوان|colou?r|اسود|سودا|ابيض|بيضا|احمر|حمرا|ازرق|زرقا|اخضر|خضرا|اصفر|صفرا|وردي|رصاصي|رمادي|جوزي|بيجي|كحلي|بنفسجي|برتقالي|(?<![a-z])(?:black|white|red|blue|green|pink|gr[ae]y|brown|beige|navy|yellow)(?![a-z])/,
+  price: /شكد|شقد|بكم|سعر|اسعار|فلوس|خصم|تخفيض|بحبح|(?<![a-z])(?:price|cost|how much)(?![a-z])/,
+}
+
+const DETAILS = [['sizes', 'القياسات'], ['colors', 'الألوان'], ['price', 'السعر']]
+
+/** @returns {string[]} التفاصيل الي سأل عنها: sizes / colors / price */
+export const askedDetails = (message) => DETAILS.map(([k]) => k).filter((k) => ASKS_DETAIL[k].test(qNorm(message)))
+
+export function detailsHint(message) {
+  const asked = askedDetails(message)
+  const yes = DETAILS.filter(([k]) => asked.includes(k)).map(([, l]) => l)
+  const no = DETAILS.filter(([k]) => !asked.includes(k)).map(([, l]) => l)
+  return '\n\n[قاعدة عامة من صاحب المتجر: اذكر المنتج باسمه بس، بعيد عن التفاصيل.'
+    + (yes.length
+      ? ' الزبون سأل بهالرسالة عن ' + yes.join(' و') + ': جاوبه عليها.'
+      : ' الزبون ما سأل عن أي تفصيلة: مثلاً «شنو عدكم؟» جوابه «عدنا [اسم المنتج]» بس.')
+    + (no.length ? ' ممنوع تعدّد ' + no.join(' ولا ') + ' بهالرد لأن ما سألها، وممنوع تعيد قائمة المنتج بألوانه وقياساته.' : '')
+    + ' إذا يطلب وناقص لون أو قياس، اسأله بكلمتين بدون ما تعدّد. الاستثناء الوحيد: تأكيد الطلب وملخصه.]'
+}
+
 /** كل تنبيهات «على قدّ السؤال» لرسالة وحدة. */
 export function scopeHints(message) {
   let h = englishHint(message)
   if (isCourtesyOnly(message)) return h + COURTESY_HINT
   if (SAYS_UNANSWERED.test(qNorm(message))) h += UNANSWERED_HINT
   else if (!ASKS_CATALOG.test(qNorm(message))) h += SCOPE_HINT
-  return h
+  return h + detailsHint(message)
 }
 
 /**
