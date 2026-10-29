@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
   Check,
+  ImagePlus,
   Loader,
   Package,
   Plus,
@@ -12,6 +13,13 @@ import {
   X,
 } from 'lucide-react'
 import { displayStatus, validateProduct, type Product } from '@/lib/catalog'
+import {
+  MAX_IMAGES_PER_PRODUCT,
+  compressForUpload,
+  imageGroupKey,
+  imageGroupOf,
+  type ProductImage,
+} from '@/lib/product-images'
 import { formatNumberFor, localizeDigits } from '@/lib/formatters'
 import { fill, type Dictionary } from '@/lib/i18n'
 import type { Locale } from '@/lib/i18n/config'
@@ -49,6 +57,10 @@ export default function CatalogManager({
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [images, setImages] = useState<ProductImage[]>([])
+  const [draftFiles, setDraftFiles] = useState<File[]>([])
+  /** مجموعة (اسم + لون) يُرفع لها أو يُحذف منها الآن — كل صفوف قياساتها تنتظر معاً. */
+  const [imageBusyKey, setImageBusyKey] = useState<string | null>(null)
 
   const showToast = (message: string, type: Toast['type'] = 'success') => {
     setToast({ message, type })
@@ -58,17 +70,86 @@ export default function CatalogManager({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/catalog?merchant=${merchantId}`)
+      const [res, imagesRes] = await Promise.all([
+        fetch(`/api/catalog?merchant=${merchantId}`),
+        fetch(`/api/catalog/images?merchant=${merchantId}`),
+      ])
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error || t.errors.loadFailed)
       setProducts(json.products as Product[])
       setLoadError(null)
+
+      // الصور إضافة: فشلها ما يخفي جدول المنتجات
+      const imagesJson = await imagesRes.json().catch(() => null)
+      if (imagesRes.ok && imagesJson?.success) setImages(imagesJson.images as ProductImage[])
+      else console.error('[CATALOG] images load failed', imagesJson?.error)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : t.errors.loadFailed)
     } finally {
       setLoading(false)
     }
   }, [merchantId, t.errors.loadFailed])
+
+  const imagesByGroup = new Map<string, ProductImage[]>()
+  for (const img of images) {
+    const key = imageGroupKey(img)
+    imagesByGroup.set(key, [...(imagesByGroup.get(key) ?? []), img])
+  }
+
+  /** يرفع صورة واحدة لمجموعة المنتج. يرجّع الصورة أو يرمي خطأ برسالة جاهزة للعرض. */
+  const uploadImage = async (productId: number, file: File): Promise<ProductImage> => {
+    let blob: Blob
+    try {
+      blob = await compressForUpload(file)
+    } catch {
+      throw new Error(fill(t.errors.imageDecode, { name: file.name }))
+    }
+    const form = new FormData()
+    form.append('merchantId', merchantId)
+    form.append('productId', String(productId))
+    form.append('file', blob, 'image.jpg')
+    const res = await fetch('/api/catalog/images', { method: 'POST', body: form })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json?.success) throw new Error(json?.error || t.errors.imageUploadFailed)
+    return json.image as ProductImage
+  }
+
+  const handleAddImages = async (p: Product, files: FileList | null) => {
+    const group = imageGroupOf(p)
+    if (!group || !files?.length) return
+    const key = imageGroupKey(group)
+    const room = MAX_IMAGES_PER_PRODUCT - (imagesByGroup.get(key)?.length ?? 0)
+
+    setImageBusyKey(key)
+    try {
+      for (const file of Array.from(files).slice(0, Math.max(0, room))) {
+        const img = await uploadImage(p.id, file)
+        setImages((prev) => [...prev, img])
+      }
+      showToast(t.toastImageAdded)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t.errors.imageUploadFailed, 'error')
+    } finally {
+      setImageBusyKey(null)
+    }
+  }
+
+  const handleDeleteImage = async (img: ProductImage) => {
+    if (!confirm(t.deleteImageConfirm)) return
+    const key = imageGroupKey(img)
+    setImageBusyKey(key)
+    try {
+      const res = await fetch(`/api/catalog/images?id=${img.id}&merchant=${merchantId}`, { method: 'DELETE' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.success) throw new Error(json?.error || t.errors.imageDeleteFailed)
+      setImages((prev) => prev.filter((x) => x.id !== img.id))
+      showToast(t.toastImageDeleted)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t.errors.imageDeleteFailed, 'error')
+    } finally {
+      setImageBusyKey(null)
+    }
+  }
 
   // التحميل داخل دالة غير متزامنة لا في جسم الـ effect مباشرة:
   // setState متزامن هناك يُطلق دورات تصيير متتالية.
@@ -112,10 +193,34 @@ export default function CatalogManager({
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error || t.errors.addFailed)
 
-      setProducts((prev) => [json.product as Product, ...prev])
+      const product = json.product as Product
+      setProducts((prev) => [product, ...prev])
+
+      // الصور بعد المنتج: تحتاج معرّفه. منتج جديد بنفس اسم ولون منتج قائم
+      // يشارك صوره، فالمكان المتبقي يُحسب من صوره الحالية.
+      const group = imageGroupOf(product)
+      const room = group
+        ? MAX_IMAGES_PER_PRODUCT - (imagesByGroup.get(imageGroupKey(group))?.length ?? 0)
+        : 0
+      let failed = 0
+      for (const file of draftFiles.slice(0, Math.max(0, room))) {
+        try {
+          const img = await uploadImage(product.id, file)
+          setImages((prev) => [...prev, img])
+        } catch (e) {
+          failed++
+          console.error('[CATALOG] image upload failed', e)
+        }
+      }
+
       setDraft(EMPTY_DRAFT)
+      setDraftFiles([])
       setShowForm(false)
-      showToast(t.toastAdded)
+      if (failed > 0) {
+        showToast(fill(t.errors.imagesPartial, { n: localizeDigits(failed, locale) }), 'error')
+      } else {
+        showToast(t.toastAdded)
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : t.errors.addFailed, 'error')
     } finally {
@@ -282,6 +387,29 @@ export default function CatalogManager({
               className="px-3 py-2 rounded-xl border border-line text-xs outline-none focus:border-brand bg-surface text-ink"
             />
           </div>
+          <div className="mt-3">
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-line text-xs text-ink-muted hover:border-brand hover:text-ink cursor-pointer transition">
+              <ImagePlus size={15} />
+              <span className="font-semibold">
+                {draftFiles.length > 0
+                  ? fill(t.imagesSelected, { n: localizeDigits(draftFiles.length, locale) })
+                  : t.fieldImages}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(e) => {
+                  setDraftFiles(Array.from(e.target.files ?? []).slice(0, MAX_IMAGES_PER_PRODUCT))
+                  e.target.value = ''
+                }}
+              />
+            </label>
+            <p className="mt-1.5 text-[11px] text-ink-muted">
+              {fill(t.fieldImagesHint, { n: localizeDigits(MAX_IMAGES_PER_PRODUCT, locale) })}
+            </p>
+          </div>
           <div className="flex gap-2 mt-4">
             <button
               onClick={handleAdd}
@@ -295,6 +423,7 @@ export default function CatalogManager({
               onClick={() => {
                 setShowForm(false)
                 setDraft(EMPTY_DRAFT)
+                setDraftFiles([])
               }}
               className="px-5 py-2 rounded-xl border border-line text-ink-muted font-bold text-xs hover:bg-surface-2 transition"
             >
@@ -333,6 +462,7 @@ export default function CatalogManager({
                 <tr className="text-ink-muted bg-surface-2 border-b border-line font-semibold">
                   <th className="p-3.5 text-start">{t.colProduct}</th>
                   <th className="p-3.5 text-start">{t.colVariant}</th>
+                  <th className="p-3.5 text-start">{t.colImages}</th>
                   <th className="p-3.5 text-start">{fill(t.colPrice, { currency })}</th>
                   <th className="p-3.5 text-start">{t.colStock}</th>
                   <th className="p-3.5 text-start">{t.colStatus}</th>
@@ -343,11 +473,78 @@ export default function CatalogManager({
                 {filtered.map((p) => {
                   const st = displayStatus(p)
                   const busy = busyId === p.id
+                  const group = imageGroupOf(p)
+                  const groupKey = group ? imageGroupKey(group) : null
+                  const groupImages = groupKey ? imagesByGroup.get(groupKey) ?? [] : []
+                  const imageBusy = groupKey !== null && imageBusyKey === groupKey
+                  const groupLabel = [group?.product_name, group?.color].filter(Boolean).join(' ')
                   return (
                     <tr key={p.id} className="border-b border-line hover:bg-surface-2">
                       <td className="p-3.5 font-bold text-ink">{p.name || '—'}</td>
                       <td className="p-3.5 text-ink-muted">
                         {[p.color, p.size].filter(Boolean).join(' · ') || '—'}
+                      </td>
+                      <td className="p-3.5">
+                        {group ? (
+                          <div
+                            className="flex items-center gap-1.5"
+                            title={fill(t.imagesShared, { name: groupLabel })}
+                          >
+                            {groupImages.map((img) => (
+                              <div key={img.id} className="group relative shrink-0">
+                                <a href={img.url} target="_blank" rel="noopener noreferrer">
+                                  {/* صورة من الحاوية العامة كما هي: next/image يمرّرها بمُحسِّن Vercel ويحتاج remotePatterns */}
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={img.url}
+                                    alt={groupLabel}
+                                    loading="lazy"
+                                    className="h-9 w-9 rounded-lg border border-line object-cover bg-surface-2"
+                                  />
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteImage(img)}
+                                  disabled={imageBusy}
+                                  aria-label={t.deleteImage}
+                                  className="absolute -top-1.5 -end-1.5 hidden group-hover:flex group-focus-within:flex h-4 w-4 items-center justify-center rounded-full bg-danger-bg border border-danger-line text-danger-ink disabled:opacity-50"
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ))}
+                            {imageBusy ? (
+                              <span className="flex h-9 w-9 items-center justify-center" aria-label={t.uploadingImage}>
+                                <Loader size={14} className="animate-spin text-ink-faint" />
+                              </span>
+                            ) : groupImages.length < MAX_IMAGES_PER_PRODUCT ? (
+                              <label
+                                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-dashed border-line text-ink-faint hover:border-brand hover:text-brand transition"
+                                aria-label={fill(t.addImage, { name: groupLabel })}
+                              >
+                                <ImagePlus size={15} />
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="sr-only"
+                                  onChange={(e) => {
+                                    const files = e.target.files
+                                    void handleAddImages(p, files).finally(() => {
+                                      e.target.value = ''
+                                    })
+                                  }}
+                                />
+                              </label>
+                            ) : (
+                              <span className="text-[10px] text-ink-faint whitespace-nowrap">
+                                {fill(t.imagesFull, { n: localizeDigits(MAX_IMAGES_PER_PRODUCT, locale) })}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-ink-faint">—</span>
+                        )}
                       </td>
                       <td className="p-3.5">
                         <input
