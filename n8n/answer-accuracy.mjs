@@ -21,7 +21,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PHOTO_STOP_WORDS } from './answer-accuracy.js'
+import { AREA_HINT_GUARD, PHOTO_STOP_WORDS } from './answer-accuracy.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const API = process.env.N8N_API ?? 'http://localhost:5678/api/v1'
@@ -37,17 +37,38 @@ export const CHANNELS = {
 }
 
 const MARK = 'n8n/answer-accuracy.js'
-const NAMES = ['qNorm', 'SIZE_LABEL', 'sizeLabels', 'SIZE_FIT_Q', 'isSizeFitQuestion', 'SIZE_FIT_HINT', 'Q_TOPICS', 'questionTopics', 'MULTI_Q_HINT', 'PHOTO_STOP_WORDS']
+const NAMES = ['qNorm', 'SIZE_LABEL', 'sizeLabels', 'SIZE_FIT_Q', 'isSizeFitQuestion', 'SIZE_FIT_HINT', 'Q_TOPICS', 'questionTopics', 'MULTI_Q_HINT',
+  'WHOLESALE_Q', 'isWholesaleQuestion', 'WHOLESALE_HINT', 'PHOTO_STOP_WORDS', 'AREA_HINT_GUARD', 'EN_TO_CATALOG', 'arabizeEnglish', 'PHONE_ANY', 'normalizePhones', 'forOrderChecks']
 
 const CATALOG_ANCHOR = '/** @param {ReturnType<typeof normalizeCatalog>} [catalog] */\nfunction catalogFactsHint('
 const SIZE_OLD = "(p.size ? ' — القياس: ' + p.size : '')"
 const SIZE_NEW = "(p.size ? ' — القياسات: ' + sizeLabels(p.size) : '')"
 const HINT_ANCHOR = '  if (specQuestion) hint += SPEC_HINT;\n'
-const HINT_ADD = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، ورسالة بيها أكثر من سؤال تنجاوب كلها
+// النسخة الأولى (منشورة 2026-10-29 14:14) — حتى تتبدل بالحالية بالمسارات المزيودة من قبل
+const HINT_ADD_V1 = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، ورسالة بيها أكثر من سؤال تنجاوب كلها
   if (!mismatch && items.some((p) => p.size) && isSizeFitQuestion(combinedMessage)) hint += SIZE_FIT_HINT;
   if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
 `
+const HINT_ADD_V2 = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، سؤال الجملة ينجاوب بصراحة، ورسالة بيها أكثر من سؤال تنجاوب كلها
+  if (!mismatch && items.some((p) => p.size) && isSizeFitQuestion(combinedMessage)) hint += SIZE_FIT_HINT;
+  if (isWholesaleQuestion(combinedMessage)) hint += WHOLESALE_HINT;
+  if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
+`
+const HINT_ADD = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، سؤال الجملة ينجاوب بصراحة، ورسالة بيها أكثر من سؤال تنجاوب كلها،
+  // والجواب على قدّ السؤال (المجاملة جملة وحدة، والإنكليزي مترجم)
+  if (!mismatch && items.some((p) => p.size) && isSizeFitQuestion(combinedMessage)) hint += SIZE_FIT_HINT;
+  if (isWholesaleQuestion(combinedMessage)) hint += WHOLESALE_HINT;
+  if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
+  if (!pureGreeting) hint += scopeHints(combinedMessage);
+`
+const CALL_SITE = [
+  ['    combinedMessage: base.combinedMessage,', '    combinedMessage: forOrderChecks(base.combinedMessage),'],
+  ['    recentMessages: recent,', '    recentMessages: recent.map(forOrderChecks),'],
+]
 const STOP_ANCHOR = 'const STOP = new Set(['
+// تنبيه تصحيح المنطقة (عقدة «Conversation Hints»): الحماية تنحط بعد جملته الأولى، داخل نفس النص
+const AREA_HINT_ANCHOR = 'تصحيح اسم منطقة — من دليل المناطق نفسه، مثل نتيجة find_delivery_area، فمسموح تذكر هالأسماء ومحافظاتها.'
+const BLOCK_RE = new RegExp(`// ---- ${MARK.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} \\(مولّد[\\s\\S]*?// ---- نهاية ${MARK.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} ----\\r?\\n\\r?\\n`)
 
 /** كود الوحدة كما ينحقن: بلا export، ومعلَّم بمصدره. */
 export const injected = () => `// ---- ${MARK} (مولّد بـ n8n/answer-accuracy.mjs — لا تعدّل هنا) ----\n`
@@ -89,17 +110,52 @@ export const patchWorkflow = (wf, c) => {
         .replace(hintAnchor, () => hintAnchor + withEol(HINT_ADD, eol))
       node.parameters.jsCode = code
       changes.push(`${c.context}: القياسات بالعربي وكاملة، وتنبيه القياس المناسب وتنبيه الأسئلة المتعددة`)
+    } else {
+      // مزيود من قبل: الكود المحقون والتنبيهات تتحدث لآخر نسخة من المصدر
+      const eol = eolOf(code)
+      const before = code
+      if (!BLOCK_RE.test(code)) throw new Error(`${c.context}: ما لگيت كتلة ${MARK} حتى أحدّثها`)
+      code = code.replace(BLOCK_RE, () => withEol(injected(), eol))
+      for (const old of [HINT_ADD_V1, HINT_ADD_V2]) {
+        const prev = withEol(old, eol)
+        if (code.includes(prev)) code = code.replace(prev, () => withEol(HINT_ADD, eol))
+      }
+      if (!code.includes(withEol(HINT_ADD, eol))) throw new Error(`${c.context}: سطور التنبيهات مو بالشكل المتوقع`)
+      if (code !== before) {
+        node.parameters.jsCode = code
+        changes.push(`${c.context}: ${MARK} محدّث (الجملة، والجواب على قدّ السؤال، والإنكليزي)`)
+      }
     }
   }
 
   const hints = by(c.hints)
-  const hcode = String(hints.parameters.jsCode ?? '')
+  let hcode = String(hints.parameters.jsCode ?? '')
   const missing = PHOTO_STOP_WORDS.filter((w) => !hcode.includes(`'${w}'`))
   if (missing.length) {
     once(hcode, STOP_ANCHOR, `${c.hints}: STOP`)
-    const add = `${STOP_ANCHOR}${missing.map((w) => `'${w}'`).join(', ')}, // كلمات الصورة والقياس (${MARK}): «صوره» ≠ «الصويرة»${eolOf(hcode)}  `
-    hints.parameters.jsCode = hcode.replace(STOP_ANCHOR, () => add)
-    changes.push(`${c.hints}: ${missing.length} كلمة صورة/قياس بقائمة STOP`)
+    const add = `${STOP_ANCHOR}${missing.map((w) => `'${w}'`).join(', ')}, // كلمات عادية تشبه مناطق (${MARK}): «صوره» ≠ «الصويرة»، «جمله» ≠ «حي جميلة»${eolOf(hcode)}  `
+    hcode = hcode.replace(STOP_ANCHOR, () => add)
+    changes.push(`${c.hints}: ${missing.length} كلمة بقائمة STOP`)
+  }
+  if (!hcode.includes(AREA_HINT_GUARD)) {
+    once(hcode, AREA_HINT_ANCHOR, `${c.hints}: تنبيه تصحيح المنطقة`)
+    hcode = hcode.replace(AREA_HINT_ANCHOR, () => AREA_HINT_ANCHOR + AREA_HINT_GUARD)
+    changes.push(`${c.hints}: تنبيه تصحيح المنطقة ينهمل إذا الكلمة معناها واضح بالسياق`)
+  }
+  hints.parameters.jsCode = hcode
+
+  // فحوص الطلب تشوف «Red Small» مثل «احمر سمول» (الرسالة الحالية وسجل المحادثة)
+  if (c.context) {
+    const node = by(c.context)
+    let code = String(node.parameters.jsCode ?? '')
+    if (!code.includes('forOrderChecks(base.combinedMessage)')) {
+      for (const [from, to] of CALL_SITE) {
+        once(code, from, `${c.context}: ${from.trim()}`)
+        code = code.replace(from, () => to)
+      }
+      node.parameters.jsCode = code
+      changes.push(`${c.context}: الألوان والقياسات الإنكليزية ورقم الموبايل بأي صيغة ينقرون صح بفحوص الطلب`)
+    }
   }
   return changes
 }

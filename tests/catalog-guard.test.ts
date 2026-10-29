@@ -348,6 +348,44 @@ describe('الطلب الجاري فعلاً — سياق قديم ما يفتح
     expect(r.orderContext.pureGreeting).toBe(false)
   })
 
+  it.each(['[رسالة صوتية]: السلام عليكم كيف الحال موجودين؟', 'موجودين؟', 'السلام عليكم ورحمة الله وبركاته شلونكم'])('تحية بس: %s', (m) => {
+    expect(isPureGreeting(m)).toBe(true)
+  })
+
+  it('التنفيذ 2135: بصمة «السلام عليكم كيف الحال موجودين؟» وسلة طلب أمس باقية ← تحية بس، بلا «اطلب الناقص»', () => {
+    const msg = '[رسالة صوتية]: السلام عليكم كيف الحال موجودين؟'
+    const r = ctx(msg, ['إي، الغسالة أوتوماتيك أل جي 8 كيلو لونها بيضاء وسعرها 350,000 دينار.'], {
+      lastBotAt: YESTERDAY, sessionData: { cart: [{ variant_id: '29', quantity: 1 }] }, recentMessages: [msg, 'مرحبا', 'مرحبا عندك غساله سوده'],
+    })
+    expect(r.orderContext.pureGreeting).toBe(true)
+    expect(r.hint).toContain('رسالة الزبون هسة تحية بس')
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+    const reply = 'وعليكم السلام. إي موجود عيني، شلون أكدر أساعدك؟\n\nالغسالة أوتوماتيك أل جي 8 كيلو لونها أبيض وسعرها 350,000 دينار.\n\nإذا تحب نسجّل طلبك، وديلي اسمك وعنوانك الكامل ورقم الهاتف.\nSTAGE: 3'
+    expect(greetingReply(reply, r.orderContext)).not.toContain('350,000')
+  })
+
+  it('التنفيذ 2155: «دزلي الموقع مالكم» وفاحص الشكاوى يكول ordering_now بعد تصحيح لون ← جواب بس، بلا «شكم وحدة»', () => {
+    const correction = 'حالياً ماكو مجال لحجز اللون الأسود، المتوفر بس اللون الأبيض من غسالة أوتوماتيك أل جي 8 كيلو. إذا يناسبك الأبيض، أنا حاضر أخدمك بتفاصيله.'
+    const r = ctx('دزلي الموقع مالكم', [correction], {
+      lastBotAt: '2026-10-25T12:08:00Z', orderingNow: true, recentMessages: ['دزلي الموقع مالكم', 'بيها مجال تحجزلي لون اسود', 'اريد غساله لون اسود'],
+    })
+    expect(r.orderContext.browsing).toBe(true)
+    expect(r.orderContext.needsItems).toBe(false)
+    expect(r.hint).not.toContain('ماكو ولا بند محفوظ')
+    expect(r.hint).not.toContain('المتجر عنده منتج واحد بس')
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+  })
+
+  it('التنفيذ 2147: «دزلي موقع مالكم… و اريد لون اسود» بعد تصحيح ← تصحيح يجاوب الموقع أول، بلا تكرار العرض', () => {
+    const first = 'بخصوص غسالة أوتوماتيك أل جي 8 كيلو عزيزي، المتوفر بس اللون الأبيض (لون أنيق وعملي)، والأسود للأسف ما عدنا حالياً.\n\nتحب أدزلك تفاصيل الأبيض؟'
+    const msg = 'دزلي موقع مالكم علمود اشوف هاي الغسالة و اريد لون اسود'
+    const r = ctx(msg, [first], { lastBotAt: '2026-10-25T12:08:00Z', orderingNow: true, recentMessages: [msg, 'اريد غساله لون اسود'] })
+    expect(r.orderContext.mismatch?.repeated).toBe(true)
+    expect(r.hint).toContain('جاوبه عليه أول')
+    expect(r.hint).not.toContain('وإذا يناسبه إنت حاضر تخدمه')
+    expect(r.hint).not.toContain('ممنوع create_order بهذا الرد')
+  })
+
   it('«ما أعرف أقرا» طلب تواصل', () => {
     expect(isContactRequest('[رسالة صوتية]: عجبلك تكتبلي، ما أعرف أقرا، بصمة بصمة')).toBe(true)
     expect(isContactRequest('شكد سعرها؟')).toBe(false)

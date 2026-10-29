@@ -99,8 +99,16 @@ printf %s "$SECRET" | openssl dgst -sha256                # بصمته لعقد�
 
 ## ⚠️ مؤقت: n8n على جهاز شخصي
 
-الرابط الحالي `https://desktop-rlkh4un.tail7a92cb.ts.net/webhook/bariq-dashboard-reply`
-يمرّ عبر Tailscale إلى n8n على جهاز شخصي. انطفاء الجهاز أو Tailscale يوقف
-الردود (تظهر في اللوحة كفشل، لا تضيع بصمت). عند النقل لخادم دائم: يُستورد
-المسار، ويُحدَّث `N8N_WEBHOOK_URL`، ويُفضَّل نقل فحص السرّ إلى مصادقة
-Header Auth المدمجة في عقدة Webhook.
+الرابط الحالي `https://bariq-n8n.tail7a92cb.ts.net/webhook/bariq-dashboard-reply`
+يمرّ عبر Tailscale Funnel إلى n8n على جهاز شخصي. انطفاء الجهاز أو نومه أو
+Tailscale يوقف الردود (تظهر في اللوحة كفشل، لا تضيع بصمت). عند النقل لخادم
+دائم: يُستورد المسار، ويُحدَّث `N8N_WEBHOOK_URL`، ويُفضَّل نقل فحص السرّ إلى
+مصادقة Header Auth المدمجة في عقدة Webhook.
+
+> **٢٠٢٦-١٠-٢٧:** الاسم القديم `desktop-rlkh4un.tail7a92cb.ts.net` اختفى من DNS
+> العام (NXDOMAIN من خوادم ts.net نفسها) مع أن Funnel شغّال وإعدادات Tailscale
+> سليمة، فصار الرد يفشل بـ `fetch failed (ENOTFOUND)` ورسائل Meta ما توصل. سُدّ
+> مؤقتاً بنفق Cloudflare سريع، ثم أُعيدت تسمية الجهاز إلى `bariq-n8n` فنُشر الاسم
+> الجديد بنحو ١٥ دقيقة. السبب من جهة Tailscale ولم يُعرف. إن تكرّر:
+> `tailscale set --hostname=<اسم جديد>` ثم `tailscale funnel reset` و
+> `tailscale funnel --bg 5678`، وبعدها تحديث Meta و`N8N_WEBHOOK_URL` و`WEBHOOK_URL`.

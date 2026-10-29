@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   PHOTO_STOP_WORDS,
+  arabizeEnglish,
   isSizeFitQuestion,
+  englishHint,
+  forOrderChecks,
+  isCourtesyOnly,
+  isWholesaleQuestion,
+  normalizePhones,
   questionTopics,
+  scopeHints,
   sizeLabels,
 } from '@/n8n/answer-accuracy.js'
 
@@ -66,9 +73,91 @@ describe('questionTopics — رسالة بيها أكثر من سؤال', () => 
   })
 })
 
-describe('PHOTO_STOP_WORDS — «صورة» مو اسم منطقة', () => {
+describe('isWholesaleQuestion — البيع بالجملة', () => {
+  it.each(['تبيع جمله\nاخذهن شلعه وحده', 'عندكم بيع جملة؟', 'اريد كمية كبيرة بالكرتونة', 'سعر الجملة شكد'])('«%s»', (m) => {
+    expect(isWholesaleQuestion(m)).toBe(true)
+  })
+
+  it.each(['شكد سعر الهودي', 'اريد وحدة سمول', 'جميلة', 'حي جميلة قرب الجامع'])('مو سؤال جملة: «%s»', (m) => {
+    expect(isWholesaleQuestion(m)).toBe(false)
+  })
+})
+
+describe('PHOTO_STOP_WORDS — «صورة» و«جملة» مو أسماء مناطق', () => {
   it('مطبّعة مثل قائمة STOP (ة ← ه، بلا همزات)', () => {
     expect(PHOTO_STOP_WORDS).toContain('صوره')
+    expect(PHOTO_STOP_WORDS).toContain('جمله')
     for (const w of PHOTO_STOP_WORDS) expect(w).not.toMatch(/[ةأإآى]/)
+  })
+})
+
+describe('scopeHints — الجواب على قدّ السؤال، والإنكليزي مفهوم (ماسنجر 2026-10-29 14:27–14:41)', () => {
+  it('«Is everything okay now?»: معناه «كلشي تمام؟» مو سؤال منتجات', () => {
+    const h = scopeHints('Is everything okay now?')
+    expect(h).toContain('كلشي تمام؟')
+    expect(h).toContain('جاوب على قدّ سؤاله')
+  })
+
+  it('«You\'re welcome! ❤»: مجاملة، جملة وحدة بلا منتجات', () => {
+    expect(isCourtesyOnly("You're welcome! ❤")).toBe(true)
+    const h = scopeHints("You're welcome! ❤")
+    expect(h).toContain('العفو')
+    expect(h).toContain('رد بجملة وحدة قصيرة')
+    expect(h).not.toContain('جاوب على قدّ سؤاله')
+  })
+
+  it('ألوان وقياسات بالإنكليزي تنترجم', () => {
+    const h = englishHint('اوك ثبتلي\nRed\nSmall-(s)')
+    expect(h).toContain('أحمر')
+    expect(h).toContain('سمول')
+    expect(englishHint('عندك منتجات Skincare؟ او Haircare؟')).toContain('عناية بالبشرة')
+    expect(englishHint('شكد السعر')).toBe('')
+  })
+
+  it('«لون وردي وصخ اكو»: سؤال عن لون واحد ← تنبيه على قدّ السؤال', () => {
+    expect(scopeHints('لون وردي وصخ اكو')).toContain('أسماء المتوفر بس')
+  })
+
+  it('«ماجاوبتني»: يجاوب السؤال الضايع، مو الكتالوج', () => {
+    expect(scopeHints('ماجاوبتني')).toContain('آخر سؤال إله ما انجاوب')
+  })
+
+  it('سؤال عن كل المنتجات: الكتالوج هو الجواب، بلا تنبيه تقييد', () => {
+    expect(scopeHints('شنو عدكم منتجات')).toBe('')
+  })
+
+  it.each(['تمام', 'اوك', 'ok', '👍', 'اي ثبت'])('«%s» مو مجاملة (ممكن موافقة على الطلب)', (m) => {
+    expect(isCourtesyOnly(m)).toBe(false)
+  })
+})
+
+describe('arabizeEnglish — «Red Small» تنقرا مثل الكتالوج (التنفيذ 2782)', () => {
+  it('الإخفاق الحقيقي: التثبيت بالإنكليزي', () => {
+    expect(arabizeEnglish('اوك ثبتلي\nRed\nSmall-(s)')).toBe('اوك ثبتلي\nاحمر\nسمول-(s)')
+  })
+
+  it('XL وXXL قبل Large، وباقي الإنكليزي يبقى', () => {
+    expect(arabizeEnglish('black XXL and white XL, large')).toBe('اسود دبل اكس لارج and ابيض اكس لارج, لارج')
+    expect(arabizeEnglish('Is everything okay now?')).toBe('Is everything okay now?')
+    expect(arabizeEnglish('اريد احمر')).toBe('اريد احمر')
+  })
+})
+
+describe('normalizePhones — الرقم بأي صيغة يصير 07 (التنفيذ 2782)', () => {
+  it.each([
+    ['+964 784 754 4021', '07847544021'],
+    ['00964-784-754-4021', '07847544021'],
+    ['0784 754 4021', '07847544021'],
+    ['٠٧٨٤٧٥٤٤٠٢١', '07847544021'],
+    ['+964 (784) 7544021', '07847544021'],
+    ['07847544021', '07847544021'],
+  ])('«%s»', (raw, out) => {
+    expect(normalizePhones(raw)).toBe(out)
+  })
+
+  it('الرسالة الحقيقية، وأرقام مو موبايل ما تنلمس', () => {
+    expect(forOrderChecks('+964 784 754 4021\nIs everything okay now?')).toBe('07847544021\nIs everything okay now?')
+    expect(normalizePhones('السعر 25,000 دينار و 3 قطع')).toBe('السعر 25,000 دينار و 3 قطع')
+    expect(normalizePhones('رقم الطلب 51')).toBe('رقم الطلب 51')
   })
 })
