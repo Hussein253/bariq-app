@@ -105,10 +105,16 @@ const SECTION_FIELD = 'product_images'
 const SECTION_SQL = `public.bot_product_images_section(sa.merchant_id) AS ${SECTION_FIELD},`
 const MERCHANT_SECTION = "{{ $('تحديد التاجر').first().json.merchant_section }}"
 
+const PROMPT_EXPR_HEAD = `{{ (() => { const l = String($('${MERCHANT}').first().json.${SECTION_FIELD} || '').trim(); `
+const PROMPT_EXPR_TAIL = ` : ''; })() }}`
+
 /** تعبير البرومت: القسم كامل إذا القائمة مو فاضية، وإلا ولا حرف (تاجر بلا صور = البوت مثل ما جان). */
 export const PROMPT_EXPR =
-  `{{ (() => { const l = String($('${MERCHANT}').first().json.${SECTION_FIELD} || '').trim(); ` +
-  `return l ? ${JSON.stringify(PROMPT_SECTION + '\n')} + l + ${JSON.stringify(PROMPT_RULES)} : ''; })() }}`
+  PROMPT_EXPR_HEAD + `return l ? ${JSON.stringify(PROMPT_SECTION + '\n')} + l + ${JSON.stringify(PROMPT_RULES)}` + PROMPT_EXPR_TAIL
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** نفس التعبير بأي نسخة قديمة من القواعد: حتى تعديل PROMPT_RULES يوصل للمسارات المزيودة من قبل. */
+const ANY_PROMPT_EXPR = new RegExp(escapeRe(PROMPT_EXPR_HEAD) + '[\\s\\S]*?' + escapeRe(PROMPT_EXPR_TAIL))
 
 /** كود عقدة العلامة: المصدر المختبَر + مدخلات المسار. */
 export const markerCode = (c) => MODULE.replace(/^export /gm, '').trimEnd() + `
@@ -196,6 +202,13 @@ export const patchWorkflow = (wf, c) => {
   }
   const changes = []
   const N = c.names
+  // كل صورة رسالة: قالب رد النص عليه «Execute Once»، ونسخة الإرسال جانت ترثه فتدز أول صورة بس
+  const sendEach = (name) => {
+    const n = by(name)
+    if (!n.executeOnce) return
+    n.executeOnce = false
+    changes.push(`${name}: Execute Once منطفي، تنرسل كل الصور`)
+  }
 
   // التحقق قبل أي تعديل: كل عقدة يعتمد عليها المسار موجودة
   const merchant = by(MERCHANT)
@@ -223,6 +236,10 @@ export const patchWorkflow = (wf, c) => {
     if (!sm.includes(MERCHANT_SECTION)) throw new Error(`${c.agent}: ما لگيت merchant_section بالبرومت`)
     opts.systemMessage = sm.replace(MERCHANT_SECTION, PROMPT_EXPR + MERCHANT_SECTION)
     changes.push(`${c.agent}: قسم «صور المنتجات» بالبرومت`)
+  } else if (!sm.includes(PROMPT_EXPR)) {
+    if (!ANY_PROMPT_EXPR.test(sm)) throw new Error(`${c.agent}: ما لگيت تعبير «صور المنتجات» القديم حتى أحدّثه`)
+    opts.systemMessage = sm.replace(ANY_PROMPT_EXPR, () => PROMPT_EXPR)
+    changes.push(`${c.agent}: قواعد «صور المنتجات» محدّثة`)
   }
 
   // ٣. العلامة بين الوكيل وأول عقدة بعده
@@ -311,6 +328,7 @@ export const patchWorkflow = (wf, c) => {
     if (!has(s.name)) {
       wf.nodes.push(clone(by(s.template), s.name, at(720, -224), {
         onError: 'continueErrorOutput',
+        executeOnce: false,
         parameters: {
           operation: 'send',
           phoneNumberId: `={{ $('${s.session}').first().json.phoneNumberId }}`,
@@ -323,6 +341,7 @@ export const patchWorkflow = (wf, c) => {
       }))
       changes.push(`${s.name}: كل صورة رسالة واتساب`)
     }
+    sendEach(s.name)
     link(N.load, s.name)
     link(s.name, N.log, 1)
   } else {
@@ -342,6 +361,7 @@ export const patchWorkflow = (wf, c) => {
         const tpl = by(o.template)
         wf.nodes.push(clone(tpl, o.name, at(960, -224 + i * 160), {
           onError: 'continueErrorOutput',
+          executeOnce: false,
           parameters: {
             ...JSON.parse(JSON.stringify(tpl.parameters)),
             jsonBody: graphBody(recipient),
@@ -350,6 +370,7 @@ export const patchWorkflow = (wf, c) => {
         }))
         changes.push(`${o.name}: كل صورة رسالة (${o.key})`)
       }
+      sendEach(o.name)
       link(s.switchName, o.name, index)
       link(o.name, N.log, 1)
     })
