@@ -60,13 +60,15 @@ export async function GET(req: Request) {
     )
   }
 
-  // الربط بالطلب يجلب محتواه — رقم التتبع وحده لا يكفي نظام التاجر لمطابقة طلبه
+  // الربط بالطلب يجلب محتواه — رقم التتبع وحده لا يكفي نظام التاجر لمطابقة طلبه.
+  // وهو داخلي ليستثني شحنة الطلب التجريبي (lib/test-orders.ts)
   let query = supabaseServer
     .from('shipments')
     .select(
-      'id, tracking_number, order_id, status, recipient_name, recipient_phone, governorate, district, nearest_landmark, full_address, cod_amount_iqd, delivery_fee_iqd, merchant_net_amount_iqd, currency, settlement_status, notes, created_at, updated_at, orders(order_content, current_state)'
+      'id, tracking_number, order_id, status, recipient_name, recipient_phone, governorate, district, nearest_landmark, full_address, cod_amount_iqd, delivery_fee_iqd, merchant_net_amount_iqd, currency, settlement_status, notes, created_at, updated_at, orders!inner(order_content, current_state)'
     )
     .eq('merchant_id', auth.merchant.id)
+    .eq('orders.is_test', false)
     .order('created_at', { ascending: false })
     .limit(200)
 

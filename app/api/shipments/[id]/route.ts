@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { requireSession } from '@/lib/api-session'
+import { embeddedOrderIsTest, testShipmentLockedError, touchesDispatch } from '@/lib/test-orders'
 
 /**
  * تحديث شحنة محددة (حالة، مندوب، تسوية مالية، ملاحظات)
@@ -8,6 +9,9 @@ import { requireSession } from '@/lib/api-session'
  * لا يفرض هذا المسار قواعد آلة الحالات بنفسه - الفرض الفعلي يتم عبر
  * enforce_shipment_status_transition() Trigger في قاعدة البيانات، ونعيد
  * رسالة الخطأ العربية القادمة من الـ Trigger مباشرة للواجهة عند رفض الانتقال.
+ *
+ * الاستثناء الوحيد المفروض هنا: شحنة الطلب التجريبي لا تُسلَّم لمندوب ولا
+ * تتحرّك حالتها ولا تسويتها (lib/test-orders.ts) — المُحفّز لا يعرف is_test.
  */
 
 export async function PATCH(
@@ -30,6 +34,25 @@ export async function PATCH(
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: false, error: 'لا توجد بيانات لتحديثها' }, { status: 400 })
+    }
+
+    // تعديل الملاحظات وحده لا يحتاج الفحص
+    if (touchesDispatch(updates)) {
+      const { data: current, error: currentError } = await supabaseServer
+        .from('shipments')
+        .select('tracking_number, orders(is_test)')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (currentError) {
+        return NextResponse.json({ success: false, error: currentError.message }, { status: 400 })
+      }
+      if (current && embeddedOrderIsTest(current.orders)) {
+        return NextResponse.json(
+          { success: false, error: testShipmentLockedError(current.tracking_number) },
+          { status: 409 }
+        )
+      }
     }
 
     const { data, error } = await supabaseServer

@@ -6,6 +6,7 @@ import { supabaseServer } from '@/lib/supabase-server'
  *
  * لا يوجد رقم واحد هنا مكتوب يدوياً أو مُقدَّر. ما لا يمكن حسابه يُعاد صفراً
  * حقيقياً لا رقماً تجميلياً، لأن لوحة المالك أساس قرارات مالية.
+ * ولذلك يُستثنى الطلب التجريبي وشحنته من كل عدّ ومجموع (lib/test-orders.ts).
  */
 
 export interface MerchantRow {
@@ -111,9 +112,12 @@ export async function loadPlatformOverview(): Promise<PlatformOverview> {
     supabaseServer.from('products').select('merchant_id'),
     supabaseServer
       .from('shipments')
-      .select('merchant_id, status, cod_amount_iqd, delivery_fee_iqd, merchant_net_amount_iqd, settlement_status'),
+      .select(
+        'merchant_id, status, cod_amount_iqd, delivery_fee_iqd, merchant_net_amount_iqd, settlement_status, orders!inner(is_test)'
+      )
+      .eq('orders.is_test', false),
     supabaseServer.from('conversations').select('merchant_id, platform'),
-    supabaseServer.from('orders').select('order_id', { count: 'exact', head: true }),
+    supabaseServer.from('orders').select('order_id', { count: 'exact', head: true }).eq('is_test', false),
     supabaseServer.from('messages').select('id', { count: 'exact', head: true }).eq('sender_type', 'bot'),
     supabaseServer.from('couriers').select('id', { count: 'exact', head: true }),
     supabaseServer.from('delivery_areas').select('id', { count: 'exact', head: true }).eq('is_active', true),

@@ -3,6 +3,7 @@ import DashboardClient from './DashboardClient'
 import type { Shipment, Merchant, Courier } from '@/lib/shipments'
 import { requireRole } from '@/lib/auth'
 import { getTranslations } from '@/lib/i18n/server'
+import { withoutOrderEmbed } from '@/lib/test-orders'
 
 // بيانات حقيقية (شحن، تجار، مندوبين) - تُجلب في كل زيارة، لا تخزين مؤقت
 export const dynamic = 'force-dynamic'
@@ -13,10 +14,15 @@ export default async function DashboardPage() {
   const { locale, t } = await getTranslations()
 
   const [shipmentsRes, merchantsRes, couriersRes, ordersRes] = await Promise.all([
-    supabaseServer.from('shipments').select('*').order('created_at', { ascending: false }),
+    // شحنة الطلب التجريبي لا تُعرض ولا تدخل المؤشرات والتسوية (lib/test-orders.ts)
+    supabaseServer
+      .from('shipments')
+      .select('*, orders!inner(is_test)')
+      .eq('orders.is_test', false)
+      .order('created_at', { ascending: false }),
     supabaseServer.from('merchants').select('*').order('created_at', { ascending: false }),
     supabaseServer.from('couriers').select('*').order('created_at', { ascending: false }),
-    // محتوى الطلب يُطبع على الستيكر — لا يوجد join مباشر عبر PostgREST هنا
+    // محتوى الطلب يُطبع على الستيكر (الربط أعلاه للتصفية وحدها)
     supabaseServer.from('orders').select('order_id, order_content'),
   ])
 
@@ -30,12 +36,14 @@ export default async function DashboardPage() {
       .map((o) => [o.order_id, o.order_content])
   )
 
-  const shipments: Shipment[] = ((shipmentsRes.data || []) as Shipment[]).map((s) => ({
-    ...s,
-    merchant_name: merchantMap.get(s.merchant_id) || t.app.dashboard.unknownMerchant,
-    courier_name: s.courier_id ? courierMap.get(s.courier_id) || t.app.dashboard.unknownCourier : null,
-    order_content: orderContentMap.get(s.order_id) ?? null,
-  }))
+  const shipments: Shipment[] = ((shipmentsRes.data || []) as (Shipment & { orders?: unknown })[])
+    .map(withoutOrderEmbed)
+    .map((s) => ({
+      ...s,
+      merchant_name: merchantMap.get(s.merchant_id) || t.app.dashboard.unknownMerchant,
+      courier_name: s.courier_id ? courierMap.get(s.courier_id) || t.app.dashboard.unknownCourier : null,
+      order_content: orderContentMap.get(s.order_id) ?? null,
+    }))
 
   const loadError = shipmentsRes.error?.message || merchantsRes.error?.message || couriersRes.error?.message || null
 
