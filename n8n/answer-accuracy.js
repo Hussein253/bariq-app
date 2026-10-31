@@ -1,0 +1,330 @@
+/**
+ * دقة الجواب (Answer Accuracy) — البوت يجاوب على كل سؤال بالرسالة، وبالقياسات الصح
+ * ================================================================================
+ * انكشفن بتجربة ماسنجر 2026-10-29 (التنفيذ 2592، الزبون 28386991107651965). الزبون كتب:
+ * «شنو أحجام الي عندك و إني طولي ١٧٠ و وزني ١٠٠ كيلو و عندك صورة للهودي»، والبوت رد:
+ * «القياسات المتاحة للهودي الأسود هي: سمول، لارج، واكس لارج… هاي صور الهودي الشتوي 👇».
+ *
+ *   ١. قياس ناقص: التاجر كاتب القياسات بصف واحد «small/large/x-large/m»، والوكيل ما فهم «m» فطيّح الميديم.
+ *      sizeLabels تفك الحقل وتكتبه بالعربي وبالترتيب («سمول، ميديم، لارج، اكس لارج») قبل ما يوصل للوكيل.
+ *   ٢. سؤال انتجاهل: «طولي ١٧٠ ووزني ١٠٠ — شنو قياسي؟» ما انجاوب أبداً. SIZE_FIT_HINT يلزمه يجاوب بقياس واحد
+ *      بالاسم من المتوفر (جدول التاجر إذا موجود، وإلا الدليل العام بقاعدة البرومت n8n/understand-intent.mjs).
+ *      قاعدة صاحب المتجر 2026-10-31: النسخة الأولى كانت تمنع الاقتراح، فرد البوت «عدنا قياسات: سمول، ميديم… تحب أحولك؟».
+ *   ٣. رسالة بيها أكثر من سؤال: الوكيل يجاوب على قسم ويسكت عن الباقي. MULTI_Q_HINT يلزمه يجاوب كلها.
+ *   ٤. «صورة» انقرت اسم منطقة غلط («الأقرب له بالدليل: الصويرة»): مصحح المناطق يقارن كل كلمة بدليل المناطق
+ *      بفرق حرف واحد. PHOTO_STOP_WORDS تنضاف لقائمة STOP بعقدة «Conversation Hints».
+ *
+ * هذا الملف مصدر الكود: n8n/answer-accuracy.mjs يزرعه بعقد n8n، وtests/answer-accuracy.test.ts يختبره.
+ */
+
+const qNorm = (s) => String(s ?? '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+  .replace(/\p{M}/gu, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ـ/g, '')
+  .toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** القياس بالإنكليزي ← اسمه العراقي، ومرتبته (حتى تنكتب القياسات من الأصغر للأكبر). */
+const SIZE_LABEL = {
+  xs: ['اكس سمول', 0], 'x-small': ['اكس سمول', 0], 'extra small': ['اكس سمول', 0],
+  s: ['سمول', 1], small: ['سمول', 1], 'سمول': ['سمول', 1],
+  m: ['ميديم', 2], med: ['ميديم', 2], medium: ['ميديم', 2], 'ميديم': ['ميديم', 2], 'ميديوم': ['ميديم', 2],
+  l: ['لارج', 3], large: ['لارج', 3], 'لارج': ['لارج', 3],
+  xl: ['اكس لارج', 4], 'x-large': ['اكس لارج', 4], xlarge: ['اكس لارج', 4], 'extra large': ['اكس لارج', 4], 'اكس لارج': ['اكس لارج', 4],
+  xxl: ['دبل اكس لارج', 5], '2xl': ['دبل اكس لارج', 5], 'xx-large': ['دبل اكس لارج', 5], 'دبل اكس لارج': ['دبل اكس لارج', 5],
+  xxxl: ['تربل اكس لارج', 6], '3xl': ['تربل اكس لارج', 6], 'xxx-large': ['تربل اكس لارج', 6],
+};
+
+/**
+ * حقل القياس كما كتبه التاجر ← قائمة عربية مرتبة بلا تكرار.
+ * «small/large/x-large/m» ← «سمول، ميديم، لارج، اكس لارج». قياس مو معروف (رقم مثل 42) ينكتب مثل ما هو، بعد المعروفة.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function sizeLabels(raw) {
+  const parts = String(raw ?? '').split(/\s*(?:\/|\\|,|،|\||\+|&|\s-\s|\sو\s)\s*/).map((p) => p.trim()).filter(Boolean);
+  const known = [];
+  const other = [];
+  for (const p of parts) {
+    const hit = SIZE_LABEL[p.toLowerCase().replace(/\s+/g, ' ')];
+    if (hit) { if (!known.some((k) => k[0] === hit[0])) known.push(hit); }
+    else if (!other.includes(p)) other.push(p);
+  }
+  return [...known.sort((a, b) => a[1] - b[1]).map((k) => k[0]), ...other].join('، ');
+}
+
+/**
+ * الزبون ذكر طوله أو وزنه، أو سأل أي قياس يناسبه. «غسالة 8 كيلو» مو منها: الوزن لازم «وزني» أو «انا 100 كيلو».
+ * يُفحص على النص المطبّع (qNorm).
+ */
+export const SIZE_FIT_Q = new RegExp([
+  'طولي', 'وزني', 'عمري',
+  '(?:القياس|المقاس|الحجم|قياس|مقاس|حجم) ?(?:ال)?(?:مناسب|يناسب)',
+  '(?:انا|اني) [0-9]{2,3} ?(?:كيلو|كغم|كغ|kg)',
+  '[0-9]{3} ?(?:سم|سانتي|cm)',
+  'اي (?:قياس|مقاس|حجم)', 'شنو (?:قياسي|مقاسي)', '(?:قياسي|مقاسي) شنو',
+  '(?:قياس|مقاس|حجم)[^\\n]{0,20}(?:يناسبني|يجيني|يركبني|يصيرلي)',
+  '(?:يناسبني|يجيني|يركبني|يصيرلي)[^\\n]{0,15}(?:قياس|مقاس|حجم)',
+].join('|'));
+
+export const isSizeFitQuestion = (message) => SIZE_FIT_Q.test(qNorm(message));
+
+/** الدليل العام بالوزن (كيلو) للملابس: الحد الأعلى لكل قياس، والحدود مشمولة. */
+const SIZE_BY_WEIGHT = [[60, 'سمول'], [70, 'ميديم'], [80, 'لارج'], [90, 'اكس لارج'], [105, 'دبل اكس لارج']]
+/** ترتيب القياسات من الأصغر للأكبر. */
+const SIZE_ORDER = ['سمول', 'ميديم', 'لارج', 'اكس لارج', 'دبل اكس لارج', 'تربل اكس لارج']
+
+/** طول ووزن الزبون من رسالته («طولي ١٧٠ و وزني ١٠٠»، «100 كيلو»، «170 سم»). بعد qNorm الأرقام إنكليزي. */
+export function customerBody(message) {
+  const t = qNorm(message)
+  const num = (re) => { const m = t.match(re); return m ? Number(m[1]) : null }
+  return {
+    weight: num(/(?:وزن[يا]?)\s*(\d{2,3})/) ?? num(/(\d{2,3})\s*(?:كيلو|كغم|كغ|kg)/),
+    height: num(/(?:طول[يا]?)\s*(\d{3})/) ?? num(/(\d{3})\s*(?:سم|سانتي|cm)/),
+  }
+}
+
+/** القياس المحسوب من الوزن، ويكبر درجة إذا الطول 180 سم أو أكثر. null إذا ماكو وزن. */
+export function recommendedSize({ weight, height }) {
+  if (!weight) return null
+  const base = SIZE_BY_WEIGHT.find(([max]) => weight <= max)?.[1] ?? 'تربل اكس لارج'
+  const rank = Math.min(SIZE_ORDER.indexOf(base) + (height >= 180 ? 1 : 0), SIZE_ORDER.length - 1)
+  return SIZE_ORDER[rank]
+}
+
+/**
+ * أقرب قياس متوفر للمنتج للقياس المحسوب: نفسه، أو الأكبر منه الأقرب، أو أكبر متوفر إذا كله أصغر.
+ * @param {string} rec القياس المحسوب
+ * @param {Array<{size?: string}>} products صفوف الكتالوج
+ * @returns {{ pick: string, fit: 'exact' | 'loose' | 'tight' }} loose = الي بيه أكبر شوية، tight = أصغر شوية
+ */
+export function sizeChoice(rec, products = []) {
+  const avail = [...new Set(products.flatMap((p) => sizeLabels(p.size).split('، ')))]
+    .filter((s) => SIZE_ORDER.includes(s)).map((s) => SIZE_ORDER.indexOf(s)).sort((a, b) => a - b)
+  const want = SIZE_ORDER.indexOf(rec)
+  if (!avail.length) return { pick: rec, fit: 'exact' }
+  const pickRank = avail.find((r) => r >= want) ?? avail[avail.length - 1]
+  const fit = pickRank === want ? 'exact' : pickRank > want ? 'loose' : 'tight'
+  return { pick: SIZE_ORDER[pickRank], fit }
+}
+
+const SIZE_WORDS = [
+  [/تربل اكس لارج|(?<![a-z])(?:xxxl|3xl)(?![a-z])/, 'تربل اكس لارج'],
+  [/دبل اكس لارج|(?<![a-z])(?:xxl|2xl)(?![a-z])/, 'دبل اكس لارج'],
+  [/اكس لارج|(?<![a-z])(?:xl|x-large)(?![a-z])/, 'اكس لارج'],
+  [/ميديم|ميديوم|(?<![a-z])medium(?![a-z])/, 'ميديم'],
+  [/لارج|(?<![a-z])large(?![a-z])/, 'لارج'],
+  [/سمول|(?<![a-z])small(?![a-z])/, 'سمول'],
+]
+
+/** القياسات الي سأل عنها الزبون بالاسم (XL، XXL، لارج…)، مرتبة من الأصغر. الحروف المفردة (S، M، L) ما تنحسب. */
+export function requestedSizes(message) {
+  let t = qNorm(message)
+  const found = []
+  for (const [re, label] of SIZE_WORDS) {
+    if (re.test(t)) { found.push(label); t = t.replace(new RegExp(re.source, 'g'), ' ') }
+  }
+  return found.sort((a, b) => SIZE_ORDER.indexOf(a) - SIZE_ORDER.indexOf(b))
+}
+
+/**
+ * تنبيه داخلي للوكيل بقياس واحد محسوب للزبون، ويا جواب جاهز الاتجاه (يناسبه، أو ضيق/واسع شوية).
+ * ماكو وزن: يسأل عنه قبل ما يقترح.
+ */
+export function sizeFitHint(message, products = []) {
+  const { weight, height } = customerBody(message)
+  if (!weight) {
+    return '\n\n[الزبون يسأل أي قياس يناسبه ولا ذكر وزنه: اسأله عن وزنه بجملة وحدة (وطوله إذا تحب)، وما تقترح قياس قبل ما تعرفه.]'
+  }
+  const rec = recommendedSize({ weight, height })
+  const { pick, fit } = sizeChoice(rec, products)
+  const asked = requestedSizes(message)
+  const fitText = fit === 'exact'
+    ? `هذا هو القياس المناسب له`
+    : fit === 'loose'
+      ? `ما عندنا ${rec}، وأقرب متوفر ${pick} وهو أكبر شوية، يعني واسع عليه شوية`
+      : `ما عندنا ${rec}، وأقرب متوفر ${pick} وهو أصغر شوية، يعني ضيق عليه شوية`
+  let text = `\n\n[القياس المحسوب لهذا الزبون من وزنه${height ? ' وطوله' : ''}: ${rec}. ${fitText}.`
+    + ` جاوب بقياس واحد بثقة وباسمه، مثل «يناسبك ${pick}»، بدون تردد، وبدون تعداد القياسات، وبدون تحويله لموظف.`
+  if (asked.length) {
+    text += asked.includes(pick)
+      ? ` الزبون سأل عن ${asked.join(' و ')}، و ${pick} منهن: جاوب إنه يناسبه.`
+      : ` الزبون سأل عن ${asked.join(' و ')}، وما منهن المناسب: قل بصراحة إن الأنسب ${pick}، و ${asked[0]} ${SIZE_ORDER.indexOf(asked[0]) < SIZE_ORDER.indexOf(pick) ? 'أصغر' : 'أكبر'} عليه.`
+  }
+  return text + ']'
+}
+
+/** مواضيع الأسئلة: رسالة تلمس موضوعين أو أكثر = أكثر من سؤال. */
+const Q_TOPICS = [
+  /عدكم|عندكم|عندك|عدك|اكو|متوفر|موجود|منتجات|احجام|حجوم|قياسات|القياسات|الوان|الالوان/, // التوفر والقياسات والألوان
+  /شكد|شقد|بكم|سعر|اسعار/, // السعر
+  /(?<!\p{L})وين|موقع|مكانكم|محلكم|لوكيشن/u, // الموقع
+  /دوام|تفتحون|تسدون|(?<!\p{L})متى/u, // الدوام والوقت
+  /توصيل|توصلون|يوصل|توصل|اجور/, // التوصيل
+  /صور|شكله|شكلها/, // الصورة
+  SIZE_FIT_Q, // القياس المناسب
+  /ضمان|ترجيع|رجوع|تبديل|استبدال|تقسيط/, // السياسات
+  /جمله|جمليه|شلعه|كرتون|كراتين|كميه كبيره|كميات/, // الجملة
+];
+
+/** @returns {number} عدد المواضيع الي سأل عنها الزبون بهالرسالة */
+export function questionTopics(message) {
+  const n = qNorm(message);
+  return Q_TOPICS.filter((re) => re.test(n)).length;
+}
+
+export const MULTI_Q_HINT = '\n\n[رسالة الزبون بيها أكثر من سؤال: جاوب على كل سؤال بيها بنفس الرد، واحد واحد وباختصار'
+  + ' (حتى لو الجواب «هاي مو مسجلة عندي هسة»). ممنوع تجاوب على قسم وتتجاهل الباقي.]';
+
+/**
+ * سؤال عن البيع بالجملة (التنفيذ 2809، ماسنجر 2026-10-29: «تبيع جمله / اخذهن شلعه وحده»).
+ * البوت رد «أكيد عيني» وعرض الألوان، والمتجر يبيع بالمفرد بس (قرار صاحب المتجر).
+ */
+export const WHOLESALE_Q = /جمله|جمليه|(?<!\p{L})شلعه|بالكرتونه|كراتين|كميه كبيره|كميات كبيره/u
+
+export const isWholesaleQuestion = (message) => WHOLESALE_Q.test(qNorm(message));
+
+export const WHOLESALE_HINT = '\n\n[الزبون يسأل عن البيع بالجملة: المتجر يبيع بالمفرد (بالقطعة) بس، وماكو سعر جملة ولا خصم جملة.'
+  + ' جاوبه بصراحة من أول جملة: «لا عزيزي، نبيع بالمفرد بس». إذا يريد عدد كبير، استدعِ get_available_products واذكر الكمية المتوفرة (stock) لكل لون وسعر القطعة.'
+  + ' ممنوع «أكيد» أو أي موافقة على الجملة، وممنوع تسأل عن عنوان أو منطقة ما ذكرها. إذا «تعليمات المتجر» تذكر بيع الجملة، اعتمدها بدل هذا.]';
+
+/**
+ * الجواب على قدّ السؤال، والإنكليزي مفهوم (ماسنجر 2026-10-29، 14:27–14:41):
+ *   «Is everything okay now?» ← البوت عرض الكتالوج كله؛ «You're welcome! ❤» ← «عدنا هودي شتوي باللون الأسود…»؛
+ *   «لون وردي وصخ اكو» ← لا، وبعدها كل القياسات والأسعار؛ «ماجاوبتني» ← الكتالوج من جديد بدل جواب سؤاله.
+ */
+const ENGLISH_GLOSS = [
+  [/\b(?:is )?every ?thing (?:is )?(?:ok|okay|fine|good)(?: now)?\b|\ball good\b|\bis it (?:ok|okay|done)\b/, 'كلشي تمام؟ (يسأل إذا طلبه أو أموره تمام)'],
+  [/\byou(?:'?re| are)? welcome\b|\bur welcome\b/, 'العفو (مجاملة، ما يسأل شي)'],
+  [/\bthanks?\b|\bthank you\b|\bthx\b|\bty\b/, 'شكراً'],
+  [/\bhow much\b|\bprice\b|\bcost\b/, 'شكد السعر؟'],
+  [/\bwhen (?:will it|does it|it) (?:arrive|come|be delivered)\b|\bhow long\b/, 'شوكت يوصل؟'],
+  [/\bin stock\b|\bavailable\b|\bdo you have\b/, 'متوفر؟ / عدكم؟'],
+  [/\bdelivery\b|\bshipping\b|\bdeliver\b/, 'التوصيل'],
+  [/\bconfirm\b|\bbook\b|\border\b/, 'تثبيت / طلب'],
+  [/\bwholesale\b|\bbulk\b/, 'جملة'],
+  [/\b(?:photo|picture|pic|image)s?\b/, 'صورة'],
+  [/\bsizes?\b/, 'القياس'], [/\bcolou?rs?\b/, 'اللون'],
+  [/\bxxl\b|\b2xl\b/, 'دبل اكس لارج'], [/\bxl\b|\bx-?large\b/, 'اكس لارج'], [/\blarge\b/, 'لارج'], [/\bmedium\b/, 'ميديم'], [/\bsmall\b/, 'سمول'],
+  [/\bred\b/, 'أحمر'], [/\bblack\b/, 'أسود'], [/\bwhite\b/, 'أبيض'], [/\bpink\b/, 'وردي'], [/\bblue\b/, 'أزرق'], [/\bgre[ey]\b/, 'رصاصي'],
+  [/\bgreen\b/, 'أخضر'], [/\bbrown\b/, 'جوزي'], [/\bbeige\b/, 'بيجي'], [/\bnavy\b/, 'كحلي'], [/\byellow\b/, 'أصفر'],
+  [/\bskin ?care\b/, 'منتجات عناية بالبشرة'], [/\bhair ?care\b/, 'منتجات عناية بالشعر'],
+  [/\b(?:ok|okay|okey)\b/, 'تمام'], [/\b(?:yes|yeah|yep|sure)\b/, 'إي'], [/\b(?:no|nope)\b/, 'لا'], [/\b(?:hi|hello|hey)\b/, 'مرحبا'],
+];
+
+/** معنى الكلام الإنكليزي بالرسالة بالعراقي. '' = ماكو إنكليزي. */
+export function englishHint(message) {
+  const raw = String(message ?? '')
+  if (!/[A-Za-z]{2,}/.test(raw)) return ''
+  const t = raw.toLowerCase().replace(/[’`]/g, "'")
+  const means = []
+  for (const [re, ar] of ENGLISH_GLOSS) if (re.test(t) && !means.includes(ar)) means.push(ar)
+  return '\n\n[الزبون كتب كلام إنكليزي' + (means.length ? ' — معناه بالعراقي: ' + means.join('، ') : '') + '.'
+    + ' افهم قصده وجاوب على هذا المعنى بالعراقي وعلى قدّه، والأسماء الإنكليزية للألوان والقياسات هي نفسها الي بالكتالوج.]'
+}
+
+/** مجاملة أو ختام بلا سؤال: «شكراً»، «You're welcome! ❤»، «تسلم»، «العفو». («تمام» و«اوك» ممكن تكون موافقة على سؤال، فمو منها.) */
+export const COURTESY_ONLY = /^(?:(?:you ?re|you are|ur) welcome|welcome|thanks?(?: a lot| so much)?|thank you(?: so much| very much)?|thx|ty|شكرا(?: جزيلا)?|مشكور(?:ين)?|تسلم(?:ين|ون)?|ممنون|العفو|عفوا|الله يسلمك|الله يخليك|حبيبي|عزيزي)(?: (?:حبيبي|عزيزي|اخي|اختي|كلش|هوايه|dear|bro))*$/
+
+export function isCourtesyOnly(message) {
+  const t = qNorm(message).replace(/'/g, ' ').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  return Boolean(t) && COURTESY_ONLY.test(t)
+}
+
+export const COURTESY_HINT = '\n\n[رسالة الزبون مجاملة أو ختام وما بيها سؤال: رد بجملة وحدة قصيرة ودافية بس (مثل «تسلم عزيزي 🌷 بالخدمة بأي وقت»).'
+  + ' ممنوع تعرض منتجات أو ألوان أو أسعار، وممنوع أي سؤال عن طلب.]';
+
+/** يسأل عن كل المنتجات أو الألوان أو القياسات أو الأسعار: الكتالوج جوابه، فما يحتاج تنبيه «على قدّ السؤال». */
+const ASKS_CATALOG = /منتجات|المنتجات|شنو عد|شنو عند|شني عد|المتوفر|الموجود|الوان|الالوان|اللوان|القياسات|قياسات|احجام|اسعار|الاسعار|بضاعه|products|what do you have/
+
+export const SCOPE_HINT = '\n\n[جاوب على قدّ سؤاله: سؤال عن شي واحد (لون، قياس، سعر، توصيل، خصم) جوابه هذا الشي بس.'
+  + ' إذا اللون أو القياس مو موجود: «لا، ما عدنا [الي سأل عنه]» وبعدها أسماء المتوفر بس (بدون القياسات والأسعار).'
+  + ' ممنوع تعرض الكتالوج كله إذا ما سأل عنه، وممنوع تختم بسؤال عن اللون أو القياس أو العدد إذا ما قال إنه يريد يطلب.]';
+
+/** «ماجاوبتني»، «ما رديت عليه»، «وين الجواب»: سؤاله السابق ضاع (غالباً بانقطاع الاتصال). */
+export const SAYS_UNANSWERED = /ما ?جاوبت|ما ?رديت|ما ?رد(?:ت)? علي|وين الجواب|ليش ما ?ت(?:رد|جاوب)|ما ?جاوبتو|ما جاوبتوني/
+
+export const UNANSWERED_HINT = '\n\n[الزبون يكول ما جاوبته: شوف سجل المحادثة وجاوب على آخر سؤال إله ما انجاوب (مثلاً الخصم أو السعر أو التوصيل) مباشرة، مع اعتذار بكلمتين.'
+  + ' ممنوع ترجع تعرض المنتجات أو تسأل عن اللون والقياس بدل الجواب.]';
+
+/**
+ * ألوان وقياسات إنكليزية ← نفس كتابتها بالكتالوج، قبل فحوص الطلب بـ «Order Context Hint».
+ * ماسنجر 2026-10-29 (التنفيذ 2782): الزبون ثبّت بـ «اوك ثبتلي Red Small-(s)» ودز اسمه وعنوانه ورقمه، والفحص ما لگى
+ * «Red» بالكتالوج (احمر) فحسبه يتفرج بس: «ممنوع تطلب الاسم أو العنوان…» والبوت عرض الكتالوج بدل الملخص.
+ * باقي الإنكليزي يبقى (englishHint يترجمه للوكيل).
+ */
+const EN_TO_CATALOG = [
+  [/\b(?:xxl|2xl|xx-large)\b/gi, 'دبل اكس لارج'], [/\b(?:xl|x-large|xlarge)\b/gi, 'اكس لارج'],
+  [/\blarge\b/gi, 'لارج'], [/\bmedium\b/gi, 'ميديم'], [/\bsmall\b/gi, 'سمول'],
+  [/\bred\b/gi, 'احمر'], [/\bblack\b/gi, 'اسود'], [/\bwhite\b/gi, 'ابيض'], [/\bpink\b/gi, 'وردي'], [/\bblue\b/gi, 'ازرق'],
+  [/\bgre[ey]\b/gi, 'رصاصي'], [/\bgreen\b/gi, 'اخضر'], [/\bbrown\b/gi, 'جوزي'], [/\bbeige\b/gi, 'بيجي'], [/\bnavy\b/gi, 'كحلي'], [/\byellow\b/gi, 'اصفر'],
+];
+
+export function arabizeEnglish(message) {
+  let t = String(message ?? '')
+  if (!/[A-Za-z]/.test(t)) return t
+  for (const [re, ar] of EN_TO_CATALOG) t = t.replace(re, ar)
+  return t
+}
+
+/**
+ * رقم الموبايل بأي كتابة ← 07XXXXXXXXX: «+964 784 754 4021»، «00964-784-754-4021»، «0784 754 4021»، وبالأرقام الهندية.
+ * فحوص الطلب (EXPLICIT_BUY و answersThread) تعرف «07» بلا فراغات بس، فالتنفيذ 2782 ما حسب الرقم جواب على
+ * «اكتب رقم موبايلك» والبوت عرض الكتالوج.
+ */
+const PHONE_ANY = /(?<![0-9٠-٩])(?:(?:\+|00)[ \t]?[9٩][6٦][4٤][ \t\-.()]*|[0٠])?([7٧][0-9٠-٩]{2})[ \t\-.()]*([0-9٠-٩]{3})[ \t\-.()]*([0-9٠-٩]{4})(?![0-9٠-٩])/g
+
+export function normalizePhones(message) {
+  return String(message ?? '').replace(PHONE_ANY, (m, a, b, c) =>
+    ('0' + a + b + c).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))))
+}
+
+/** الرسالة كما تشوفها فحوص الطلب: ألوان وقياسات الكتالوج بالعربي، ورقم الموبايل بصيغة 07. */
+export const forOrderChecks = (message) => normalizePhones(arabizeEnglish(message))
+
+/**
+ * قاعدة صاحب المتجر (2026-10-29): «يذكر فقط المنتج بعيداً عن التفاصيل… ما يذكر القياسات حتى ما يطلب الزبون القياس».
+ * البوت جان يعيد «- أسود: سمول، ميديم، لارج…» لكل لون بأغلب الردود (التنفيذات 2782، 2809، 2819، 2845، 2940).
+ * التفاصيل الي سأل عنها الزبون بهالرسالة تنذكر، والباقي لا. نفس ASKS_SIZES بـ n8n/reply-scope.js (الاختبار يتأكد).
+ */
+export const ASKS_DETAIL = {
+  sizes: /قياس|مقاس|حجم|احجام|حجوم|سايز|size|طولي|وزني|سمول|ميديم|ميديوم|لارج|(?<![a-z])(?:xs|x?xl|[23]xl|small|medium|large)(?![a-z])/,
+  colors: /لون|الوان|اللوان|colou?r|اسود|سودا|ابيض|بيضا|احمر|حمرا|ازرق|زرقا|اخضر|خضرا|اصفر|صفرا|وردي|رصاصي|رمادي|جوزي|بيجي|كحلي|بنفسجي|برتقالي|(?<![a-z])(?:black|white|red|blue|green|pink|gr[ae]y|brown|beige|navy|yellow)(?![a-z])/,
+  price: /شكد|شقد|بكم|سعر|اسعار|فلوس|خصم|تخفيض|بحبح|(?<![a-z])(?:price|cost|how much)(?![a-z])/,
+}
+
+const DETAILS = [['sizes', 'القياسات'], ['colors', 'الألوان'], ['price', 'السعر']]
+
+/** @returns {string[]} التفاصيل الي سأل عنها: sizes / colors / price */
+export const askedDetails = (message) => DETAILS.map(([k]) => k).filter((k) => ASKS_DETAIL[k].test(qNorm(message)))
+
+export function detailsHint(message) {
+  const asked = askedDetails(message)
+  const yes = DETAILS.filter(([k]) => asked.includes(k)).map(([, l]) => l)
+  const no = DETAILS.filter(([k]) => !asked.includes(k)).map(([, l]) => l)
+  return '\n\n[قاعدة عامة من صاحب المتجر: اذكر المنتج باسمه بس، بعيد عن التفاصيل.'
+    + (yes.length
+      ? ' الزبون سأل بهالرسالة عن ' + yes.join(' و') + ': جاوبه عليها.'
+      : ' الزبون ما سأل عن أي تفصيلة: مثلاً «شنو عدكم؟» جوابه «عدنا [اسم المنتج]» بس.')
+    + (no.length ? ' ممنوع تعدّد ' + no.join(' ولا ') + ' بهالرد لأن ما سألها، وممنوع تعيد قائمة المنتج بألوانه وقياساته.' : '')
+    + ' إذا يطلب وناقص لون أو قياس، اسأله بكلمتين بدون ما تعدّد. الاستثناء الوحيد: تأكيد الطلب وملخصه.]'
+}
+
+/** كل تنبيهات «على قدّ السؤال» لرسالة وحدة. */
+export function scopeHints(message) {
+  let h = englishHint(message)
+  if (isCourtesyOnly(message)) return h + COURTESY_HINT
+  if (SAYS_UNANSWERED.test(qNorm(message))) h += UNANSWERED_HINT
+  else if (!ASKS_CATALOG.test(qNorm(message))) h += SCOPE_HINT
+  return h + detailsHint(message)
+}
+
+/**
+ * كلمات عادية تشبه أسماء مناطق بفرق حرف («صوره» ≈ «الصويرة»، «جمله» ≈ «حي جميلة»)، فما ينحسبن اسم منطقة.
+ * مطبّعات مثل STOP بعقدة «Conversation Hints».
+ */
+export const PHOTO_STOP_WORDS = [
+  'صوره', 'صور', 'صورته', 'صورتها', 'صورها', 'صورهم', 'الصوره', 'الصور', 'تصوير', 'فوتو',
+  'شكله', 'شكلها', 'هودي', 'احجام', 'حجم', 'الحجم', 'قياسات', 'القياسات', 'مقاس', 'طولي', 'وزني', 'كيلو',
+  'جمله', 'الجمله', 'بالجمله', 'جمليه', 'شلعه', 'مفرد', 'بالمفرد', 'كميه', 'كرتونه', 'كراتين',
+]
+
+/** يُضاف لتنبيه «تصحيح اسم منطقة»: الكلمة الي معناها واضح بسياق الكلام مو منطقة، حتى لو ما بقائمة STOP. */
+export const AREA_HINT_GUARD = ' ⚠️ قبل كل شي: إذا هالكلمة معناها واضح بسياق كلام الزبون وهو مو يذكر عنوان (مثل «جملة» = بيع بالجملة، «صورة» = صورة المنتج)، أهمل هذا التنبيه كله: لا تذكر أي منطقة ولا تسأله «تقصد…؟».';
