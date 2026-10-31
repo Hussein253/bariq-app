@@ -6,6 +6,11 @@ import {
   askedDetails,
   detailsHint,
   isSizeFitQuestion,
+  customerBody,
+  recommendedSize,
+  requestedSizes,
+  sizeChoice,
+  sizeFitHint,
   englishHint,
   forOrderChecks,
   isCourtesyOnly,
@@ -36,6 +41,44 @@ describe('sizeLabels — القياسات بالعربي وكاملة', () => {
     expect(sizeLabels('سمول و لارج')).toBe('سمول، لارج')
     expect(sizeLabels('42/44')).toBe('42، 44')
     expect(sizeLabels('')).toBe('')
+  })
+})
+
+describe('sizeFitHint — القياس المحسوب من الوزن والطول (ماسنجر 2026-10-31)', () => {
+  const FULL = [{ size: 'small/medium/large/x-large/2xl' }]
+  const XL_ONLY = [{ size: 'small/medium/large/x-large' }]
+  const VOICE = 'طولي ١٧٠ و وزني ١٠٠ شنو القياس مناسب الي، قصدك آخذ XL لو آخذ XXL'
+
+  it('القياسات من الوزن والطول: 100 كيلو ← دبل اكس لارج، و85 كيلو وطول 185 ← دبل اكس لارج (درجة أكبر)', () => {
+    expect(customerBody(VOICE)).toEqual({ weight: 100, height: 170 })
+    expect(recommendedSize({ weight: 100, height: 170 })).toBe('دبل اكس لارج')
+    expect(recommendedSize({ weight: 85, height: 185 })).toBe('دبل اكس لارج')
+    expect(recommendedSize({ weight: 55, height: 160 })).toBe('سمول')
+    expect(recommendedSize({ weight: null, height: 170 })).toBeNull()
+  })
+
+  it('القياس المحسوب متوفر: يجاوب بيه بثقة', () => {
+    const hint = sizeFitHint(VOICE, FULL)
+    expect(hint).toContain('هذا هو القياس المناسب له')
+    expect(hint).toContain('«يناسبك دبل اكس لارج»')
+  })
+
+  it('القياس المحسوب مو متوفر: أقرب متوفر وبيه اتجاه (ضيق أو واسع)', () => {
+    expect(sizeChoice('دبل اكس لارج', XL_ONLY)).toEqual({ pick: 'اكس لارج', fit: 'tight' })
+    expect(sizeFitHint(VOICE, XL_ONLY)).toContain('ضيق عليه شوية')
+    expect(sizeChoice('سمول', XL_ONLY)).toEqual({ pick: 'سمول', fit: 'exact' })
+  })
+
+  it('الزبون سأل عن XL و XXL: يذكر أي منهن يناسبه، ومايعدد كل القياسات', () => {
+    expect(requestedSizes(VOICE)).toEqual(['اكس لارج', 'دبل اكس لارج'])
+    expect(requestedSizes('عندك S او M؟')).toEqual([])
+    expect(sizeFitHint(VOICE, FULL)).toContain('الزبون سأل عن اكس لارج و دبل اكس لارج، و دبل اكس لارج منهن')
+    // الكتالوج بلا XXL: الي سأل عنه (XXL) ما ينفع، والمناسب XL
+    expect(sizeFitHint('طولي ١٧٠ و وزني ١٠٠ عندكم XXL؟', XL_ONLY)).toContain('قل بصراحة إن الأنسب اكس لارج، و دبل اكس لارج أكبر عليه')
+  })
+
+  it('ماكو وزن: يسأله عنه قبل ما يقترح', () => {
+    expect(sizeFitHint('شنو القياس المناسب إلي؟', FULL)).toContain('اسأله عن وزنه')
   })
 })
 

@@ -37,7 +37,7 @@ export const CHANNELS = {
 }
 
 const MARK = 'n8n/answer-accuracy.js'
-const NAMES = ['qNorm', 'SIZE_LABEL', 'sizeLabels', 'SIZE_FIT_Q', 'isSizeFitQuestion', 'SIZE_FIT_HINT', 'Q_TOPICS', 'questionTopics', 'MULTI_Q_HINT',
+const NAMES = ['qNorm', 'SIZE_LABEL', 'sizeLabels', 'SIZE_FIT_Q', 'isSizeFitQuestion', 'SIZE_FIT_HINT', 'SIZE_BY_WEIGHT', 'SIZE_ORDER', 'customerBody', 'recommendedSize', 'sizeChoice', 'requestedSizes', 'sizeFitHint', 'Q_TOPICS', 'questionTopics', 'MULTI_Q_HINT',
   'WHOLESALE_Q', 'isWholesaleQuestion', 'WHOLESALE_HINT', 'PHOTO_STOP_WORDS', 'AREA_HINT_GUARD', 'EN_TO_CATALOG', 'arabizeEnglish', 'PHONE_ANY', 'normalizePhones', 'forOrderChecks',
   'ASKS_DETAIL', 'DETAILS', 'askedDetails', 'detailsHint']
 
@@ -55,9 +55,17 @@ const HINT_ADD_V2 = `  // دقة الجواب (${MARK}): سؤال القياس �
   if (isWholesaleQuestion(combinedMessage)) hint += WHOLESALE_HINT;
   if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
 `
-const HINT_ADD = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، سؤال الجملة ينجاوب بصراحة، ورسالة بيها أكثر من سؤال تنجاوب كلها،
+// النسخة الحالية المنشورة (2026-10-31 صباحاً) — تتبدل بالجديدة (sizeFitHint يحسب القياس من الوزن والطول)
+const HINT_ADD_V3 = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ما ينتجاهل، سؤال الجملة ينجاوب بصراحة، ورسالة بيها أكثر من سؤال تنجاوب كلها،
   // والجواب على قدّ السؤال (المجاملة جملة وحدة، والإنكليزي مترجم)
   if (!mismatch && items.some((p) => p.size) && isSizeFitQuestion(combinedMessage)) hint += SIZE_FIT_HINT;
+  if (isWholesaleQuestion(combinedMessage)) hint += WHOLESALE_HINT;
+  if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
+  if (!pureGreeting) hint += scopeHints(combinedMessage);
+`
+const HINT_ADD = `  // دقة الجواب (${MARK}): سؤال القياس المناسب ينجاوب بقياس واحد محسوب من الوزن والطول، سؤال الجملة ينجاوب بصراحة،
+  // ورسالة بيها أكثر من سؤال تنجاوب كلها، والجواب على قدّ السؤال (المجاملة جملة وحدة، والإنكليزي مترجم)
+  if (!mismatch && items.some((p) => p.size) && isSizeFitQuestion(combinedMessage)) hint += sizeFitHint(combinedMessage, items);
   if (isWholesaleQuestion(combinedMessage)) hint += WHOLESALE_HINT;
   if (questionTopics(combinedMessage) >= 2) hint += MULTI_Q_HINT;
   if (!pureGreeting) hint += scopeHints(combinedMessage);
@@ -117,7 +125,7 @@ export const patchWorkflow = (wf, c) => {
       const before = code
       if (!BLOCK_RE.test(code)) throw new Error(`${c.context}: ما لگيت كتلة ${MARK} حتى أحدّثها`)
       code = code.replace(BLOCK_RE, () => withEol(injected(), eol))
-      for (const old of [HINT_ADD_V1, HINT_ADD_V2]) {
+      for (const old of [HINT_ADD_V1, HINT_ADD_V2, HINT_ADD_V3]) {
         const prev = withEol(old, eol)
         if (code.includes(prev)) code = code.replace(prev, () => withEol(HINT_ADD, eol))
       }

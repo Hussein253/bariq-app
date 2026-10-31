@@ -66,10 +66,90 @@ export const SIZE_FIT_Q = new RegExp([
 
 export const isSizeFitQuestion = (message) => SIZE_FIT_Q.test(qNorm(message));
 
-export const SIZE_FIT_HINT = '\n\n[الزبون يسأل أي قياس يناسبه (ذكر طوله أو وزنه أو عمره): جاوب على هالسؤال بالذات بقياس واحد بالاسم'
-  + ' من القياسات المتوفرة، حسب قاعدة «القياس المناسب» بأول البرومت (جدول المتجر إذا موجود بتعليمات المتجر أو وصف المنتج، وإلا الدليل العام).'
-  + ' مثل: «طولك ١٧٠ ووزنك ١٠٠ يناسبك دبل اكس لارج، وأكبر قياس متوفر عدنا اكس لارج، راح يجي ضيق شوية.»'
-  + ' ممنوع تعدد كل القياسات بدل الجواب، وممنوع تحوّله لموظف بدل ما تجاوب. إذا ما ذكر طول ولا وزن، اسأله عنهن بجملة وحدة.]';
+/** الدليل العام بالوزن (كيلو) للملابس: الحد الأعلى لكل قياس، والحدود مشمولة. */
+const SIZE_BY_WEIGHT = [[60, 'سمول'], [70, 'ميديم'], [80, 'لارج'], [90, 'اكس لارج'], [105, 'دبل اكس لارج']]
+/** ترتيب القياسات من الأصغر للأكبر. */
+const SIZE_ORDER = ['سمول', 'ميديم', 'لارج', 'اكس لارج', 'دبل اكس لارج', 'تربل اكس لارج']
+
+/** طول ووزن الزبون من رسالته («طولي ١٧٠ و وزني ١٠٠»، «100 كيلو»، «170 سم»). بعد qNorm الأرقام إنكليزي. */
+export function customerBody(message) {
+  const t = qNorm(message)
+  const num = (re) => { const m = t.match(re); return m ? Number(m[1]) : null }
+  return {
+    weight: num(/(?:وزن[يا]?)\s*(\d{2,3})/) ?? num(/(\d{2,3})\s*(?:كيلو|كغم|كغ|kg)/),
+    height: num(/(?:طول[يا]?)\s*(\d{3})/) ?? num(/(\d{3})\s*(?:سم|سانتي|cm)/),
+  }
+}
+
+/** القياس المحسوب من الوزن، ويكبر درجة إذا الطول 180 سم أو أكثر. null إذا ماكو وزن. */
+export function recommendedSize({ weight, height }) {
+  if (!weight) return null
+  const base = SIZE_BY_WEIGHT.find(([max]) => weight <= max)?.[1] ?? 'تربل اكس لارج'
+  const rank = Math.min(SIZE_ORDER.indexOf(base) + (height >= 180 ? 1 : 0), SIZE_ORDER.length - 1)
+  return SIZE_ORDER[rank]
+}
+
+/**
+ * أقرب قياس متوفر للمنتج للقياس المحسوب: نفسه، أو الأكبر منه الأقرب، أو أكبر متوفر إذا كله أصغر.
+ * @param {string} rec القياس المحسوب
+ * @param {Array<{size?: string}>} products صفوف الكتالوج
+ * @returns {{ pick: string, fit: 'exact' | 'loose' | 'tight' }} loose = الي بيه أكبر شوية، tight = أصغر شوية
+ */
+export function sizeChoice(rec, products = []) {
+  const avail = [...new Set(products.flatMap((p) => sizeLabels(p.size).split('، ')))]
+    .filter((s) => SIZE_ORDER.includes(s)).map((s) => SIZE_ORDER.indexOf(s)).sort((a, b) => a - b)
+  const want = SIZE_ORDER.indexOf(rec)
+  if (!avail.length) return { pick: rec, fit: 'exact' }
+  const pickRank = avail.find((r) => r >= want) ?? avail[avail.length - 1]
+  const fit = pickRank === want ? 'exact' : pickRank > want ? 'loose' : 'tight'
+  return { pick: SIZE_ORDER[pickRank], fit }
+}
+
+const SIZE_WORDS = [
+  [/تربل اكس لارج|(?<![a-z])(?:xxxl|3xl)(?![a-z])/, 'تربل اكس لارج'],
+  [/دبل اكس لارج|(?<![a-z])(?:xxl|2xl)(?![a-z])/, 'دبل اكس لارج'],
+  [/اكس لارج|(?<![a-z])(?:xl|x-large)(?![a-z])/, 'اكس لارج'],
+  [/ميديم|ميديوم|(?<![a-z])medium(?![a-z])/, 'ميديم'],
+  [/لارج|(?<![a-z])large(?![a-z])/, 'لارج'],
+  [/سمول|(?<![a-z])small(?![a-z])/, 'سمول'],
+]
+
+/** القياسات الي سأل عنها الزبون بالاسم (XL، XXL، لارج…)، مرتبة من الأصغر. الحروف المفردة (S، M، L) ما تنحسب. */
+export function requestedSizes(message) {
+  let t = qNorm(message)
+  const found = []
+  for (const [re, label] of SIZE_WORDS) {
+    if (re.test(t)) { found.push(label); t = t.replace(new RegExp(re.source, 'g'), ' ') }
+  }
+  return found.sort((a, b) => SIZE_ORDER.indexOf(a) - SIZE_ORDER.indexOf(b))
+}
+
+/**
+ * تنبيه داخلي للوكيل بقياس واحد محسوب للزبون، ويا جواب جاهز الاتجاه (يناسبه، أو ضيق/واسع شوية).
+ * ماكو وزن: يسأل عنه قبل ما يقترح.
+ */
+export function sizeFitHint(message, products = []) {
+  const { weight, height } = customerBody(message)
+  if (!weight) {
+    return '\n\n[الزبون يسأل أي قياس يناسبه ولا ذكر وزنه: اسأله عن وزنه بجملة وحدة (وطوله إذا تحب)، وما تقترح قياس قبل ما تعرفه.]'
+  }
+  const rec = recommendedSize({ weight, height })
+  const { pick, fit } = sizeChoice(rec, products)
+  const asked = requestedSizes(message)
+  const fitText = fit === 'exact'
+    ? `هذا هو القياس المناسب له`
+    : fit === 'loose'
+      ? `ما عندنا ${rec}، وأقرب متوفر ${pick} وهو أكبر شوية، يعني واسع عليه شوية`
+      : `ما عندنا ${rec}، وأقرب متوفر ${pick} وهو أصغر شوية، يعني ضيق عليه شوية`
+  let text = `\n\n[القياس المحسوب لهذا الزبون من وزنه${height ? ' وطوله' : ''}: ${rec}. ${fitText}.`
+    + ` جاوب بقياس واحد بثقة وباسمه، مثل «يناسبك ${pick}»، بدون تردد، وبدون تعداد القياسات، وبدون تحويله لموظف.`
+  if (asked.length) {
+    text += asked.includes(pick)
+      ? ` الزبون سأل عن ${asked.join(' و ')}، و ${pick} منهن: جاوب إنه يناسبه.`
+      : ` الزبون سأل عن ${asked.join(' و ')}، وما منهن المناسب: قل بصراحة إن الأنسب ${pick}، و ${asked[0]} ${SIZE_ORDER.indexOf(asked[0]) < SIZE_ORDER.indexOf(pick) ? 'أصغر' : 'أكبر'} عليه.`
+  }
+  return text + ']'
+}
 
 /** مواضيع الأسئلة: رسالة تلمس موضوعين أو أكثر = أكثر من سؤال. */
 const Q_TOPICS = [
