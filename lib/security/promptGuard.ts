@@ -60,7 +60,8 @@ const SIGNATURES: Signature[] = [
 
   // Price manipulation
   { category: "PRICE_MANIPULATION", weight: 55, pattern: /\b(set|change|make|update|lower|reduce)\b.{0,25}\b(price|cost|total|amount|fee)\b.{0,25}(\bto\b|=)\s*(\$?\s*0|zero|free|\d+)/ },
-  { category: "PRICE_MANIPULATION", weight: 55, pattern: /(غير|اجعل|عدل|خفض|حدد|ضع).{0,20}(السعر|الثمن|التكلفه|المبلغ|الاجمالي|الرسوم).{0,25}(الي|ل|=|يساوي|بـ?)\s*(0|صفر|مجان|\d+)/ },
+  // Whole-word verbs like the override rule above, so "صغير" (small) doesn't match "غير"
+  { category: "PRICE_MANIPULATION", weight: 55, pattern: /(?:^|[^ء-ي])[وف]?(غير|اجعل|عدل|خفض|حدد|ضع)(?:ي|وا|و)?(?![ء-ي]).{0,20}(السعر|الثمن|التكلفه|المبلغ|الاجمالي|الرسوم).{0,25}(الي|ل|=|يساوي|بـ?)\s*(0|صفر|مجان|\d+)/ },
   { category: "PRICE_MANIPULATION", weight: 50, pattern: /\b100\s*% (discount|off)\b|\bfull discount\b|خصم\s*(100\s*(%|بالمئه|في المئه)|كامل|مئه بالمئه)/ }, // "خصم 100 ريال" is a normal coupon
   { category: "PRICE_MANIPULATION", weight: 40, pattern: /\b(apply|give|grant)\b.{0,20}\b(discount|coupon|refund)\b.{0,20}\b(without|no) (code|approval|verification)\b/ },
 
