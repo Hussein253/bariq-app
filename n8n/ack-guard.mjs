@@ -36,6 +36,10 @@ const AFFIRM_OLD = "'كمل', 'نكمل', 'صح', 'صحيح', 'خلص',"
 const AFFIRM_NEW = "'كمل', 'نكمل', 'صح', 'صحيح', 'خلص', 'تم', 'اعجاب', 'لايك', 'ستيكر',"
 const CONFIRM_OLD = '  return tokens.some((t) => AFFIRM.has(t));'
 const CONFIRM_NEW = '  return tokens.some((t) => AFFIRM.has(t)) || /[👍👌✅💯🙏❤🥰😊🌷👏]/u.test(combinedMessage);'
+// البنود المذكورة بآخر ملخص تبقى معروفة لين يتثبت الطلب، حتى لو آخر رد للبوت سؤال تأكيد عن تفصيلة (التنفيذ 3127)
+const ITEMS_OLD = '  const itemsFromBot = threadActive && itemsStatedByBot(lastBotNorm);'
+const ITEMS_NEW = '  const itemsFromBot = (threadActive && itemsStatedByBot(lastBotNorm)) || (() => { for (const r of (Array.isArray(botReplies) ? botReplies : []).slice(0, 8)) { const n = norm(r); if (ALREADY_PLACED.test(n)) return false; if (threadFresh && itemsStatedByBot(n)) return true; } return false; })();'
+const BLOCK_RE = /\/\/ ---- n8n\/ack-guard\.js \(مولّد[\s\S]*?\/\/ ---- نهاية n8n\/ack-guard\.js ----\r?\n\r?\n/
 const RETURN_LINE = 'return { json: { ...$json, output: text } };'
 const NAMES = ['ACK_WORDS', 'ACK_EMOJI', 'latinize', 'isAckMessage', 'DETAIL_CONFIRM_Q', 'hiddenLine', 'dropRepeatedConfirm']
 
@@ -79,6 +83,7 @@ export const patchWorkflow = (wf, c) => {
   // ١. Order Context Hint: الموافقة والملخص
   const ctx = by(c.context)
   let oc = String(ctx.parameters.jsCode ?? '')
+  const ocBefore = oc
   if (!oc.includes(ITEM_STATED_NEW)) {
     once(oc, ITEM_STATED_OLD, `${c.context}: ITEM_STATED`)
     once(oc, AFFIRM_OLD, `${c.context}: AFFIRM`)
@@ -86,14 +91,27 @@ export const patchWorkflow = (wf, c) => {
     oc = oc.replace(ITEM_STATED_OLD, () => ITEM_STATED_NEW)
       .replace(AFFIRM_OLD, () => AFFIRM_NEW)
       .replace(CONFIRM_OLD, () => CONFIRM_NEW)
-    ctx.parameters.jsCode = oc
     changes.push(`${c.context}: «ملخص طلبك» تتعرف كتأكيد للطلب، و«تم» والإعجاب وستيكر الموافقة صارت موافقة`)
   }
+  if (!oc.includes(ITEMS_NEW)) {
+    once(oc, ITEMS_OLD, `${c.context}: itemsFromBot`)
+    oc = oc.replace(ITEMS_OLD, () => ITEMS_NEW)
+    changes.push(`${c.context}: البنود المذكورة بآخر ملخص تبقى معروفة لين يتثبت الطلب`)
+  }
+  if (oc !== ocBefore) ctx.parameters.jsCode = oc
 
-  // ٢. آخر حارس: الموافقة ما تعيد سؤال التأكيد
+  // ٢. آخر حارس: الموافقة ما تعيد سؤال التأكيد (يتحدّث بآخر نسخة من المصدر)
   const guard = by(c.guard)
   const code = String(guard.parameters.jsCode ?? '')
-  if (!code.includes(MARK)) {
+  if (code.includes(MARK)) {
+    if (!BLOCK_RE.test(code)) throw new Error(`${c.guard}: ما لگيت كتلة ${MARK} حتى أحدّثها`)
+    const eol = code.includes('\r\n') ? '\r\n' : '\n'
+    const next = code.replace(BLOCK_RE, () => guardBlock(eol))
+    if (next !== code) {
+      guard.parameters.jsCode = next
+      changes.push(`${c.guard}: ${MARK} محدّث (تأكيد التفاصيل بأي صياغة)`)
+    }
+  } else {
     for (const name of NAMES) {
       if (new RegExp(`\\b(?:const|let|var|function)\\s+${name}\\b`).test(code)) throw new Error(`${c.guard}: الاسم ${name} مستعمل من قبل`)
     }

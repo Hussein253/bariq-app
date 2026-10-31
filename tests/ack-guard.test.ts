@@ -46,6 +46,16 @@ describe('dropRepeatedConfirm — ما يعيد سؤال التأكيد بعد �
       .toBe('تمام عزيزي 🌷\nSTAGE: 0')
   })
 
+  it('تمام بعد «وتأكدلي إذا تبقى اللون الأحمر»، والرد بصياغة ثانية «ونعتمد اللون الأحمر، تمام؟» (التنفيذ 3127): تنشال، والسؤال عن الكمية يبقى', () => {
+    const text = 'تدلل عزيزي، شكم قطعة هودي شتوي تريد؟ ونعتمد اللون الأحمر، تمام؟\nSTAGE: 0'
+    expect(dropRepeatedConfirm(text, { said: 'تمام', lastBot: ASKED_COLOR })).toBe('تدلل عزيزي، شكم قطعة هودي شتوي تريد؟\nSTAGE: 0')
+  })
+
+  it('الرد يسأل عن شي ثاني غير تأكيد التفاصيل: يبقى كما هو', () => {
+    const text = 'تمام عزيزي، شنو اسمك الثلاثي؟\nSTAGE: 0'
+    expect(dropRepeatedConfirm(text, { said: 'تمام', lastBot: ASKED_COLOR })).toBe(text)
+  })
+
   it('الرد ما يعيد السؤال: يبقى كما هو', () => {
     const text = 'تمام عزيزي، شكم قطعة تريد؟\nSTAGE: 0'
     expect(dropRepeatedConfirm(text, { said: 'تمام', lastBot: ASKED_COLOR })).toBe(text)
@@ -74,6 +84,7 @@ const OC_CODE = [
   ']);',
   'function confirmedOnce({ combinedMessage = \'\', botReplies = [] } = {}) {',
   '  return tokens.some((t) => AFFIRM.has(t));',
+  '  const itemsFromBot = threadActive && itemsStatedByBot(lastBotNorm);',
   '}',
 ].join('\n')
 const GUARD_CODE = 'const x = 1;\ntext = text;\nreturn { json: { ...$json, output: text } };'
@@ -90,9 +101,11 @@ const wf = () => ({
 describe('patchWorkflow — الموافقة والحارس بالعقد', () => {
   it('يزرع الحارس، ويوسّع الموافقة، وآمن للتكرار', () => {
     const w = wf()
-    expect(patchWorkflow(w, CHANNELS.messenger)).toHaveLength(2)
+    expect(patchWorkflow(w, CHANNELS.messenger)).toHaveLength(3)
     const oc = w.nodes[0].parameters.jsCode as string
     expect(oc).toContain('|ملخص طلب[كچ]/;')
+    expect(oc).toContain('const itemsFromBot = (threadActive && itemsStatedByBot(lastBotNorm)) || (() => {')
+    expect(oc).toContain('if (ALREADY_PLACED.test(n)) return false;')
     expect(oc).toContain("'تم', 'اعجاب', 'لايك', 'ستيكر',")
     expect(oc).toContain('/[👍👌✅💯🙏❤🥰😊🌷👏]/u.test(combinedMessage)')
     const guard = w.nodes[1].parameters.jsCode as string
