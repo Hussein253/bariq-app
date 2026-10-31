@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { normalizeIraqiPhone } from '@/lib/phone'
 import type { Shipment } from '@/lib/shipments'
 import { requireSession } from '@/lib/api-session'
+import { testOrderDispatchError } from '@/lib/test-orders'
 
 /**
  * POST /api/orders/:id/dispatch — إرسال طلب مؤكَّد للشحن (إنشاء شحنة)
@@ -22,6 +23,8 @@ import { requireSession } from '@/lib/api-session'
  * قبل هذا الترحيل لم يكن للطلب تاجر مسجَّل فكان هذا المسار يسحب أول تاجر
  * في الجدول عشوائياً؛ بتاجر واحد لا فرق يظهر، وبأكثر من تاجر كانت الشحنة
  * تُنسب لتاجر قد لا يملك الطلب فعلاً.
+ *
+ * الطلب التجريبي (orders.is_test) لا يُشحن: يُرفض بـ 409 — lib/test-orders.ts.
  */
 
 export async function POST(
@@ -49,6 +52,14 @@ export async function POST(
     }
     if (!order) {
       return NextResponse.json({ success: false, error: 'الطلب غير موجود' }, { status: 404 })
+    }
+    // قبل فحص الحالة والشحنة القائمة: سبب الرفض الحقيقي يظهر حتى لو سبقت
+    // للطلب شحنة (الطلب ٥١ أُنشئت شحنته قبل تعليمه تجريبياً).
+    if (order.is_test) {
+      return NextResponse.json(
+        { success: false, error: testOrderDispatchError(order.order_id) },
+        { status: 409 }
+      )
     }
     if (order.current_state !== 'confirmed') {
       return NextResponse.json(

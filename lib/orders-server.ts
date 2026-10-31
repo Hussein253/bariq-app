@@ -7,7 +7,7 @@ import { mapOrderRow, type MerchantOrder } from '@/lib/orders'
  * ⚠️ تستخدم service_role — لا تُستورد أبداً في كود المتصفح.
  * الاستعلام هو نفسه في /api/orders/confirmed (الطلب وعناصره ومرجع شحنته)،
  * مع فرقين: التقييد بالتاجر شرط صريح، ولا تصفية بالحالة — التاجر يرى كل
- * طلباته، والتصفية في الصفحة.
+ * طلباته، والتصفية في الصفحة. الطلب التجريبي وحده مستثنى (lib/test-orders.ts).
  */
 
 /** حدّ أولي للقائمة — يُضاف ترقيم الصفحات حين يتجاوزه تاجر فعلاً. */
@@ -24,6 +24,7 @@ export async function loadMerchantOrders(merchantId: string): Promise<MerchantOr
        order_items ( id, variant_id, product_name_snapshot, color_snapshot, size_snapshot, quantity, unit_price_iqd )`
     )
     .eq('merchant_id', merchantId)
+    .eq('is_test', false)
     .order('created_at', { ascending: false })
     .limit(MERCHANT_ORDERS_LIMIT)
 

@@ -28,7 +28,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
-  // عدد الطلبات في كل سجل — من جدول orders الحقيقي لا من عدّاد مخزّن
+  // عدد الطلبات في كل سجل — من جدول orders الحقيقي لا من عدّاد مخزّن، بلا
+  // التجريبية (lib/test-orders.ts). فحص الحذف أدناه يعدّها عمداً: حذف السجل
+  // يفكّ ربط طلباته، والتجريبي لا يُمسّ.
   const books = data ?? []
   const counts = await Promise.all(
     books.map(async (b) => {
@@ -36,6 +38,7 @@ export async function GET(request: Request) {
         .from('orders')
         .select('order_id', { count: 'exact', head: true })
         .eq('order_book_id', (b as { id: string }).id)
+        .eq('is_test', false)
       return count ?? 0
     })
   )

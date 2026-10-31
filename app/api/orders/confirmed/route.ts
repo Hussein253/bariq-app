@@ -28,6 +28,8 @@ export async function GET() {
          order_items ( id, variant_id, product_name_snapshot, color_snapshot, size_snapshot, quantity, unit_price_iqd )`
       )
       .eq('current_state', 'confirmed')
+      // الطلب التجريبي لا يُعرض ولا يُرسل للشحن (lib/test-orders.ts)
+      .eq('is_test', false)
       .order('created_at', { ascending: false })
 
     if (error) {

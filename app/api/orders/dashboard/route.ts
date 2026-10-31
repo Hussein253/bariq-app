@@ -24,6 +24,8 @@ export async function GET() {
          items_total_iqd, delivery_fee_iqd, grand_total_iqd, current_state, updated_at,
          shipments ( id, tracking_number, status )`
       )
+      // الطلب التجريبي لا يُعرض ولا يدخل الإحصاءات (lib/test-orders.ts)
+      .eq('is_test', false)
       .order('created_at', { ascending: false })
 
     if (error) {
