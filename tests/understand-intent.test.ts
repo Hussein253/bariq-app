@@ -29,6 +29,13 @@ describe('understand-intent — قاعدة «افهم قصد الزبون» بأ
     expect(INTENT_RULE).toContain('أثبّتلك الطلب؟')
   })
 
+  it('قاعدة القياس المناسب: قياس واحد بالاسم، جدول التاجر أول، ودليل عام بالأوزان', () => {
+    expect(INTENT_RULE).toContain('القياس المناسب')
+    expect(INTENT_RULE).toContain('اعتمده حرفياً')
+    expect(INTENT_RULE).toContain('دبل اكس لارج 90–105')
+    expect(INTENT_RULE).toContain('ممنوع تعدد كل القياسات')
+  })
+
   it('برومت بلا «# الهوية» ما ينلمس', () => {
     expect(() => patchWorkflow(wf('=بلا عنوان'), CHANNELS.messenger)).toThrow()
   })
