@@ -36,6 +36,12 @@ describe('understand-intent — قاعدة «افهم قصد الزبون» بأ
     expect(INTENT_RULE).toContain('ممنوع تعدد كل القياسات')
   })
 
+  it('الدفء والتسويق العاطفي: جملة «شكراً لاختيارك» بعد تثبيت الطلب بس، ووردة واحدة', () => {
+    expect(INTENT_RULE).toContain('الدفء والتسويق العاطفي')
+    expect(INTENT_RULE).toContain('شكراً لاختيارك')
+    expect(INTENT_RULE).toContain('لا تحط «شكراً لاختيارك» بالملخص قبل ما ينثبت الطلب')
+  })
+
   it('برومت بلا «# الهوية» ما ينلمس', () => {
     expect(() => patchWorkflow(wf('=بلا عنوان'), CHANNELS.messenger)).toThrow()
   })
