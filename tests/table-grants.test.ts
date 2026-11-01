@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * صلاحيات الجداول لدورَي anon و authenticated — الترحيل ٠٣٤
+ * صلاحيات الجداول لدورَي anon و authenticated — الترحيل ٠٣٥
  * ==========================================================
  * الترحيل يسحب منح Supabase الافتراضية ويُبقي ما تقابله سياسة RLS ومسار
  * متصفح. شقّان منه يكسران الواجهة إن انكسرا، وهذا الملف يحرسهما:
@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
  *   • عميل anon المجرّد (lib/supabase.ts) لا يقرأ إلا plans — وحدها تبقى لـ anon.
  */
 
-const MIGRATION = 'supabase/migrations/034_lock_down_table_grants.sql'
+const MIGRATION = 'supabase/migrations/035_lock_down_table_grants.sql'
 
 /** ما يُسحب من authenticated على كل جدول، وعلى كل جدول جديد */
 const AUTHENTICATED_REVOKED = ['delete', 'insert', 'maintain', 'references', 'trigger', 'truncate', 'update']
@@ -57,7 +57,7 @@ function parse(stmt: string): Acl | null {
 const parsed = statements.map(parse)
 const acls = parsed.filter((a): a is Acl => a !== null)
 
-describe('صلاحيات الجداول لأدوار الـ API (الترحيل ٠٣٤)', () => {
+describe('صلاحيات الجداول لأدوار الـ API (الترحيل ٠٣٥)', () => {
   it('لا يحوي الترحيل إلا منحاً وسحباً، وتحديثاً واحداً لمخطط PostgREST', () => {
     // لا تعريف ولا بيانات: تطبيقه وإعادته لا يمسّان صفاً
     expect(statements.filter((_, i) => !parsed[i])).toEqual(["notify pgrst, 'reload schema'"])
@@ -124,7 +124,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('عميل anon المجرّد', () => {
-  it('لا يقرأ إلا plans — وحدها تبقى لـ anon بعد الترحيل ٠٣٤', () => {
+  it('لا يقرأ إلا plans — وحدها تبقى لـ anon بعد الترحيل ٠٣٥', () => {
     const users = ['app', 'components', 'lib']
       .flatMap(sourceFiles)
       .filter((file) => /from ['"]@\/lib\/supabase['"]/.test(readFileSync(file, 'utf8')))
