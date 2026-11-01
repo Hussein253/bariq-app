@@ -49,8 +49,9 @@ import {
   type ShipmentStatus,
   type SettlementStatus,
   SHIPMENT_STATUSES,
-  STATUS_TRANSITIONS,
   STATUS_COLORS,
+  isReportableShipment,
+  manualNextStatuses,
   SETTLEMENT_COLORS,
   TIMELINE_STEPS,
   formatDateTime,
@@ -163,11 +164,13 @@ export default function DashboardClient({
 
   // ===== مؤشرات الأداء اللوجستية =====
   const stats = useMemo(() => {
-    const total = scopedShipments.length
-    const outForDelivery = scopedShipments.filter((s) => s.status === 'OUT_FOR_DELIVERY').length
-    const postponed = scopedShipments.filter((s) => s.status === 'POSTPONED').length
-    const returned = scopedShipments.filter((s) => s.status === 'RETURNED').length
-    const active = scopedShipments.filter((s) =>
+    // الملغاة خارج العدّ والنسبة: لا تُسلَّم ولا تُحصَّل
+    const reportable = scopedShipments.filter(isReportableShipment)
+    const total = reportable.length
+    const outForDelivery = reportable.filter((s) => s.status === 'OUT_FOR_DELIVERY').length
+    const postponed = reportable.filter((s) => s.status === 'POSTPONED').length
+    const returned = reportable.filter((s) => s.status === 'RETURNED').length
+    const active = reportable.filter((s) =>
       ['ORDER_RECEIVED', 'PICKED_UP_SAME_DAY', 'IN_TRANSIT_HUB', 'OUT_FOR_DELIVERY'].includes(s.status)
     ).length
 
@@ -893,11 +896,11 @@ export default function DashboardClient({
             {/* إجراءات الحالة */}
             <div className="mb-4">
               <p className="text-[11px] font-bold text-ink-muted mb-2">{d.detailUpdateStatus}</p>
-              {STATUS_TRANSITIONS[selectedShipment.status].length === 0 ? (
+              {manualNextStatuses(selectedShipment.status).length === 0 ? (
                 <p className="text-[11px] text-ink-faint">{d.detailFinalState}</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {STATUS_TRANSITIONS[selectedShipment.status].map((next) => (
+                  {manualNextStatuses(selectedShipment.status).map((next) => (
                     <button
                       key={next}
                       disabled={updatingId === selectedShipment.id}

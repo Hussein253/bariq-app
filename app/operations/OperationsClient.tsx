@@ -56,6 +56,7 @@ import {
 } from '@/lib/formatters'
 import { orderDisplayName, orderDisplayPhone, type ConfirmedOrder } from '@/lib/orders'
 import type { ShipmentStatus } from '@/lib/shipments'
+import { canCancelOrder } from '@/lib/order-cancel'
 import NewOrderBooking from '@/components/NewOrderBooking'
 import { fill, type Dictionary } from '@/lib/i18n'
 import type { Locale } from '@/lib/i18n/config'
@@ -289,6 +290,9 @@ export default function OperationsClient({
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersError, setOrdersError] = useState<string | null>(null)
   const [dispatchingOrderId, setDispatchingOrderId] = useState<number | null>(null)
+  const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null)
+  // الإلغاء يحتاج تأكيداً ثانياً بالزر نفسه: رقم الطلب الذي ينتظر التأكيد
+  const [cancelArmedFor, setCancelArmedFor] = useState<number | null>(null)
   const [merchants, setMerchants] = useState<Merchant[]>([])
   const [merchantsLoading, setMerchantsLoading] = useState(true)
   const [merchantsError, setMerchantsError] = useState<string | null>(null)
@@ -547,7 +551,8 @@ export default function OperationsClient({
     const cancelledCount = userScopedOrders.length - nonCancelled.length
     const pendingDispatchCount = nonCancelled.filter((o) => !o.shipment).length
 
-    const shipmentStatuses = userScopedOrders
+    // الطلب الملغى وشحنته خارج نسبة النجاح
+    const shipmentStatuses = nonCancelled
       .map((o) => o.shipment?.status)
       .filter((s): s is ShipmentStatus => Boolean(s))
     const activeShipments = shipmentStatuses.filter((s) => ACTIVE_SHIPMENT_STATUSES.has(s)).length
@@ -631,6 +636,30 @@ export default function OperationsClient({
       showToast(err instanceof Error ? err.message : o.errors.dispatchFailed, 'error')
     } finally {
       setDispatchingOrderId(null)
+    }
+  }
+
+  // إلغاء الطلب وشحنته معاً (الترحيل ٠٣٤): لا حذف، والطلب يبقى في السجل ملغياً
+  const handleCancelOrder = async (order: ConfirmedOrder) => {
+    setCancellingOrderId(order.order_id)
+    setCancelArmedFor(null)
+    try {
+      const res = await fetch(`/api/orders/${order.order_id}/cancel`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error || o.orderDetail.cancelFailed)
+
+      const cancelled = (ord: ConfirmedOrder): ConfirmedOrder => ({
+        ...ord,
+        current_state: 'cancelled',
+        shipment: ord.shipment ? { ...ord.shipment, status: 'CANCELLED' } : null,
+      })
+      setOrders((prev) => prev.map((ord) => (ord.order_id === order.order_id ? cancelled(ord) : ord)))
+      setSelectedOrder((prev) => (prev && prev.order_id === order.order_id ? cancelled(prev) : prev))
+      showToast(fill(o.orderDetail.cancelDone, { n: digits(order.order_id) }), 'success')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : o.orderDetail.cancelFailed, 'error')
+    } finally {
+      setCancellingOrderId(null)
     }
   }
 
@@ -1232,7 +1261,10 @@ export default function OperationsClient({
                         filteredOrders.map((order) => (
                           <tr
                             key={order.order_id}
-                            onClick={() => setSelectedOrder(order)}
+                            onClick={() => {
+                              setCancelArmedFor(null)
+                              setSelectedOrder(order)
+                            }}
                             className="hover:bg-[#F8FAFC] transition-colors cursor-pointer"
                           >
                             <td className="p-3.5 whitespace-nowrap">
@@ -2115,6 +2147,10 @@ export default function OperationsClient({
               </div>
             </div>
 
+            {cancelArmedFor === selectedOrder.order_id && (
+              <p className="px-6 pb-3 text-[11px] font-semibold text-rose-700">{o.orderDetail.cancelHint}</p>
+            )}
+
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
@@ -2124,6 +2160,20 @@ export default function OperationsClient({
                   <Printer size={14} />
                   <span>{o.orderDetail.printLabel}</span>
                 </button>
+                {canCancelOrder(selectedOrder) && (
+                  <button
+                    onClick={() => {
+                      if (cancelArmedFor === selectedOrder.order_id) void handleCancelOrder(selectedOrder)
+                      else setCancelArmedFor(selectedOrder.order_id)
+                    }}
+                    disabled={cancellingOrderId === selectedOrder.order_id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 font-bold text-xs transition"
+                  >
+                    <span>
+                      {cancelArmedFor === selectedOrder.order_id ? o.orderDetail.confirmCancel : o.orderDetail.cancelOrder}
+                    </span>
+                  </button>
+                )}
                 {!selectedOrder.shipment && selectedOrder.current_state === 'confirmed' && (
                   <button
                     onClick={() => void handleDispatch(selectedOrder.order_id)}

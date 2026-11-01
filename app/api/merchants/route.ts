@@ -50,7 +50,11 @@ export async function GET() {
         .from('subscriptions')
         .select('merchant_id, status, plans(code, name_en, price_iqd_monthly)'),
       // شحنة الطلب التجريبي لا تُعدّ للتاجر (lib/test-orders.ts)
-      supabaseServer.from('shipments').select('merchant_id, orders!inner(is_test)').eq('orders.is_test', false),
+      supabaseServer
+        .from('shipments')
+        .select('merchant_id, orders!inner(is_test)')
+        .eq('orders.is_test', false)
+        .neq('status', 'CANCELLED'),
     ])
 
     if (merchantsRes.error) {

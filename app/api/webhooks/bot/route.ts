@@ -6,7 +6,7 @@ import { verifySignature } from '@/lib/webhook-signature'
 import { normalizeIraqiPhone } from '@/lib/phone'
 import { clientKey, rateLimit, tooManyRequests } from '@/lib/rate-limit'
 import { log, maskPhone, maskText } from '@/lib/log'
-import { STATUS_LABELS, type ShipmentStatus } from '@/lib/shipments'
+import { STATUS_LABELS, amountDueLine, type ShipmentStatus } from '@/lib/shipments'
 import { formatArabicCurrency, toArabicDigits } from '@/lib/formatters'
 
 export const dynamic = 'force-dynamic'
@@ -237,7 +237,8 @@ export async function POST(req: Request) {
 
     const label = STATUS_LABELS[shipment.status as ShipmentStatus] ?? shipment.status
     const total = (Number(shipment.cod_amount_iqd) || 0) + (Number(shipment.delivery_fee_iqd) || 0)
-    const reply = `شحنتك ${shipment.tracking_number}\nالحالة: ${label}\nالمطلوب عند الاستلام: ${formatArabicCurrency(total)}`
+    // الملغاة لا يُقال للزبون فيها مبلغ مستحق
+    const reply = `شحنتك ${shipment.tracking_number}\nالحالة: ${label}${amountDueLine(shipment.status, formatArabicCurrency(total))}`
 
     await recordMessage({ ...target, content: reply, senderType: 'bot' })
     return botReply(reply, { shipment })

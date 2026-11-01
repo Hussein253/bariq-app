@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { requireSession } from '@/lib/api-session'
 import { embeddedOrderIsTest, testShipmentLockedError, touchesDispatch } from '@/lib/test-orders'
+import { CANCEL_VIA_ORDER_ERROR, cancelledShipmentLockedError } from '@/lib/order-cancel'
+import { CANCELLED_STATUS } from '@/lib/shipments'
 
 /**
  * تحديث شحنة محددة (حالة، مندوب، تسوية مالية، ملاحظات)
@@ -12,6 +14,8 @@ import { embeddedOrderIsTest, testShipmentLockedError, touchesDispatch } from '@
  *
  * الاستثناء الوحيد المفروض هنا: شحنة الطلب التجريبي لا تُسلَّم لمندوب ولا
  * تتحرّك حالتها ولا تسويتها (lib/test-orders.ts) — المُحفّز لا يعرف is_test.
+ * والشحنة الملغاة لا يتغيّر فيها شيء إلا الملاحظات، والإلغاء نفسه من زر الطلب
+ * وحده (lib/order-cancel.ts).
  */
 
 export async function PATCH(
@@ -36,16 +40,27 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'لا توجد بيانات لتحديثها' }, { status: 400 })
     }
 
+    // الإلغاء من زر الطلب وحده: هو الذي يلغي الطلب والشحنة معاً
+    if (updates.status === CANCELLED_STATUS) {
+      return NextResponse.json({ success: false, error: CANCEL_VIA_ORDER_ERROR }, { status: 409 })
+    }
+
     // تعديل الملاحظات وحده لا يحتاج الفحص
     if (touchesDispatch(updates)) {
       const { data: current, error: currentError } = await supabaseServer
         .from('shipments')
-        .select('tracking_number, orders(is_test)')
+        .select('tracking_number, status, orders(is_test)')
         .eq('id', id)
         .maybeSingle()
 
       if (currentError) {
         return NextResponse.json({ success: false, error: currentError.message }, { status: 400 })
+      }
+      if (current?.status === CANCELLED_STATUS) {
+        return NextResponse.json(
+          { success: false, error: cancelledShipmentLockedError(current.tracking_number) },
+          { status: 409 }
+        )
       }
       if (current && embeddedOrderIsTest(current.orders)) {
         return NextResponse.json(

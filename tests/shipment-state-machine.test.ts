@@ -8,9 +8,11 @@ import { STATUS_TRANSITIONS, SHIPMENT_STATUSES, type ShipmentStatus } from '@/li
  * انتقالاً تقبله ثم ترفضه القاعدة — أو أسوأ، تخفي انتقالاً مشروعاً.
  * هذا الاختبار يقرأ خريطة المُحفّز من ملف الترحيل نفسه ويقارنها بالنسخة
  * البرمجية، فيكشف الافتراق لحظة حدوثه.
+ *
+ * الخريطة من الترحيل ٠٣٤ (آخر ترحيل يعرّف المُحفّز)؛ ترحيل ٠٠٢ صار تاريخاً.
  */
 describe('آلة حالات الشحنة', () => {
-  const migration = readFileSync('supabase/migrations/002_create_shipments_schema.sql', 'utf8')
+  const migration = readFileSync('supabase/migrations/034_cancelled_shipment_state.sql', 'utf8')
 
   it('نسخة الكود مطابقة تماماً لخريطة المُحفّز في قاعدة البيانات', () => {
     const match = migration.match(/allowed_next jsonb := '(\{[\s\S]*?\})'::jsonb/)

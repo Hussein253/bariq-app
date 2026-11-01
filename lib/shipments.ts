@@ -16,6 +16,7 @@ export type ShipmentStatus =
   | 'POSTPONED'
   | 'RETURNED'
   | 'SETTLED_FINANCIALLY'
+  | 'CANCELLED'
 
 export type SettlementStatus = 'PENDING' | 'DEPOSITED' | 'DEFERRED'
 export type MerchantStatus = 'active' | 'suspended'
@@ -127,6 +128,7 @@ export const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'POSTPONED',
   'RETURNED',
   'SETTLED_FINANCIALLY',
+  'CANCELLED',
 ]
 
 export const STATUS_LABELS: Record<ShipmentStatus, string> = {
@@ -138,17 +140,19 @@ export const STATUS_LABELS: Record<ShipmentStatus, string> = {
   POSTPONED: 'مؤجلة',
   RETURNED: 'مرتجعة',
   SETTLED_FINANCIALLY: 'تمت التسوية المالية',
+  CANCELLED: 'ملغية',
 }
 
 // نسخة طبق الأصل من allowed_next في enforce_shipment_status_transition()
 export const STATUS_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
-  ORDER_RECEIVED: ['PICKED_UP_SAME_DAY'],
+  ORDER_RECEIVED: ['PICKED_UP_SAME_DAY', 'CANCELLED'],
   PICKED_UP_SAME_DAY: ['IN_TRANSIT_HUB'],
   IN_TRANSIT_HUB: ['OUT_FOR_DELIVERY'],
   OUT_FOR_DELIVERY: ['DELIVERED', 'POSTPONED', 'RETURNED'],
   DELIVERED: ['SETTLED_FINANCIALLY'],
   POSTPONED: ['OUT_FOR_DELIVERY', 'SETTLED_FINANCIALLY'],
   RETURNED: ['SETTLED_FINANCIALLY'],
+  CANCELLED: [],
   SETTLED_FINANCIALLY: [],
 }
 
@@ -161,6 +165,29 @@ export const STATUS_COLORS: Record<ShipmentStatus, { bg: string; text: string; b
   POSTPONED: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500' },
   RETURNED: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-500' },
   SETTLED_FINANCIALLY: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500' },
+  CANCELLED: { bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-300', dot: 'bg-zinc-400' },
+}
+
+/**
+ * الملغاة تُصنع بزر «إلغاء الطلب» (cancel_order) وحده، لا بتغيير الحالة من شاشة
+ * الشحنات. وهي نهائية (الترحيل ٠٣٤)، ولا تدخل أي عدّاد أو نسبة أو مجموع، ولا
+ * يُحصَّل فيها شيء عند الاستلام.
+ */
+export const CANCELLED_STATUS: ShipmentStatus = 'CANCELLED'
+
+/** انتقالات تعرضها شاشة الشحنات بأزرار التغيير اليدوي — الإلغاء ليس منها. */
+export function manualNextStatuses(status: ShipmentStatus): ShipmentStatus[] {
+  return STATUS_TRANSITIONS[status].filter((next) => next !== CANCELLED_STATUS)
+}
+
+/** الشحنة الملغاة لا تدخل العدّادات ولا النسب. */
+export function isReportableShipment(shipment: { status: string }): boolean {
+  return shipment.status !== CANCELLED_STATUS
+}
+
+/** سطر المبلغ المطلوب عند الاستلام في رسالة الزبون؛ الملغاة لا يُذكر فيها مبلغ. */
+export function amountDueLine(status: string, formattedAmount: string): string {
+  return status === CANCELLED_STATUS ? '' : `\nالمطلوب عند الاستلام: ${formattedAmount}`
 }
 
 export const SETTLEMENT_LABELS: Record<SettlementStatus, string> = {

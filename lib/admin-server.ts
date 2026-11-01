@@ -115,9 +115,14 @@ export async function loadPlatformOverview(): Promise<PlatformOverview> {
       .select(
         'merchant_id, status, cod_amount_iqd, delivery_fee_iqd, merchant_net_amount_iqd, settlement_status, orders!inner(is_test)'
       )
-      .eq('orders.is_test', false),
+      .eq('orders.is_test', false)
+      .neq('status', 'CANCELLED'),
     supabaseServer.from('conversations').select('merchant_id, platform'),
-    supabaseServer.from('orders').select('order_id', { count: 'exact', head: true }).eq('is_test', false),
+    supabaseServer
+      .from('orders')
+      .select('order_id', { count: 'exact', head: true })
+      .eq('is_test', false)
+      .neq('current_state', 'cancelled'),
     supabaseServer.from('messages').select('id', { count: 'exact', head: true }).eq('sender_type', 'bot'),
     supabaseServer.from('couriers').select('id', { count: 'exact', head: true }),
     supabaseServer.from('delivery_areas').select('id', { count: 'exact', head: true }).eq('is_active', true),

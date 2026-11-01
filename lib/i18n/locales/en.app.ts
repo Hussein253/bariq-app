@@ -39,6 +39,7 @@ export const enApp: AppDictionary = {
     POSTPONED: 'Postponed',
     RETURNED: 'Returned',
     SETTLED_FINANCIALLY: 'Financially settled',
+    CANCELLED: 'Cancelled',
   },
 
   subscriptionStatus: {
@@ -437,6 +438,11 @@ export const enApp: AppDictionary = {
       content: 'Order content:',
       amountDue: 'Amount due:',
       printLabel: 'Print label',
+      cancelOrder: 'Cancel order',
+      confirmCancel: 'Confirm cancellation',
+      cancelHint: 'The order stays on record as cancelled. It is not sent to a courier and is not counted in any total.',
+      cancelDone: 'Order {n} cancelled',
+      cancelFailed: 'Could not cancel the order',
       sendToShipping: 'Send to shipping',
     },
     newOrderModal: {
