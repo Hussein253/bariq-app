@@ -35,6 +35,7 @@ const list = (s: string) => s.split(',').map((x) => x.trim()).sort()
 /** جمل الترحيل بلا تعليقات، بأحرف صغيرة ومسافات موحّدة */
 const statements = readFileSync(MIGRATION, 'utf8')
   .replace(/--.*$/gm, '')
+  .replace(/do \$\$[\s\S]*?\$\$;/g, '')
   .split(';')
   .map((s) => s.replace(/\s+/g, ' ').trim().toLowerCase())
   .filter(Boolean)
@@ -60,6 +61,16 @@ describe('صلاحيات الجداول لأدوار الـ API (الترحيل 
   it('لا يحوي الترحيل إلا منحاً وسحباً، وتحديثاً واحداً لمخطط PostgREST', () => {
     // لا تعريف ولا بيانات: تطبيقه وإعادته لا يمسّان صفاً
     expect(statements.filter((_, i) => !parsed[i])).toEqual(["notify pgrst, 'reload schema'"])
+  })
+
+  it('دالة المُحفِّز الحية تُسحب منها EXECUTE بشرط وجودها، ولا يعرّفها الترحيل', () => {
+    // قاعدة لا تحمل الدالة (المستودع وحده) لا تفشل عند الترحيل، والقاعدة الحية تُسحب منها
+    const migration = readFileSync(MIGRATION, 'utf8')
+    expect(migration).toContain("to_regprocedure('public.sync_live_n8n_message_update()') is not null")
+    expect(migration).toContain(
+      'revoke execute on function public.sync_live_n8n_message_update() from anon, authenticated, public;'
+    )
+    expect(migration).not.toMatch(/create\s+(or\s+replace\s+)?function\s+public\.sync_live_n8n_message_update/i)
   })
 
   it('anon لا يبقى له على الجداول القائمة إلا قراءة plans', () => {
