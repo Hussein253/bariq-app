@@ -42,6 +42,7 @@ export const arApp = {
     POSTPONED: 'مؤجلة',
     RETURNED: 'مرتجعة',
     SETTLED_FINANCIALLY: 'تمت التسوية المالية',
+    CANCELLED: 'ملغية',
   },
 
   subscriptionStatus: {
@@ -439,6 +440,11 @@ export const arApp = {
       content: 'محتوى الطلب:',
       amountDue: 'المبلغ المطلوب:',
       printLabel: 'طباعة البوليصة',
+      cancelOrder: 'إلغاء الطلب',
+      confirmCancel: 'تأكيد الإلغاء',
+      cancelHint: 'يبقى الطلب في السجل ملغياً، ولا يُرسل للمندوب، ولا يُحسب في أي مجموع.',
+      cancelDone: 'تم إلغاء الطلب {n}',
+      cancelFailed: 'تعذّر إلغاء الطلب',
       sendToShipping: 'إرسال للشحن',
     },
     newOrderModal: {

@@ -39,6 +39,7 @@ export async function GET(request: Request) {
         .select('order_id', { count: 'exact', head: true })
         .eq('order_book_id', (b as { id: string }).id)
         .eq('is_test', false)
+        .neq('current_state', 'cancelled')
       return count ?? 0
     })
   )

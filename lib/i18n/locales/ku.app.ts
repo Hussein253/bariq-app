@@ -37,6 +37,7 @@ export const kuApp: AppDictionary = {
     POSTPONED: 'دواخراوە',
     RETURNED: 'گەڕێنراوەتەوە',
     SETTLED_FINANCIALLY: 'لێکدانەوەی دارایی تەواو بوو',
+    CANCELLED: 'هەڵوەشێنراوە',
   },
 
   subscriptionStatus: {
@@ -435,6 +436,11 @@ export const kuApp: AppDictionary = {
       content: 'ناوەڕۆکی داواکاری:',
       amountDue: 'بڕی پێویست:',
       printLabel: 'چاپی بۆلیسە',
+      cancelOrder: 'هەڵوەشاندنەوەی داواکاری',
+      confirmCancel: 'دڵنیابوونەوە لە هەڵوەشاندنەوە',
+      cancelHint: 'داواکارییەکە وەک هەڵوەشێنراو لە تۆماردا دەمێنێتەوە. نانێردرێتە مندوب و لە هیچ کۆیەکدا ناژمێردرێت.',
+      cancelDone: 'داواکاری {n} هەڵوەشێنرایەوە',
+      cancelFailed: 'نەتوانرا داواکاری هەڵبوەشێنرێتەوە',
       sendToShipping: 'ناردن بۆ گەیاندن',
     },
     newOrderModal: {

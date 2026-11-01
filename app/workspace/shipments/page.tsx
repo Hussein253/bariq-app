@@ -38,6 +38,7 @@ const STATUS_TONE: Record<ShipmentStatus, string> = {
   POSTPONED: 'bg-warn-bg border-warn-line text-warn-ink',
   RETURNED: 'bg-danger-bg border-danger-line text-danger-ink',
   SETTLED_FINANCIALLY: 'bg-success-bg border-success-line text-success-ink',
+  CANCELLED: 'bg-surface-3 border-line text-ink-muted',
 }
 
 const SETTLEMENT_TONE: Record<SettlementStatus, string> = {
