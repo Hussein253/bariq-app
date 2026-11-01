@@ -24,9 +24,11 @@ const DRY = process.env.DRY === '1'
 
 export const MODULE = fs.readFileSync(path.join(HERE, 'order-money.js'), 'utf8')
 
+// الخصم بكل القنوات الآن (n8n/discount-channels.mjs يضيف discount_pct لواتساب وإنستغرام). ترتيب النشر: discount-channels أول، بعدين هذا.
 export const CHANNELS = {
   messenger: { id: 'GP0rtSxxEHWT3kLj', guard: 'Drop Repeated Blocks', merchant: 'تحديد التاجر', discount: true },
-  whatsapp: { id: 'i3fCYtVjPHtqvXvm', guard: 'Drop Repeated Blocks', merchant: 'تحديد التاجر', discount: false },
+  whatsapp: { id: 'i3fCYtVjPHtqvXvm', guard: 'Drop Repeated Blocks', merchant: 'تحديد التاجر', discount: true },
+  instagram: { id: 'CTuJ0eGVthUjREVJ', guard: 'حذف المكرر من الرد', merchant: 'تحديد التاجر', discount: true },
 }
 
 const MARK = 'n8n/order-money.js'

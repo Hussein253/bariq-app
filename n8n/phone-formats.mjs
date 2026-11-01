@@ -1,19 +1,22 @@
 /**
  * رقم الموبايل بأي صيغة (ماسنجر 2026-10-31): 07XXXXXXXXX، أو +964 / 00964 / 964 وبعدها الرقم.
- * التفاصيل والدالة بـ n8n/phone-formats.js.
+ * التفاصيل والدوال بـ n8n/phone-formats.js.
  *
- *   ١. برومت الوكيل (ماسنجر وواتساب): سطر الرقم يقبل الصيغتين، والملخص يكتبه بـ 07، وممنوع يطلب من الزبون يبدي بـ 07.
- *   ٢. بوابة الرقم بعقدة «Clean Agent Reply» (ماسنجر بس، واتساب ما عنده بوابة): الرقم يُقرأ من رسالة الزبون بأي صيغة،
- *      وصياغة طلب الرقم ما تذكر 07 بس.
- *   ٣. بوابة الرقم: قبل الحجز (create_order) ما نكول «تم تأكيد طلبك»، هذا ملخص ينتظر موافقة الزبون (التنفيذ 3087:
- *      «اعتمد عليه» ← «تم عزيزي، تم تأكيد طلبك… أثبّتلك الطلب؟»).
+ *   ١. برومت الوكيل (الثلاث قنوات): سطر الرقم يقبل الصيغتين، والملخص يكتبه بـ 07، وممنوع يطلب من الزبون يبدي بـ 07.
+ *   ٢. بوابة الرقم («Clean Agent Reply» بماسنجر، «تنظيف رد الوكيل» بإنستغرام؛ واتساب ما عنده بوابة): الرقم ينقرا بأي صيغة
+ *      من رسالة الزبون الحالية، وبعدها من رسائله السابقة بالمحادثة، وبعدها من رقم طلبه السابق إذا البوت معتمد عنوانه
+ *      السابق (knownPhone). فالرقم الي انطاه الزبون ما ينطلب مرة ثانية (التنفيذ 3141). صياغة طلب الرقم ما تذكر 07 بس.
+ *   ٣. بوابة ماسنجر: قبل الحجز (create_order) ما نكول «تم تأكيد طلبك»، هذا ملخص ينتظر موافقة الزبون (التنفيذ 3087:
+ *      «اعتمد عليه» ← «تم عزيزي، تم تأكيد طلبك… أثبّتلك الطلب؟»). بإنستغرام ما تنطبق: «سياق الطلب» القديمة هناك
+ *      تتعرف على البنود من عبارة «تم تأكيد طلبك».
  *
  * الاستعمال:
- *   N8N_KEY=<api key> node n8n/phone-formats.mjs messenger whatsapp
+ *   N8N_KEY=<api key> node n8n/phone-formats.mjs messenger whatsapp instagram
  *   DRY=1 N8N_KEY=<api key> node n8n/phone-formats.mjs messenger
  *   SRC=<workflow.json> OUT=<patched.json> node n8n/phone-formats.mjs messenger
  *
- * تعديل موضعي على المسار الحي (مثل n8n/understand-intent.mjs). آمن للتكرار، ويحفظ نسخة «قبل» بـ n8n/backups.
+ * تعديل موضعي على المسار الحي (مثل n8n/understand-intent.mjs). آمن للتكرار، ويحدّث النسخة المزروعة من قبل،
+ * ويحفظ نسخة «قبل» بـ n8n/backups.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,15 +30,30 @@ const DRY = process.env.DRY === '1'
 export const MODULE = fs.readFileSync(path.join(HERE, 'phone-formats.js'), 'utf8')
 
 export const CHANNELS = {
-  messenger: { id: 'GP0rtSxxEHWT3kLj', agent: 'Iraqi Store AI Agent', gate: 'Clean Agent Reply' },
+  messenger: {
+    id: 'GP0rtSxxEHWT3kLj', agent: 'Iraqi Store AI Agent', gate: 'Clean Agent Reply', prompt: 'Build User Prompt',
+    recent: 'Load Recent Customer Messages', previous: 'Load Previous Address', confirmWording: true,
+  },
   whatsapp: { id: 'i3fCYtVjPHtqvXvm', agent: 'Iraqi Store AI Agent', gate: null },
+  instagram: {
+    id: 'CTuJ0eGVthUjREVJ', agent: 'وكيل المبيعات (علاء)', gate: 'تنظيف رد الوكيل', prompt: 'تجهيز رسالة الوكيل',
+    recent: 'تحميل رسائل الزبون السابقة', previous: null, confirmWording: false,
+  },
 }
 
 const MARK = 'n8n/phone-formats.js'
 const PHONE_WORD_LINE = 'const PHONE_WORD = /رقم (?:ال)?(?:هاتف|موبايل|تلفون)/;'
 const GIVEN_OLD = 'const given = (userPrompt.match(/contact_phone\\)\\s*:\\s*(0\\d{10})/) || [])[1];'
-const GIVEN_NEW = `const customerText = (() => { try { return String($('Build User Prompt').item.json.combinedMessage || ''); } catch (e) { return ''; } })();
+// النسخة الأولى (منشورة بماسنجر 2026-10-31): الرقم من الرسالة الحالية بس
+const GIVEN_V1 = `const customerText = (() => { try { return String($('Build User Prompt').item.json.combinedMessage || ''); } catch (e) { return ''; } })();
   const given = iraqiPhone(customerText) || (userPrompt.match(/contact_phone\\)\\s*:\\s*(0\\d{10})/) || [])[1];`
+/** سطر الرقم المعروف: الرسالة الحالية ← رسائل الزبون السابقة ← رقم طلبه السابق (إذا البوت معتمد عنوانه السابق). */
+export const givenLine = (c) => `const customerText = (() => { try { return String($(${JSON.stringify(c.prompt)}).first().json.combinedMessage || ''); } catch (e) { return ''; } })();
+  const recentTexts = (() => { try { return $(${JSON.stringify(c.recent)}).all().map((i) => String((i.json || {}).message_text || '')); } catch (e) { return []; } })();
+  const previousContact = ${c.previous
+    ? `/عنوان[كچ] السابق/.test(text) ? (() => { try { return String($(${JSON.stringify(c.previous)}).first().json.contact_phone || ''); } catch (e) { return ''; } })() : ''`
+    : "''"};
+  const given = knownPhone({ current: customerText, recent: recentTexts, previous: previousContact }) || (userPrompt.match(/contact_phone\\)\\s*:\\s*(0\\d{10})/) || [])[1];`
 const WRONG_OLD = "'رقم الهاتف الي وصلني مو كامل أو غلط؛ رقم الموبايل لازم يكون 11 رقم ويبدي بـ 07. '"
 const WRONG_NEW = "'رقم الهاتف الي وصلني مو كامل أو غلط؛ '"
 const WRONG_TAIL_OLD = "' مرة ثانية حتى أثبّت الطلب.'"
@@ -48,6 +66,7 @@ if (!ran('create_order') && CONFIRM_Q.test(text)) text = text.replace(/تم عز
 `
 const PROMPT_OLD = 'رقم موبايل عراقي 11 مرتبة يبدي بـ 07 (أو +964)'
 const PROMPT_NEW = 'رقم موبايل عراقي بأي صيغة: 07XXXXXXXXX، أو +964 أو 00964 وبعدها الرقم. بالملخص اكتبه بصيغة 07 (11 رقم)، وممنوع تقول للزبون لازم يبدي بـ 07'
+const BLOCK_RE = /\/\/ ---- n8n\/phone-formats\.js \(مولّد[\s\S]*?\/\/ ---- نهاية n8n\/phone-formats\.js ----\r?\n/
 
 const once = (code, needle, what) => {
   const n = code.split(needle).length - 1
@@ -58,6 +77,9 @@ const swapOnce = (code, from, to, what) => {
   return code.replace(from, () => to)
 }
 const eolOf = (code) => (code.includes('\r\n') ? '\r\n' : '\n')
+const moduleBlock = () => `// ---- ${MARK} (مولّد بـ n8n/phone-formats.mjs — لا تعدّل هنا) ----\n`
+  + MODULE.replace(/^\/\*\*[\s\S]*?\*\/\n\n/, '').replace(/^export /gm, '').trimEnd()
+  + `\n// ---- نهاية ${MARK} ----\n`
 
 /** @returns {string[]} التعديلات */
 export const patchWorkflow = (wf, c) => {
@@ -76,24 +98,34 @@ export const patchWorkflow = (wf, c) => {
     changes.push(`${c.agent}: الرقم يقبل 07 والدولي (+964)، والملخص بصيغة 07`)
   }
 
-  // ٢ و٣. بوابة الرقم (ماسنجر)
+  // ٢ و٣. بوابة الرقم
   if (c.gate) {
+    for (const name of [c.prompt, c.recent, c.previous].filter(Boolean)) by(name)
     const node = by(c.gate)
     let code = String(node.parameters.jsCode ?? '')
+    const eol = eolOf(code)
+    const put = (s) => s.replace(/\r?\n/g, eol)
     if (!code.includes(MARK)) {
-      const eol = eolOf(code)
-      const block = `// ---- ${MARK} (مولّد بـ n8n/phone-formats.mjs — لا تعدّل هنا) ----\n`
-        + MODULE.replace(/^\/\*\*[\s\S]*?\*\/\n\n/, '').replace(/^export /gm, '').trimEnd()
-        + `\n// ---- نهاية ${MARK} ----\n`
-      const put = (s) => s.replace(/\r?\n/g, eol)
-      code = swapOnce(code, PHONE_WORD_LINE, PHONE_WORD_LINE + '\n' + put(block), `${c.gate}: PHONE_WORD`)
-      code = swapOnce(code, GIVEN_OLD, put(GIVEN_NEW), `${c.gate}: قراءة الرقم`)
+      code = swapOnce(code, PHONE_WORD_LINE, PHONE_WORD_LINE + '\n' + put(moduleBlock()), `${c.gate}: PHONE_WORD`)
+      code = swapOnce(code, GIVEN_OLD, put(givenLine(c)), `${c.gate}: قراءة الرقم`)
       code = swapOnce(code, WRONG_OLD, WRONG_NEW, `${c.gate}: صياغة الرقم الغلط`)
       code = swapOnce(code, WRONG_TAIL_OLD, WRONG_TAIL_NEW, `${c.gate}: مثال الرقم`)
       code = swapOnce(code, ASK_OLD, ASK_NEW, `${c.gate}: صياغة طلب الرقم`)
-      code = swapOnce(code, GATE_ANCHOR, put(CONFIRM_WORDING) + GATE_ANCHOR, `${c.gate}: قبل البوابة`)
+      if (c.confirmWording) code = swapOnce(code, GATE_ANCHOR, put(CONFIRM_WORDING) + GATE_ANCHOR, `${c.gate}: قبل البوابة`)
       node.parameters.jsCode = code
-      changes.push(`${c.gate}: الرقم يُقرأ بأي صيغة، وطلب الرقم ما يذكر 07 بس، و«تم تأكيد طلبك» ما تنقال قبل الحجز`)
+      changes.push(`${c.gate}: الرقم ينقرا بأي صيغة ومن رسائل الزبون السابقة، وطلب الرقم ما يذكر 07 بس`
+        + (c.confirmWording ? '، و«تم تأكيد طلبك» ما تنقال قبل الحجز' : ''))
+    } else {
+      // مزيود من قبل: الدوال تتحدث من المصدر، وسطر الرقم يصير يقرا الرسائل السابقة
+      if (!BLOCK_RE.test(code)) throw new Error(`${c.gate}: ما لگيت كتلة ${MARK} حتى أحدّثها`)
+      let next = code.replace(BLOCK_RE, () => put(moduleBlock()))
+      const v1 = put(GIVEN_V1)
+      if (next.includes(v1)) next = next.replace(v1, () => put(givenLine(c)))
+      if (!next.includes(put(givenLine(c)))) throw new Error(`${c.gate}: سطر قراءة الرقم مو بالشكل المتوقع`)
+      if (next !== code) {
+        node.parameters.jsCode = next
+        changes.push(`${c.gate}: الرقم ينقرا من رسائل الزبون السابقة ورقم طلبه السابق قبل ما ينطلب`)
+      }
     }
   }
   return changes

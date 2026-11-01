@@ -36,6 +36,11 @@ describe('understand-intent — قاعدة «افهم قصد الزبون» بأ
     expect(INTENT_RULE).toContain('ممنوع تعدد كل القياسات')
   })
 
+  it('المعلومات اللي الزبون عطاها قبل ما تنطلب مرة ثانية', () => {
+    expect(INTENT_RULE).toContain('ما تطلبها مرة ثانية')
+    expect(INTENT_RULE).toContain('واطلب بس الناقص فعلاً')
+  })
+
   it('الدفء والتسويق العاطفي: جملة «شكراً لاختيارك» بعد تثبيت الطلب بس، ووردة واحدة', () => {
     expect(INTENT_RULE).toContain('الدفء والتسويق العاطفي')
     expect(INTENT_RULE).toContain('شكراً لاختيارك')
