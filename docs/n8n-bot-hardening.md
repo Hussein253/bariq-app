@@ -14,6 +14,7 @@ N8N_KEY=… node n8n/<script>.mjs messenger whatsapp instagram
 | `direct-voice-reply.mjs` | الرد على البصمة يبدي بالجواب، بدون «وصلتني البصمة»؛ وإذا ما وضح شي يطلب من الزبون كتابته بلطف (`voice-ack.js`) | الثلاث |
 | `premium-replies.mjs` | الاستفسار جواب وبس بلا «تمام هيج؟» وعنوان سابق (`order-pushing.js` + `isBrowsing`)، دمج التفريغات (`reconcile-prompt.mjs`)، برومت التفريغ (`stt-prompt.mjs`)، منتج واحد (`single-product.js`)، مؤشر «يكتب…»، ومنع «الحوار مع النفس»: البوت ما يردد طلب الزبون بلسانه («رايد وحدة من…») بل يرد «تم عزيزي، تم تأكيد طلبك» (استلام أولي مو حجز: الطلب ما ينحجز بـ create_order إلا بموافقة الزبون) ويسمّي المنتج والعدد ويسأل عن العنوان، وإذا عنده عنوان سابق يأكده (`own-voice.js` حارس حتمي + `ownVoiceNote` تنبيه بسياق الطلب + قاعدة حمراء ببرومت الوكيل) | الثلاث (المؤشر ماسنجر بس؛ تنبيه `ownVoiceNote` ماسنجر وواتساب بس لأن سياق الطلب بإنستغرام نسخة أقدم) |
 | `first-order-discount-eligibility.mjs` | الخصم لأول طلب ينحسب بيه خصم فعلاً (`customer_discounted_orders`)، لا لأي زبون عنده طلب سابق | ماسنجر |
+| `first-order-discount-test-orders.mjs` (2026-10-31) | الطلب التجريبي (`orders.is_test`) ما ينحسب بعدّي «تحديد التاجر» (`customer_prior_orders` و`customer_discounted_orders`): الطلب التجريبي 51 كان يلغي خصم أول طلب لحساب التجربة. واتساب وإنستغرام ما يحسبون العدّين | ماسنجر |
 | `complaint-gate.mjs` | منع التحويل الكاذب لموظف: شكوى الفاحص تحتاج كلمة شكوى بكلام الزبون (`complaint-cues.js`) | الثلاث |
 | `stale-session-lock.mjs` | قفل جلسة عالق (`is_processing`) بعد انقطاع الاتصال كان يضيّع كل رسائل الزبون بلا رد (التنفيذ 1586): القفل الأقدم من دقيقتين ما يُعدّ قفلاً بعقدة «Session Context» (واتساب كان عنده) | ماسنجر وإنستغرام |
 | `dashboard-reply-messenger.mjs` | رد الموظف من اللوحة يوصل لزبون ماسنجر (كان يُحفظ باللوحة بلا إرسال): يعلّم مسار «رد اللوحة» قناة messenger بصفحتين معروفتين وفحص نافذة 24 ساعة؛ العقد بـ `n8n-dashboard-reply.md` | مسار «رد اللوحة» |
@@ -33,7 +34,7 @@ N8N_KEY=… node n8n/<script>.mjs messenger whatsapp instagram
 
 ## ترتيب التشغيل
 1. `direct-voice-reply.mjs` (يحقن `stripVoiceAck` بعقدة الحارس) ثم `premium-replies.mjs` (يبني عقدة الحارس من نسخة «قبل» ويضيف كتلتَي الاستفسار والمنتج الوحيد فوق كتلة البصمة).
-2. `first-order-discount-eligibility.mjs` (ماسنجر).
+2. `first-order-discount-eligibility.mjs` ثم `first-order-discount-test-orders.mjs` (ماسنجر).
 3. `complaint-gate.mjs`.
 4. `buffer-race.mjs` ثم `log-on-arrival.mjs` (يحتاج «Buffer Has Messages?» من buffer-race) ثم `sales-guardrails.mjs` (آخر شي: يحقن كتلة catalog-guard بعد نداء own-voice الي يحطه `premium-replies.mjs`، ويبني «سياق الطلب» من المصدر ويا الكتالوج).
 5. `typing-refresh.mjs` (ماسنجر، مستقل: يحتاج «Typing Page?» و«Order Context Hint» بس).
