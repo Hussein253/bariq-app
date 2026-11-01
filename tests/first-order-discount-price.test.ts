@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_SWAPS, CHANNEL, ELIGIBLE_LINE, GUARD_SWAPS, patchWorkflow } from '@/n8n/first-order-discount-price.mjs'
+import { AGENT_SWAPS, BLOCK_SWAPS, CHANNEL, GUARD_SWAPS, INSTRUCTION, patchWorkflow } from '@/n8n/first-order-discount-price.mjs'
 
 // rrOffer كما هو بالكود الأساسي لعقدة «Drop Repeated Blocks» (قبل التعديل)
 const RR_OFFER = [
@@ -25,8 +25,8 @@ const RULES = [
   '- ممنوع أي تلميح لسعر خاص أو سعر جملة. جوابك السعر ثابت، وإذا أصرّ اعرض التحويل لموظف. (الاستثناء الوحيد خصم أول طلب إذا مذكور بقسم «عرض الخصم لهذا المتجر».)',
 ].join('\n')
 
-// قسم الخصم: سطر «سعر القطعة بعد الخصم = السعر ×» داخل فرع المؤهل بس، والسطر الأخير بعد الفرع
-const BLOCK = "{{ (() => { const t = $('تحديد التاجر').first().json; const N = String.fromCharCode(10); const first = Number(t.customer_discounted_orders ?? 0) === 0; const keep = 85; return N + '# عرض الخصم لهذا المتجر' + N + (first ? '- سعر القطعة بعد الخصم = السعر × ' + keep + ' ÷ 100.' + N + '- بالملخص وبكل رد فيه مبالغ: اكتب السعر.' : '- حالة هذا الزبون: استفاد من خصم أول طلب بطلب سابق.') + N + '- ممنوع أي خصم أو تخفيض ثاني غير هذا.'; })() }}"
+// قسم الخصم كما هو بالحي قبل التعديل: العنوان وسطر العرض بالفرعين، والتعليمة بفرع المؤهل
+const BLOCK = "{{ (() => { const t = $('تحديد التاجر').first().json; const N = String.fromCharCode(10); const first = Number(t.customer_discounted_orders ?? 0) === 0; const keep = 85; const pct = Number(t.first_order_discount_pct || 0); return N + '# عرض الخصم لهذا المتجر (استثناء يلغي قاعدة «السعر ثابت» و«ممنوع أي خصم» و«بدون أي خصم» لهذا المتجر بس)' + N + '- عدنا خصم ' + pct + '% على أول طلب يستفيد منه الزبون ويا المتجر (أول طلب ينحسب بيه خصم فعلاً)، بدون حد أدنى للمبلغ وبدون كود. الخصم على سعر المنتجات بس، مو على أجور التوصيل.' + N + (first ? '- سعر القطعة بعد الخصم = السعر × ' + keep + ' ÷ 100.' + N + '- بالملخص وبكل رد فيه مبالغ: اكتب السعر.' : '- حالة هذا الزبون: استفاد من خصم أول طلب بطلب سابق.') + N + '- ممنوع أي خصم أو تخفيض ثاني غير هذا.'; })() }}"
 
 const ELIGIBLE = { customer_discounted_orders: '0', first_order_discount_pct: '15.00', customer_prior_orders: '1', catalog: [{ price_iqd: 25000 }] }
 const NOT_ELIGIBLE = { ...ELIGIBLE, customer_discounted_orders: '1' }
@@ -56,15 +56,15 @@ const offerFor = (wf: ReturnType<typeof workflow>, catalog: { price_iqd: number 
 }
 
 describe('first-order-discount-price — خصم أول طلب بسؤال السعر', () => {
-  it('بدون خيار الحارس: البرومت بس، والحارس ما يتغيّر', () => {
+  it('بدون خيار الحارس: القسم والبرومت بس، والحارس ما يتغيّر', () => {
     const wf = workflow()
-    expect(patchWorkflow(wf)).toHaveLength(AGENT_SWAPS.length)
+    expect(patchWorkflow(wf)).toHaveLength(BLOCK_SWAPS.length + AGENT_SWAPS.length)
     expect(String(wf.nodes[0].parameters.jsCode)).toBe(RR_OFFER)
   })
 
-  it('مع خيار الحارس: الحارس والبرومت يتعدّلان', () => {
+  it('مع خيار الحارس: الحارس والقسم والبرومت يتعدّلون', () => {
     const wf = workflow()
-    expect(patchWorkflow(wf, { guard: true })).toHaveLength(GUARD_SWAPS.length + AGENT_SWAPS.length)
+    expect(patchWorkflow(wf, { guard: true })).toHaveLength(GUARD_SWAPS.length + BLOCK_SWAPS.length + AGENT_SWAPS.length)
   })
 
   it('الحارس: سعر واحد يكفي لكل صفوف الكتالوج، والأسعار المختلفة تبقى null', () => {
@@ -77,32 +77,40 @@ describe('first-order-discount-price — خصم أول طلب بسؤال الس�
     expect(offerFor(wf, [])).toBeNull()
   })
 
-  it('كل شرط يرجع لسطر «سعر القطعة بعد الخصم = السعر ×»، مو لعنوان القسم', () => {
+  it('القواعد تشير للتعليمة بالكلام، ما تقتبس أي سطر من القسم', () => {
     const wf = workflow()
-    const before = agentSys(wf).split(ELIGIBLE_LINE).length - 1
+    const before = agentSys(wf).split(INSTRUCTION).length - 1
     patchWorkflow(wf)
     const sys = agentSys(wf)
-    expect(sys.split(ELIGIBLE_LINE).length - 1 - before).toBe(8)
+    // 8 قواعد تشير للتعليمة + سطر التعليمة داخل فرع المؤهل
+    expect(sys.split(INSTRUCTION).length - 1 - before).toBe(9)
+    expect(sys).not.toContain('«سعر القطعة بعد الخصم')
     expect(sys).not.toContain('إذا فيه قسم «عرض الخصم لهذا المتجر»')
     expect(sys).not.toContain('إلا خصم أول طلب المذكور بقسم')
   })
 
-  it('المؤهل يطلع سطر الخصم، وغير المؤهل ما يطلعه', () => {
+  it('القسم المؤهل يطلع التعليمة وعرض الخصم، وغير المؤهل ما يطلعهم', () => {
     const wf = workflow()
     patchWorkflow(wf)
     const sys = agentSys(wf)
-    expect(renderBlock(sys, ELIGIBLE)).toContain('الخصم يتغلب')
-    expect(renderBlock(sys, NOT_ELIGIBLE)).not.toContain('الخصم يتغلب')
-    expect(renderBlock(sys, NOT_ELIGIBLE)).not.toContain(ELIGIBLE_LINE)
+    const eligible = renderBlock(sys, ELIGIBLE)
+    expect(eligible).toContain(INSTRUCTION)
+    expect(eligible).toContain('عدنا خصم')
+    const notEligible = renderBlock(sys, NOT_ELIGIBLE)
+    expect(notEligible).not.toContain(INSTRUCTION)
+    expect(notEligible).not.toContain('عدنا خصم')
+    expect(notEligible).not.toContain('استثناء يلغي')
+    expect(notEligible).toContain('استفاد من خصم أول طلب بطلب سابق')
   })
 
-  it('البرومت: السطر الجديد داخل فرع المؤهل', () => {
+  it('العنوان محايد، والتعليمة داخل فرع المؤهل', () => {
     const wf = workflow()
     patchWorkflow(wf)
     const sys = agentSys(wf)
+    expect(sys).toContain("'# عرض الخصم لهذا المتجر'")
     const at = (s: string) => sys.indexOf(s)
-    expect(at("'- الخصم يتغلب")).toBeGreaterThan(at("'- سعر القطعة بعد الخصم"))
-    expect(at("'- الخصم يتغلب")).toBeLessThan(at("'- بالملخص وبكل رد فيه مبالغ:"))
+    expect(at(`'- تطبّق خصم أول طلب على هذا الطلب`)).toBeGreaterThan(at("'- سعر القطعة بعد الخصم"))
+    expect(at(`'- تطبّق خصم أول طلب على هذا الطلب`)).toBeLessThan(at("'- بالملخص وبكل رد فيه مبالغ:"))
   })
 
   it('آمن للتكرار: المرة الثانية ما تغيّر شي', () => {
