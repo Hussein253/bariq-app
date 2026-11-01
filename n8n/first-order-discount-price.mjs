@@ -7,6 +7,7 @@
  *      وبفرع «مؤهل» من قسم الخصم سطر يقول إن سؤال السعر أو المجموع يتجاوب بالسعر بعد الخصم. غير المؤهل ما يتغيّر.
  *   ٢. حارس السعر بعقدة «Drop Repeated Blocks» (rrOffer، من الكود الأساسي للعقدة، مو من مولّد): يشتغل على منتج واحد بس،
  *      والهودي عنده ٣ ألوان بنفس السعر (25,000) فيرجع null. هسة يكفي سعر واحد لكل الصفوف.
+ *      الحارس ينشر بـ GUARD=1 بس، قرار منفصل عن البرومت.
  *
  * ما يتغيّر: «تحديد التاجر» والأعداد وcreate_order ما تنلمس. حارس الملخص (order-money.js) ما يتغيّر: يقرا «٣ قطع» بس،
  * فسؤال المجموع بعدد بدون «قطع» يعتمد على البرومت لحد ما ينعالج بالمصدر.
@@ -30,8 +31,11 @@ const DRY = process.env.DRY === '1'
 
 export const CHANNEL = { id: 'GP0rtSxxEHWT3kLj', guard: 'Drop Repeated Blocks', agent: 'Iraqi Store AI Agent' }
 
+/** الشرط سطر «سعر القطعة بعد الخصم = السعر ×» الي يطلع للمؤهل بس. ما ينكتب شرط بعنوان القسم، لأن العنوان بالفرعين */
+export const ELIGIBLE_LINE = 'سعر القطعة بعد الخصم = السعر ×'
+
 /** استثناء خصم أول طلب، يتكرر بكل قاعدة تمنع الخصم */
-export const EXCEPT = 'إلا خصم أول طلب المذكور بقسم «عرض الخصم لهذا المتجر»'
+export const EXCEPT = 'إلا خصم أول طلب، إذا فيه سطر «سعر القطعة بعد الخصم = السعر ×» (يعني الزبون مؤهل)'
 
 // ————— ١. حارس السعر (rrOffer): سعر واحد يكفي لكل صفوف الكتالوج —————
 export const GUARD_SWAPS = [
@@ -56,12 +60,27 @@ export const AGENT_SWAPS = [
     from: '- الأسعار من get_available_products حصراً وبدون أي خصم.',
     to: `- الأسعار من get_available_products حصراً، وبدون أي خصم، ${EXCEPT}.`,
   },
-  { label: 'سعر القطعة بس', from: 'سؤال عن السعر: سعر القطعة بس.', to: 'سؤال عن السعر: سعر القطعة بس، إلا إذا فيه قسم «عرض الخصم لهذا المتجر» فيطبّق اللي فيه.' },
+  { label: 'سعر القطعة بس', from: 'سؤال عن السعر: سعر القطعة بس.', to: `سؤال عن السعر: سعر القطعة بس، إلا إذا فيه سطر «${ELIGIBLE_LINE}» (يعني الزبون مؤهل) فيطبّق اللي فيه.` },
   { label: 'لا خصم من عندك', from: '4. لا تعطي تعويض أو خصم أو موعد من عندك.', to: `4. لا تعطي تعويض أو خصم أو موعد من عندك، ${EXCEPT}.` },
   {
     label: 'سطر السعر بفرع المؤهل',
     from: "'- بالملخص وبكل رد فيه مبالغ:",
     to: "'- الخصم يتغلب على كل قاعدة «ممنوع خصم» و«السعر ثابت» أعلاه: إذا سأل عن السعر أو المجموع، جاوب بسعر القطعة بعد الخصم ومجموع الطلب بعده، وأجور التوصيل.' + N + '- بالملخص وبكل رد فيه مبالغ:",
+  },
+  {
+    label: 'طلب الخصم أول مرة',
+    from: '"هذا السعر ثابت وما نكدر ننزّله."',
+    to: `"هذا السعر ثابت وما نكدر ننزّله." (إلا إذا فيه سطر «${ELIGIBLE_LINE}» (يعني الزبون مؤهل): اذكر خصم أول طلب بدل هذا الكلام.)`,
+  },
+  {
+    label: 'طلب الخصم مرة ثانية',
+    from: '"ما عندي صلاحية أغيّر السعر، تحب أحوّلك لموظف من الفريق؟"',
+    to: `"ما عندي صلاحية أغيّر السعر، تحب أحوّلك لموظف من الفريق؟" (إلا إذا فيه سطر «${ELIGIBLE_LINE}» (يعني الزبون مؤهل): كرّر خصم أول طلب باختصار بدل هذي الجملة.)`,
+  },
+  {
+    label: 'الاستثناء الوحيد',
+    from: '(الاستثناء الوحيد خصم أول طلب إذا مذكور بقسم «عرض الخصم لهذا المتجر».)',
+    to: `(الاستثناء الوحيد خصم أول طلب إذا فيه سطر «${ELIGIBLE_LINE}» (يعني الزبون مؤهل).)`,
   },
 ]
 
@@ -71,8 +90,8 @@ const swap = (text, from, to, label) => {
   return text.replace(from, () => to)
 }
 
-/** @returns {string[]} التعديلات (فاضية = مزيود من قبل) */
-export const patchWorkflow = (wf) => {
+/** @param {{ guard?: boolean }} [opts] الحارس يتعدّل بطلب صريح، قرار منفصل عن البرومت. @returns {string[]} التعديلات (فاضية = مزيود من قبل) */
+export const patchWorkflow = (wf, { guard: withGuard = false } = {}) => {
   const by = (name) => {
     const n = wf.nodes.find((x) => x.name === name)
     if (!n) throw new Error(`ماكو عقدة باسم ${name}`)
@@ -83,7 +102,7 @@ export const patchWorkflow = (wf) => {
   const agent = by(CHANNEL.agent)
 
   let code = String(guard.parameters.jsCode ?? '')
-  for (const s of GUARD_SWAPS) {
+  for (const s of withGuard ? GUARD_SWAPS : []) {
     if (code.includes(s.to)) continue
     code = swap(code, s.from, s.to, s.label)
     changes.push(`${CHANNEL.guard}: ${s.label}`)
@@ -129,7 +148,7 @@ const run = async () => {
   const wf = local ? JSON.parse(fs.readFileSync(local, 'utf8')) : await api(`/workflows/${CHANNEL.id}`)
   if (wf.id !== CHANNEL.id) throw new Error(`المسار ${wf.id} مو ماسنجر ${CHANNEL.id}`)
   const before = JSON.parse(JSON.stringify(wf))
-  const changes = patchWorkflow(wf)
+  const changes = patchWorkflow(wf, { guard: process.env.GUARD === '1' })
   if (!changes.length) {
     console.log('— messenger: كل شي مزيود من قبل، ما أرسلت شي')
     return
