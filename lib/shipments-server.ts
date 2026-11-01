@@ -1,5 +1,6 @@
 import { supabaseServer } from '@/lib/supabase-server'
 import type { MerchantShipment } from '@/lib/shipments'
+import { withoutOrderEmbed } from '@/lib/test-orders'
 
 /**
  * شحنات تاجر واحد لصفحته (/workspace/shipments)
@@ -43,16 +44,21 @@ const MERCHANT_SHIPMENT_COLUMNS = [
 const MERCHANT_SHIPMENTS_LIMIT = 500
 
 export async function loadMerchantShipments(merchantId: string): Promise<MerchantShipment[]> {
+  // شحنة الطلب التجريبي لا تُعرض ولا تدخل مجاميع التسوية (lib/test-orders.ts):
+  // الربط الداخلي بالطلب يصفّيها في القاعدة، ثم يُسقط الحقل المربوط.
   const { data, error } = await supabaseServer
     .from('shipments')
-    .select(MERCHANT_SHIPMENT_COLUMNS)
+    .select(`${MERCHANT_SHIPMENT_COLUMNS}, orders!inner(is_test)`)
     .eq('merchant_id', merchantId)
+    .eq('orders.is_test', false)
     .order('created_at', { ascending: false })
     .limit(MERCHANT_SHIPMENTS_LIMIT)
 
   if (error) throw new Error(error.message)
 
-  const shipments = (data || []) as unknown as Omit<MerchantShipment, 'order_content'>[]
+  const shipments = (
+    (data || []) as unknown as (Omit<MerchantShipment, 'order_content'> & { orders?: unknown })[]
+  ).map(withoutOrderEmbed)
   if (shipments.length === 0) return []
 
   // محتوى الطلب يُطبع على الملصق. استعلام ثانٍ لا ربط، بنفس طريقة /dashboard،

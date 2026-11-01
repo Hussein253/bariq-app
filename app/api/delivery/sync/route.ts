@@ -4,6 +4,7 @@ import { verifySignature } from '@/lib/webhook-signature'
 import { clientKey, rateLimit, tooManyRequests } from '@/lib/rate-limit'
 import { log } from '@/lib/log'
 import { STATUS_TRANSITIONS, type ShipmentStatus } from '@/lib/shipments'
+import { embeddedOrderIsTest, testShipmentLockedError, withoutOrderEmbed } from '@/lib/test-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,8 @@ export const dynamic = 'force-dynamic'
  *   • كان يسند حالة الدفع تلقائياً عند التسليم بلا أي تحصيل فعلي.
  *
  * الآن: توقيع HMAC إلزامي، وحالات shipments الرسمية حصراً، والمندوب يُشار
- * إليه بـ courier_id من جدول couriers لا باسم حرّ.
+ * إليه بـ courier_id من جدول couriers لا باسم حرّ. وشحنة الطلب التجريبي
+ * تُرفض بـ 409 (lib/test-orders.ts).
  *
  * التوقيع: ترويسة x-bariq-signature = HMAC-SHA256(الجسم الخام، BARIQ_DELIVERY_SYNC_SECRET)
  */
@@ -84,9 +86,10 @@ export async function POST(req: Request) {
   }
 
   // ---------- الشحنة الحالية ----------
-  const { data: shipment, error: fetchError } = await supabaseServer
+  // طلبها مربوط لفحص is_test وحده، ثم يُسقط فلا يعبر في الرد
+  const { data: found, error: fetchError } = await supabaseServer
     .from('shipments')
-    .select('id, tracking_number, status, courier_id')
+    .select('id, tracking_number, status, courier_id, orders(is_test)')
     .eq('tracking_number', trackingNumber)
     .maybeSingle()
 
@@ -94,9 +97,21 @@ export async function POST(req: Request) {
     log.error('DELIVERY_SYNC_FETCH_FAILED', { tracking_number: trackingNumber, reason: fetchError.message })
     return NextResponse.json({ success: false, error: 'تعذّر جلب الشحنة' }, { status: 500 })
   }
-  if (!shipment) {
+  if (!found) {
     return NextResponse.json({ success: false, error: 'لا توجد شحنة بهذا الرقم' }, { status: 404 })
   }
+
+  // ---------- الطلب التجريبي ----------
+  // شحنته لا تُسلَّم لمندوب ولا تتحرّك حالتها (lib/test-orders.ts)، ولا
+  // استثناء لإعادة الإرسال أدناه: نظام التوصيل يجب أن يعرف أنها خارج عمله.
+  if (embeddedOrderIsTest(found.orders)) {
+    log.warn('DELIVERY_SYNC_TEST_ORDER', { tracking_number: trackingNumber, action })
+    return NextResponse.json(
+      { success: false, error: testShipmentLockedError(found.tracking_number) },
+      { status: 409 }
+    )
+  }
+  const shipment = withoutOrderEmbed(found)
 
   // ---------- منع التكرار ----------
   // إعادة إرسال نفس التحديث (شبكة متقطّعة عند المندوب) لا تُعدّ خطأ ولا تُكرّر
