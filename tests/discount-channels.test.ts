@@ -74,6 +74,8 @@ describe('patchWorkflow — واتساب وإنستغرام', () => {
     expect(m.query).toContain('AS customer_discounted_orders')
     expect(m.query).toContain('AS first_order_discount_pct')
     expect(m.query).toContain("o.phone_number = $2::text")
+    // الطلب التجريبي ما ينحسب بأهلية الخصم (مثل PR #40 لماسنجر)
+    expect(m.query.split('coalesce(o.is_test, false) = false').length - 1).toBe(2)
     expect(m.options.queryReplacement).toBe("={{ $('Message Data').item.json.phoneNumberId }},{{ $('Message Data').item.json.phone }}")
     const co = w.nodes[2].parameters as { fieldsUi: { fieldValues: { fieldId: string, fieldValue: string }[] } }
     expect(co.fieldsUi.fieldValues.find((f) => f.fieldId === 'discount_pct')?.fieldValue).toBe(DISCOUNT_FIELD)

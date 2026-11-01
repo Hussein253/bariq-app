@@ -41,8 +41,8 @@ const SQL_JOIN_OLD = 'LEFT JOIN merchant_delivery_settings ds ON ds.merchant_id 
 const SQL_JOIN_NEW = `${SQL_JOIN_OLD}\nLEFT JOIN merchant_profiles mp ON mp.merchant_id = sa.merchant_id`
 const SQL_END_OLD = 'END AS catalog_guard\nFROM social_accounts sa'
 const SQL_END_NEW = `END AS catalog_guard,
-       (SELECT count(*) FROM orders o WHERE o.merchant_id = sa.merchant_id AND o.phone_number = $2::text AND coalesce(o.current_state::text, '') NOT IN ('cancelled', 'canceled') AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)) AS customer_prior_orders,
-       (SELECT count(*) FROM orders o WHERE o.merchant_id = sa.merchant_id AND o.phone_number = $2::text AND coalesce(o.current_state::text, '') NOT IN ('cancelled', 'canceled') AND coalesce(o.discount_pct, 0) > 0 AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)) AS customer_discounted_orders,
+       (SELECT count(*) FROM orders o WHERE o.merchant_id = sa.merchant_id AND o.phone_number = $2::text AND coalesce(o.current_state::text, '') NOT IN ('cancelled', 'canceled') AND coalesce(o.is_test, false) = false AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)) AS customer_prior_orders,
+       (SELECT count(*) FROM orders o WHERE o.merchant_id = sa.merchant_id AND o.phone_number = $2::text AND coalesce(o.current_state::text, '') NOT IN ('cancelled', 'canceled') AND coalesce(o.discount_pct, 0) > 0 AND coalesce(o.is_test, false) = false AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)) AS customer_discounted_orders,
        coalesce(mp.first_order_discount_pct, 0) AS first_order_discount_pct
 FROM social_accounts sa`
 
