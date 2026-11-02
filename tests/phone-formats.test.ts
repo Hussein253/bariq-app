@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { iraqiPhone } from '@/n8n/phone-formats.js'
+import { iraqiPhone, knownPhone } from '@/n8n/phone-formats.js'
 import { CHANNELS, patchWorkflow } from '@/n8n/phone-formats.mjs'
 
 describe('iraqiPhone — الرقم العراقي بأي صيغة يصير 07 (11 رقم)', () => {
@@ -50,6 +50,9 @@ const wf = (systemMessage: string, jsCode: string) => ({
   nodes: [
     { name: 'Iraqi Store AI Agent', parameters: { options: { systemMessage } } },
     { name: 'Clean Agent Reply', parameters: { jsCode } },
+    { name: 'Build User Prompt', parameters: {} },
+    { name: 'Load Recent Customer Messages', parameters: {} },
+    { name: 'Load Previous Address', parameters: {} },
   ],
   connections: {},
 })
@@ -61,7 +64,7 @@ describe('patchWorkflow — سطر الرقم وبوابة الرقم (ماسن�
     expect(first).toHaveLength(2)
     const code = w.nodes[1].parameters.jsCode as string
     expect(code).toContain('n8n/phone-formats.js')
-    expect(code).toContain("iraqiPhone(customerText) ||")
+    expect(code).toContain('knownPhone({ current: customerText')
     expect(code).not.toContain('يبدي بـ 07) حتى')
     expect(code).toContain('مثلاً 07... أو +964...')
     expect(code).toContain("!ran('create_order') && CONFIRM_Q.test(text)")
@@ -75,5 +78,26 @@ describe('patchWorkflow — سطر الرقم وبوابة الرقم (ماسن�
     const code = w.nodes[1].parameters.jsCode as string
     expect(code).not.toContain('export function')
     expect(code).toContain('function iraqiPhone(text)')
+    expect(code).toContain('function knownPhone(')
+  })
+})
+
+describe('knownPhone — الرقم الي انكتب قبل ما ينطلب مرة ثانية (التنفيذ 3141)', () => {
+  it('الرقم بالرسالة الحالية يكفي', () => {
+    expect(knownPhone({ current: '+964 784 754 4021', recent: [], previous: '' })).toBe('07847544021')
+  })
+
+  it('الرسالة الحالية بلا رقم: يرجع للرسائل السابقة (الأحدث أول)', () => {
+    expect(knownPhone({ current: 'أكدلي الحجز', recent: ['تمام', '0784 754 4021', 'ثبتلي'], previous: '' })).toBe('07847544021')
+  })
+
+  it('ماكو رقم بالرسائل: يرجع لرقم الطلب السابق', () => {
+    expect(knownPhone({ current: 'تمام', recent: ['عدنا هودي'], previous: '07731048129' })).toBe('07731048129')
+  })
+
+  it('ماكو رقم بأي مكان: فاضي، وأكثر من رقم بالرسائل: الأحدث', () => {
+    expect(knownPhone({ current: 'تمام', recent: ['عندي 3 قطع'], previous: '' })).toBe('')
+    expect(knownPhone({ current: '07800000000', recent: ['07847544021'], previous: '' })).toBe('07800000000')
+    expect(knownPhone({})).toBe('')
   })
 })

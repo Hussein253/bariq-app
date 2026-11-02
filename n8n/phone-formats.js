@@ -19,3 +19,18 @@ export function iraqiPhone(text) {
   const m = digits.match(/(?:^|\D)(?:(?:\+|00)?964)?(0?7\d{9})(?!\d)/)
   return m ? '0' + m[1].replace(/^0/, '') : ''
 }
+
+/**
+ * أول رقم عراقي معروف للزبون: رسالته الحالية، وبعدها رسائله السابقة بالمحادثة (الأحدث أول)، وبعدها رقم التواصل بطلبه
+ * السابق (بس لما البوت معتمد عنوانه السابق). حتى ما ينطلب الرقم مرة ثانية بعد ما انطاه
+ * (ماسنجر 2026-10-31، التنفيذ 3141: «أكدلي الحجز» ← «بس ناقص رقم الهاتف» والرقم انكتب قبل 20 دقيقة).
+ * @param {{ current?: string, recent?: string[], previous?: string }} p
+ * @returns {string} 07XXXXXXXXX، أو '' إذا ماكو رقم
+ */
+export function knownPhone({ current = '', recent = [], previous = '' } = {}) {
+  for (const t of [current, ...(Array.isArray(recent) ? recent : [])]) {
+    const p = iraqiPhone(t)
+    if (p) return p
+  }
+  return iraqiPhone(previous)
+}

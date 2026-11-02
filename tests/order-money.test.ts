@@ -134,7 +134,8 @@ describe('patchWorkflow — الحارس بآخر عقدة', () => {
     expect(code).not.toContain('export ')
     expect(code.indexOf('n8n/order-money.js')).toBeLessThan(code.indexOf('return { json: { ...$json, output: text } };'))
     expect(patchWorkflow(m, CHANNELS.messenger)).toEqual([])
-    expect(guardBlock(CHANNELS.whatsapp)).toContain('discountPct: 0 })')
+    expect(guardBlock(CHANNELS.whatsapp)).toContain('discountPct: orderDiscountPct(m)')
+    expect(guardBlock(CHANNELS.instagram)).toContain('discountPct: orderDiscountPct(m)')
   })
 
   it('الكود المزروع يشتغل: يصحح رد الطلب 51 داخل العقدة', () => {
